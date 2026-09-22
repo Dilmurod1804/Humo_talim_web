@@ -1,0 +1,187 @@
+{% extends 'base.html' %}
+{% block title %}Vaqtinchalik O'quvchilar - HUMO{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2 class="text-white fw-black mb-0" style="letter-spacing:-0.5px; text-shadow:0 2px 8px rgba(0,0,0,0.15);">
+            <i class="bi bi-hourglass-split me-2"></i>Vaqtinchalik O'quvchilar
+        </h2>
+        <p class="text-white mb-0" style="opacity:0.8;">Yangi kelgan o'quvchilarni tez ro'yxatga oling va guruhga yo'naltiring</p>
+    </div>
+</div>
+
+<!-- ═══════ FORMA: Yangi o'quvchi qo'shish ═══════ -->
+<div class="glass-card mb-4 p-4">
+    <h5 class="fw-bold mb-3 d-flex align-items-center gap-2">
+        <i class="bi bi-person-plus-fill text-primary"></i>Yangi O'quvchini Tez Ro'yxatga Olish
+    </h5>
+    <form method="post">
+        {% csrf_token %}
+        <div class="row g-3">
+            <div class="col-md-3">
+                <label class="form-label small fw-semibold text-muted">Ism <span class="text-danger">*</span></label>
+                {{ form.first_name }}
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small fw-semibold text-muted">Familiya <span class="text-danger">*</span></label>
+                {{ form.last_name }}
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small fw-semibold text-muted">Telefon 1 <span class="text-danger">*</span></label>
+                {{ form.phone_1 }}
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small fw-semibold text-muted">Telefon 2 (ixtiyoriy)</label>
+                {{ form.phone_2 }}
+            </div>
+            <div class="col-md-4">
+                <label class="form-label small fw-semibold text-muted">Fan (kurs) <span class="text-danger">*</span></label>
+                {{ form.subject }}
+            </div>
+            <div class="col-md-4">
+                <label class="form-label small fw-semibold text-muted">Kelgan / keladigan soat</label>
+                {{ form.preferred_time }}
+            </div>
+            <div class="col-md-4">
+                <label class="form-label small fw-semibold text-muted">Izoh</label>
+                {{ form.notes }}
+            </div>
+        </div>
+        {% if form.errors %}
+        <div class="alert alert-danger mt-3 mb-0 rounded-3 small" style="border:none; background:rgba(239,68,68,0.1); color:#dc2626;">
+            <i class="bi bi-exclamation-circle me-1"></i>Iltimos, barcha majburiy maydonlarni to'ldiring.
+        </div>
+        {% endif %}
+        <div class="mt-3">
+            <button type="submit" class="btn text-white fw-semibold px-4 py-2 d-flex align-items-center gap-2"
+                    style="background: linear-gradient(135deg, #667eea, #764ba2); border:none; border-radius:12px; box-shadow: 0 4px 15px rgba(102,126,234,0.35);">
+                <i class="bi bi-plus-circle-fill"></i>Ro'yxatga olish
+            </button>
+        </div>
+    </form>
+</div>
+
+<!-- ═══════ RO'YXAT: Kutilayotgan O'quvchilar ═══════ -->
+<div class="glass-card" style="overflow:hidden;">
+    <div class="p-4 d-flex align-items-center justify-content-between" style="border-bottom: 1px solid rgba(0,0,0,0.06);">
+        <h4 class="fw-bold text-dark mb-0 d-flex align-items-center gap-2">
+            <i class="bi bi-list-ul text-warning"></i> Kutilayotgan O'quvchilar
+            <span class="badge bg-warning text-dark rounded-pill px-3">{{ temp_students|length }}</span>
+        </h4>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-modern mb-0">
+            <thead>
+                <tr>
+                    <th class="ps-4">#</th>
+                    <th>F.I.O.</th>
+                    <th>Telefonlar</th>
+                    <th>Fan</th>
+                    <th>Soat</th>
+                    <th>Ro'yxatga olingan</th>
+                    <th>Amallar</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for temp in temp_students %}
+                <tr>
+                    <td class="ps-4 text-muted fw-semibold">{{ forloop.counter }}</td>
+                    <td>
+                        <div class="fw-bold text-dark">{{ temp.first_name }} {{ temp.last_name }}</div>
+                        {% if temp.notes %}<small class="text-muted"><i class="bi bi-chat-left-text me-1"></i>{{ temp.notes }}</small>{% endif %}
+                    </td>
+                    <td>
+                        <div class="small fw-semibold"><i class="bi bi-telephone-fill text-muted me-1"></i>{{ temp.phone_1 }}</div>
+                        {% if temp.phone_2 %}<div class="small text-muted"><i class="bi bi-telephone text-muted me-1"></i>{{ temp.phone_2 }}</div>{% endif %}
+                    </td>
+                    <td>
+                        <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 rounded-pill px-3 fw-semibold">
+                            {{ temp.subject }}
+                        </span>
+                    </td>
+                    <td class="small">{{ temp.preferred_time|default:"—" }}</td>
+                    <td class="text-muted small">{{ temp.created_at|date:"d.m.Y H:i" }}</td>
+                    <td>
+                        <div class="d-flex gap-2">
+                            <button type="button" class="btn btn-sm btn-outline-success rounded-pill px-3"
+                                    data-bs-toggle="modal" data-bs-target="#assignModal{{ temp.id }}"
+                                    title="Guruhga yo'naltirish">
+                                <i class="bi bi-arrow-right-circle me-1"></i>Yo'naltirish
+                            </button>
+                            <form action="{% url 'admin_temp_student_delete' temp.id %}" method="post" style="display:inline;">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-sm btn-outline-danger rounded-pill px-2"
+                                        onclick="return confirm('Bu vaqtinchalik yozuvni o\'chirmoqchimisiz?');"
+                                        title="O'chirish">
+                                    <i class="bi bi-trash-fill"></i>
+                                </button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="7" class="text-center py-5">
+                        <i class="bi bi-inbox text-muted" style="font-size:3.5rem; opacity:0.4;"></i>
+                        <p class="text-muted mt-3 mb-0">Hozircha vaqtinchalik o'quvchilar mavjud emas.<br>
+                            <span class="small">Yuqoridagi forma orqali yangi o'quvchini qo'shing.</span>
+                        </p>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- ═══════ ASSIGN MODALS (jadval tashqarisida) ═══════ -->
+{% for temp in temp_students %}
+<div class="modal fade" id="assignModal{{ temp.id }}" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 rounded-4 shadow-lg">
+            <form action="{% url 'admin_temp_student_assign' temp.id %}" method="post">
+                {% csrf_token %}
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="modal-title fw-bold text-success">
+                        <i class="bi bi-arrow-right-circle-fill me-2"></i>Guruhga Yo'naltirish
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert mb-3" style="background:#d1fae5; border:1px solid #6ee7b7; border-radius:12px; color:#065f46; font-size:0.9rem;">
+                        <i class="bi bi-person-fill me-2"></i>
+                        <b>{{ temp.first_name }} {{ temp.last_name }}</b> — {{ temp.subject }}
+                        {% if temp.preferred_time %}<br><small><i class="bi bi-clock me-1"></i>{{ temp.preferred_time }}</small>{% endif %}
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold small">Yoshi <span class="text-danger">*</span></label>
+                        <input type="number" name="age" class="form-control" placeholder="Masalan: 15" min="1" max="99" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold small">Guruh va Dars Vaqtini Tanlang <span class="text-danger">*</span></label>
+                        <select name="timeslot_id" class="form-select" required>
+                            <option value="" selected disabled>-- Ustoz / Guruh / Soat tanlang --</option>
+                            {% for slot in timeslots %}
+                            <option value="{{ slot.id }}">
+                                {{ slot.group.name }} ({{ slot.group.teacher }}) | {{ slot.days }} | {{ slot.start_time|time:"H:i" }}–{{ slot.end_time|time:"H:i" }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer border-0 pt-0">
+                    <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Bekor</button>
+                    <button type="submit" class="btn btn-success rounded-pill px-4 fw-bold">
+                        <i class="bi bi-check-circle me-1"></i>Tasdiqlash
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endfor %}
+{% endblock %}

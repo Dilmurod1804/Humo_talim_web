@@ -1,0 +1,80 @@
+{% extends 'base.html' %}
+{% block title %}Farzandingiz Davomati - HUMO{% endblock %}
+
+{% block content %}
+<div class="text-center mb-5">
+    <span class="badge py-2 px-3 mb-3" style="background:rgba(255,255,255,0.2); color:#fff; border:1px solid rgba(255,255,255,0.3); border-radius:50px; font-size:0.85rem;">👨‍👧 Ota-ona paneli</span>
+    <h2 class="text-white fw-black mb-2" style="letter-spacing:-0.5px; text-shadow: 0 2px 8px rgba(0,0,0,0.15);">Farzandingiz Davomatini Kuzating</h2>
+    <p class="text-white" style="opacity:0.8; max-width:520px; margin:0 auto;">Har bir guruh va dars soatidagi o'quvchilarning joriy holatini real vaqtda ko'rishingiz mumkin.</p>
+</div>
+
+<!-- Legend -->
+<div class="d-flex flex-wrap gap-2 justify-content-center mb-5">
+    <span class="badge status-green px-3 py-2 rounded-pill fs-6">🟢 Keldi / To'ladi</span>
+    <span class="badge status-red   px-3 py-2 rounded-pill fs-6">🔴 Kelmadi / To'lamadi</span>
+    <span class="badge status-yellow px-3 py-2 rounded-pill fs-6">🟡 Kelmadi / To'ladi</span>
+    <span class="badge status-blue  px-3 py-2 rounded-pill fs-6">🔵 Keldi / To'lamadi</span>
+</div>
+
+{% for group in groups %}
+<div class="glass-card mb-4">
+    <div class="p-4 d-flex align-items-center justify-content-between border-bottom">
+        <div class="d-flex align-items-center gap-3">
+            <div style="background: linear-gradient(135deg, #f2994a, #f2c94c); border-radius:12px; width:46px; height:46px; display:flex; align-items:center; justify-content:center; flex-shrink:0; box-shadow:0 4px 15px rgba(242,153,74,0.35);">
+                <i class="bi bi-mortarboard-fill text-white fs-5"></i>
+            </div>
+            <div>
+                <h4 class="fw-bold text-dark mb-0">{{ group.name }}</h4>
+                <small class="text-muted"><i class="bi bi-person-badge me-1"></i>{{ group.teacher }}</small>
+            </div>
+        </div>
+        <span class="badge bg-light text-dark border">{{ group.time_slots.count }} dars soati</span>
+    </div>
+
+    <div class="p-4">
+        {% for ts in group.time_slots.all %}
+        <h6 class="fw-bold text-muted mb-3">
+            <i class="bi bi-clock me-1"></i>{{ ts.start_time|time:"H:i" }} – {{ ts.end_time|time:"H:i" }}
+        </h6>
+        <div class="row g-3 mb-4">
+            {% for student in ts.students.all %}
+            {% if student.is_active %}
+            <div class="col-md-4 col-sm-6">
+                <div class="p-3 rounded-3 border shadow-sm d-flex flex-column" style="background:#fafafa; min-height:110px; transition: box-shadow 0.2s;">
+                    <div class="d-flex align-items-center gap-2 mb-2">
+                        <div style="background: #e9ecef; border-radius:8px; width:32px; height:32px; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:0.9rem;">👤</div>
+                        <span class="fw-bold text-dark small">{{ student.first_name }} {{ student.last_name }}</span>
+                    </div>
+                    {% with att=student.attendances.last %}
+                    <div class="mt-auto">
+                        {% if att %}
+                            <span class="badge w-100 py-2 status-{{ att.status }}" style="border-radius:8px; font-size:0.82rem;">
+                                {% if att.status == 'green'  %}🟢 Keldi / To'ladi
+                                {% elif att.status == 'red'  %}🔴 Kelmadi / To'lamadi
+                                {% elif att.status == 'yellow'%}🟡 Kelmadi / To'ladi
+                                {% elif att.status == 'blue' %}🔵 Keldi / To'lamadi{% endif %}
+                            </span>
+                            <div class="text-center mt-1"><small class="text-muted">{{ att.date }}</small></div>
+                        {% else %}
+                            <span class="badge bg-secondary w-100 py-2" style="border-radius:8px; opacity:0.7;">⬜ Hali belgilanmagan</span>
+                        {% endif %}
+                    </div>
+                    {% endwith %}
+                </div>
+            </div>
+            {% endif %}
+            {% empty %}
+            <div class="col-12"><p class="text-muted small">Bu vaqtda faol o'quvchilar yo'q.</p></div>
+            {% endfor %}
+        </div>
+        {% if not forloop.last %}<hr>{% endif %}
+        {% endfor %}
+    </div>
+</div>
+{% empty %}
+<div class="glass-card p-5 text-center">
+    <i class="bi bi-folder-x text-muted" style="font-size:4rem; opacity:0.4;"></i>
+    <h5 class="text-muted mt-3">Hozircha guruhlar mavjud emas.</h5>
+</div>
+{% endfor %}
+{% endblock %}

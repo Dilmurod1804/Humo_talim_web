@@ -1,0 +1,314 @@
+{% extends 'base.html' %}
+{% block title %}O'qituvchi Paneli - HUMO{% endblock %}
+
+{% block content %}
+<style>
+    .journal-table th, .journal-table td {
+        text-align: center;
+        vertical-align: middle;
+        min-width: 35px;
+        padding: 6px;
+        border: 1px solid rgba(0,0,0,0.1);
+    }
+    .journal-table .student-name {
+        text-align: left;
+        min-width: 200px;
+        position: sticky;
+        left: 0;
+        background: #fff;
+        z-index: 2;
+        box-shadow: 2px 0 5px rgba(0,0,0,0.05);
+    }
+    .journal-table thead th {
+        background: #f8fafc;
+        font-size: 0.85rem;
+    }
+    .journal-table thead th.student-name {
+        z-index: 3;
+    }
+    .cell-att {
+        cursor: pointer;
+        font-weight: bold;
+        transition: 0.2s;
+        user-select: none;
+    }
+    .cell-att:hover {
+        background: #f1f5f9;
+    }
+    .cell-att.present { color: #10b981; }
+    .cell-att.absent { color: #ef4444; }
+    
+    .cell-pay {
+        cursor: pointer;
+        font-weight: bold;
+        min-width: 100px;
+    }
+    .cell-pay.paid {
+        background: #d1fae5;
+        color: #065f46;
+    }
+    .cell-pay.unpaid {
+        color: #ef4444;
+    }
+</style>
+
+<!-- Header -->
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2 class="text-white fw-black mb-0" style="letter-spacing:-1px; text-shadow: 0 2px 8px rgba(0,0,0,0.15);">
+            <i class="bi bi-hand-wave me-2"></i>Salom, {{ teacher.first_name }}!
+        </h2>
+        <p class="text-white mb-0" style="opacity:0.85;">Davomat jurnali (<b>{{ current_month }}</b>)</p>
+    </div>
+
+    <form method="get" class="d-flex align-items-center gap-2">
+        <label class="text-white fw-bold mb-0">Oy tanlash:</label>
+        <input type="month" name="month" class="form-control border-0 shadow-sm" value="{{ current_month }}" onchange="this.form.submit()" style="border-radius:10px; max-width:180px; background:rgba(255,255,255,0.9);">
+    </form>
+</div>
+
+{% for group in groups %}
+<div class="glass-card mb-4">
+    <div class="p-4 border-bottom d-flex align-items-center gap-3">
+        <div style="background: linear-gradient(135deg, #667eea, #764ba2); border-radius:12px; width:46px; height:46px; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+            <i class="bi bi-book-fill text-white fs-5"></i>
+        </div>
+        <h4 class="fw-bold text-dark mb-0">{{ group.name }}</h4>
+    </div>
+
+    {% for ts in group.time_slots.all %}
+    <div class="p-3">
+        <div class="d-flex align-items-center justify-content-between mb-3 px-2">
+            <div class="d-flex align-items-center gap-2">
+                <span class="badge py-2 px-3" style="background: rgba(102,126,234,0.1); color:#667eea; border-radius:20px; font-weight:600; font-size:0.9rem;">
+                    <i class="bi bi-calendar-event me-1"></i>{{ ts.days }} |
+                    <i class="bi bi-clock me-1"></i>{{ ts.start_time|time:"H:i" }} – {{ ts.end_time|time:"H:i" }}
+                </span>
+                <small class="text-muted">{{ ts.students.count }} o'quvchi</small>
+            </div>
+            <a href="{% url 'teacher_student_create' ts.id %}" class="btn btn-sm btn-outline-primary" style="border-radius:20px;">
+                <i class="bi bi-person-plus-fill me-1"></i>O'quvchi qo'shish
+            </a>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table journal-table table-hover mb-0" style="background:#fff;">
+                <thead>
+                    <tr>
+                        <th class="student-name">F.I.O. (Tarif)</th>
+                        {% for d in days_range %}
+                        <th>{{ d }}</th>
+                        {% endfor %}
+                        <th>To'lov</th>
+                        <th>O'chirish</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for student in ts.students.all %}
+                    {% if student.is_active %}
+                    <tr>
+                        <td class="student-name">
+                            <div class="fw-bold text-dark">{{ student.first_name }} {{ student.last_name }}</div>
+                            <div class="small text-muted">{{ student.payment_rate }} so'm</div>
+                        </td>
+                        
+                        {% for st in student.attendance_matrix %}
+                        <td class="cell-att {% if st == 'present' %}present{% elif st == 'absent' %}absent{% endif %}"
+                            data-sid="{{ student.id }}" data-day="{{ forloop.counter }}">
+                            {% if st == 'present' %}+{% elif st == 'absent' %}-{% else %}&nbsp;{% endif %}
+                        </td>
+                        {% endfor %}
+
+                        <td class="cell-pay {% if student.paid_amount > 0 %}paid{% else %}unpaid{% endif %}"
+                            data-sid="{{ student.id }}" data-paid="{{ student.paid_amount }}"
+                            onclick="openPaymentModal(this)">
+                            {% if student.paid_amount > 0 %}
+                                {{ student.paid_amount }}
+                            {% else %}
+                                <i class="bi bi-x-lg"></i>
+                            {% endif %}
+                        </td>
+                        
+                        <td>
+                            <button type="button" class="btn btn-sm btn-outline-danger border-0"
+                                    data-bs-toggle="modal" data-bs-target="#del{{ student.id }}"
+                                    title="O'chirish">
+                                <i class="bi bi-trash-fill"></i>
+                            </button>
+                        </td>
+                    </tr>
+                    {% endif %}
+                    {% empty %}
+                    <tr><td colspan="100%" class="text-center py-4 text-muted">Bu soatda faol o'quvchilar yo'q.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- ═══ O'CHIRISH MODALLARI (jadvaldan tashqarida!) ═══ -->
+        {% for student in ts.students.all %}
+        {% if student.is_active %}
+        <div class="modal fade" id="del{{ student.id }}" tabindex="-1" aria-hidden="true">
+          <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 rounded-4 shadow-lg">
+              <form method="post" action="{% url 'teacher_student_delete' student.id %}">
+                {% csrf_token %}
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="modal-title fw-bold text-danger">
+                        <i class="bi bi-person-x-fill me-2"></i>O'quvchini chiqarish
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert" style="background:#fff3cd; border:1px solid #fde68a; border-radius:10px; color:#713f12; font-size:0.9rem;">
+                        <i class="bi bi-exclamation-triangle me-2"></i>
+                        <b>{{ student.first_name }} {{ student.last_name }}</b> o'quvchi tizimdan o'chiriladi va admin arxiviga o'tkaziladi.
+                    </div>
+                    <label class="form-label fw-semibold small">O'chirish sababi <span class="text-danger">*</span></label>
+                    <textarea name="reason" class="form-control" rows="3" required placeholder="Masalan: Darsga 3 marta kelmadi..."></textarea>
+                </div>
+                <div class="modal-footer border-0 pt-0">
+                    <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Bekor</button>
+                    <button type="submit" class="btn btn-danger rounded-pill px-4 fw-bold">Tasdiqlash</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+        {% endif %}
+        {% endfor %}
+    </div>
+    {% if not forloop.last %}<hr class="m-0">{% endif %}
+    {% endfor %}
+</div>
+{% empty %}
+<div class="glass-card p-5 text-center">
+    <i class="bi bi-calendar-x text-muted" style="font-size:4rem; opacity:0.5;"></i>
+    <h5 class="text-muted mt-3">Sizga biriktirilgan guruhlar mavjud emas.</h5>
+</div>
+{% endfor %}
+
+<!-- Payment Modal -->
+<div class="modal fade" id="paymentModal" tabindex="-1">
+  <div class="modal-dialog modal-sm modal-dialog-centered">
+    <div class="modal-content border-0 rounded-4 shadow">
+      <div class="modal-header border-0 pb-0">
+        <h6 class="modal-title fw-bold">To'lov kiritish</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="pay_student_id">
+        <label class="form-label small">Summa</label>
+        <input type="number" class="form-control" id="pay_amount" placeholder="Masalan: 300000">
+      </div>
+      <div class="modal-footer border-0 pt-0">
+        <button type="button" class="btn btn-primary btn-sm w-100 rounded-pill" onclick="savePayment()">Saqlash</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const currentMonth = "{{ current_month }}"; // YYYY-MM
+    let activePayCell = null;
+
+    document.querySelectorAll('.cell-att').forEach(cell => {
+        cell.addEventListener('click', function() {
+            const sid = this.dataset.sid;
+            const day = this.dataset.day;
+            // day ni 2 xonali formatga o'tkazish
+            const dayStr = day.padStart(2, '0');
+            const dateStr = currentMonth + '-' + dayStr;
+
+            let currentStatus = '';
+            if (this.classList.contains('present')) currentStatus = 'present';
+            else if (this.classList.contains('absent')) currentStatus = 'absent';
+
+            // Toggle logic: '' -> 'present' -> 'absent' -> ''
+            let nextStatus = '';
+            if (currentStatus === '') nextStatus = 'present';
+            else if (currentStatus === 'present') nextStatus = 'absent';
+            else nextStatus = '';
+
+            const body = new URLSearchParams({
+                student_id: sid,
+                date: dateStr,
+                status: nextStatus
+            });
+
+            fetch("{% url 'teacher_attendance_mark' %}", {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRFToken': '{{ csrf_token }}'
+                },
+                body
+            })
+            .then(r => r.json())
+            .then(data => {
+                if(data.status === 'success'){
+                    this.classList.remove('present', 'absent');
+                    this.innerHTML = '&nbsp;';
+                    if (nextStatus === 'present') {
+                        this.classList.add('present');
+                        this.innerText = '+';
+                    } else if (nextStatus === 'absent') {
+                        this.classList.add('absent');
+                        this.innerText = '-';
+                    }
+                } else {
+                    alert("Xatolik: " + data.msg);
+                }
+            }).catch(e => console.error(e));
+        });
+    });
+
+    const payModal = new bootstrap.Modal(document.getElementById('paymentModal'));
+    
+    function openPaymentModal(cell) {
+        activePayCell = cell;
+        document.getElementById('pay_student_id').value = cell.dataset.sid;
+        document.getElementById('pay_amount').value = cell.dataset.paid > 0 ? cell.dataset.paid : '';
+        payModal.show();
+    }
+
+    function savePayment() {
+        const sid = document.getElementById('pay_student_id').value;
+        const amount = document.getElementById('pay_amount').value;
+        
+        const body = new URLSearchParams({
+            student_id: sid,
+            month: currentMonth,
+            amount: amount || 0
+        });
+
+        fetch("{% url 'payment_mark' %}", {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-CSRFToken': '{{ csrf_token }}'
+            },
+            body
+        })
+        .then(r => r.json())
+        .then(data => {
+            if(data.status === 'success'){
+                payModal.hide();
+                activePayCell.dataset.paid = data.amount;
+                if(data.amount > 0) {
+                    activePayCell.className = "cell-pay paid";
+                    activePayCell.innerText = data.amount;
+                } else {
+                    activePayCell.className = "cell-pay unpaid";
+                    activePayCell.innerHTML = '<i class="bi bi-x-lg"></i>';
+                }
+            } else {
+                alert("Xatolik: " + data.msg);
+            }
+        });
+    }
+</script>
+{% endblock %}

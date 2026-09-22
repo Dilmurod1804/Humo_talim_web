@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+{% block title %}Yangi Guruh - HUMO{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6 col-lg-5">
+        <div class="glass-card p-5">
+            <div class="text-center mb-4">
+                <div style="background:linear-gradient(135deg,#667eea,#764ba2);border-radius:16px;width:60px;height:60px;display:flex;align-items:center;justify-content:center;margin:0 auto;box-shadow:0 6px 20px rgba(102,126,234,0.35);">
+                    <i class="bi bi-collection-fill text-white fs-4"></i>
+                </div>
+                <h3 class="fw-black text-dark mt-3 mb-1">Yangi Guruh</h3>
+                <p class="text-muted small">Fan nomi va o'qituvchi tanlang</p>
+            </div>
+            <form method="post">
+                {% csrf_token %}
+                <div class="mb-3">
+                    <label class="form-label fw-semibold small text-dark">Fan / Guruh Nomi</label>
+                    <input type="text" name="name" class="form-control" placeholder="Masalan: Ingliz tili (Beginner)" required>
+                </div>
+                <div class="mb-4">
+                    <label class="form-label fw-semibold small text-dark">O'qituvchini Tanlang</label>
+                    <select name="teacher_id" class="form-select" required>
+                        <option value="" disabled selected>Tanlang...</option>
+                        {% for t in teachers %}
+                        <option value="{{ t.id }}">{{ t.first_name }} {{ t.last_name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary w-100 py-2 fw-bold" style="border-radius:10px;">
+                    <i class="bi bi-check-circle-fill me-2"></i>Saqlash
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

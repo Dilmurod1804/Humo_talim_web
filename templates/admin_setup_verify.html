@@ -1,0 +1,31 @@
+{% extends 'base.html' %}
+{% block title %}Admin Tasdiqlash{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center align-items-center" style="min-height: 60vh;">
+    <div class="col-md-5">
+        <div class="card card-hover p-4 shadow-sm">
+            <h3 class="text-center mb-4 fw-bold text-primary">Kodni tasdiqlash</h3>
+            
+            {% if error %}
+            <div class="alert alert-danger">{{ error }}</div>
+            {% endif %}
+            
+            <p class="text-muted text-center mb-4">Emailingizga yuborilgan 6 xonali kodni va kelajakda ishlatish uchun yangi parol kiriting.</p>
+            
+            <form method="post">
+                {% csrf_token %}
+                <div class="mb-3">
+                    <label class="form-label fw-bold">OTP Kod</label>
+                    <input type="text" name="otp" class="form-control" placeholder="123456" required>
+                </div>
+                <div class="mb-4">
+                    <label class="form-label fw-bold">Doimiy Parol</label>
+                    <input type="password" name="password" class="form-control" placeholder="Yangi parol" required>
+                </div>
+                <button type="submit" class="btn btn-success w-100 py-2 fs-5 fw-bold" style="border-radius: 8px;">Tasdiqlash va Kirish</button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

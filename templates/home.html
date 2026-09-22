@@ -1,0 +1,96 @@
+{% extends 'base.html' %}
+{% block title %}HUMO O'quv Markazi – Bosh Sahifa{% endblock %}
+
+{% block content %}
+{% load static %}
+<div class="row align-items-center g-5" style="min-height:82vh;">
+
+    <!-- ── Left: Hero text ─────────────────────────────────── -->
+    <div class="col-lg-6 text-white" style="animation:fadeInUp .7s ease forwards;opacity:0;">
+
+        <span class="badge py-2 px-3 mb-4 d-inline-block"
+              style="background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.3);border-radius:50px;font-size:.85rem;color:#fff;">
+            🎓 O'quv boshqaruv tizimi
+        </span>
+
+        <h1 class="display-4 fw-black mb-3" style="letter-spacing:-1.5px;line-height:1.1;">
+            HUMO<br>O'quv Markazi
+        </h1>
+        <p class="lead mb-5" style="color:rgba(255,255,255,.85);max-width:440px;line-height:1.7;">
+            O'quvchilar davomati, to'lov holati va guruhlar boshqaruvini bitta tizimda to'liq nazorat qiling.
+        </p>
+
+        <!-- Stats row -->
+        <div class="row g-3 mb-5" style="animation:fadeInUp .9s ease .2s forwards;opacity:0;">
+            <div class="col-4"><div class="stat-card"><div class="stat-num">4</div><div class="stat-lbl">Rang holat</div></div></div>
+            <div class="col-4"><div class="stat-card"><div class="stat-num">3</div><div class="stat-lbl">Rol paneli</div></div></div>
+            <div class="col-4"><div class="stat-card"><div class="stat-num">∞</div><div class="stat-lbl">O'quvchilar</div></div></div>
+        </div>
+    </div>
+
+    <!-- ── Right: Logo + Role card ─────────────────────────── -->
+    <div class="col-lg-6 d-flex flex-column align-items-center"
+         style="animation:fadeInRight .8s ease forwards;opacity:0;">
+
+        <!-- HUMO Logo - big, centered -->
+        <img src="{% static 'img/humo_logo.jpg' %}" alt="HUMO O'quv Markazi"
+             class="mb-4"
+             style="width:min(340px,90%);border-radius:24px;box-shadow:0 24px 60px rgba(0,0,0,0.35);transition:transform .3s;"
+             onmouseover="this.style.transform='scale(1.03)'"
+             onmouseout="this.style.transform='scale(1)'">
+
+        <!-- Role buttons card -->
+        <div class="glass-card p-4 text-center" style="width:min(420px,100%);">
+            <h5 class="fw-bold text-dark mb-1">Tizimga kirish</h5>
+            <p class="text-muted small mb-4">O'z rolingizni tanlang</p>
+
+            <div class="row g-3 justify-content-center">
+                <!-- Admin -->
+                <div class="col-4">
+                    <a href="{% url 'admin_login' %}" class="role-btn-wrap text-decoration-none">
+                        <div class="role-icon-box"
+                             style="background:linear-gradient(135deg,#667eea,#764ba2);">🛡️</div>
+                        <span class="role-label text-dark fw-bold fs-6 mt-2 d-block">Admin</span>
+                        <span class="text-muted d-block" style="font-size:.7rem;">Boshqarish</span>
+                    </a>
+                </div>
+                <!-- Teacher -->
+                <div class="col-4">
+                    <a href="{% url 'teacher_login' %}" class="role-btn-wrap text-decoration-none">
+                        <div class="role-icon-box"
+                             style="background:linear-gradient(135deg,#11998e,#38ef7d);">📚</div>
+                        <span class="role-label text-dark fw-bold fs-6 mt-2 d-block">O'qituvchi</span>
+                        <span class="text-muted d-block" style="font-size:.7rem;">Davomat</span>
+                    </a>
+                </div>
+                <!-- Parent -->
+                <div class="col-4">
+                    <a href="{% url 'parent_view' %}" class="role-btn-wrap text-decoration-none">
+                        <div class="role-icon-box"
+                             style="background:linear-gradient(135deg,#f2994a,#f2c94c);">👨‍👧</div>
+                        <span class="role-label text-dark fw-bold fs-6 mt-2 d-block">Ota-ona</span>
+                        <span class="text-muted d-block" style="font-size:.7rem;">Kuzatish</span>
+                    </a>
+                </div>
+            </div>
+
+            <!-- Color legend -->
+            <div class="mt-4 pt-3 border-top">
+                <p class="text-muted small fw-semibold mb-2">Davomat holatlari:</p>
+                <div class="d-flex flex-wrap justify-content-center gap-2">
+                    <span class="badge status-green  px-3 py-2 rounded-pill">🟢 Keldi / To'ladi</span>
+                    <span class="badge status-red    px-3 py-2 rounded-pill">🔴 Kelmadi / To'lamadi</span>
+                    <span class="badge status-yellow px-3 py-2 rounded-pill">🟡 Kelmadi / To'ladi</span>
+                    <span class="badge status-blue   px-3 py-2 rounded-pill">🔵 Keldi / To'lamadi</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+@keyframes fadeInUp   { from{opacity:0;transform:translateY(30px)} to{opacity:1;transform:none} }
+@keyframes fadeInRight{ from{opacity:0;transform:translateX(30px)} to{opacity:1;transform:none} }
+.role-icon-box:hover  { transform:scale(1.12) translateY(-5px) rotate(-2deg)!important; }
+</style>
+{% endblock %}

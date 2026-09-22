@@ -1,0 +1,104 @@
+{% extends 'base.html' %}
+{% block title %}O'chirilgan O'quvchilar - HUMO{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2 class="text-white fw-black mb-0" style="letter-spacing:-0.5px; text-shadow:0 2px 8px rgba(0,0,0,0.15);">
+            <i class="bi bi-archive-fill me-2"></i>O'chirilgan O'quvchilar
+        </h2>
+        <p class="text-white mb-0" style="opacity:0.8;">Arxiv — admin bilan bog'lanish uchun</p>
+    </div>
+</div>
+
+<div class="glass-card" style="overflow:hidden;">
+    <div class="table-responsive">
+        <table class="table table-modern mb-0">
+            <thead>
+                <tr>
+                    <th class="ps-4">F.I.O.</th>
+                    <th>Telefonlar</th>
+                    <th>Guruh</th>
+                    <th>O'chirish Sababi</th>
+                    <th>Sana</th>
+                    <th>Amal</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for ds in deleted %}
+                <tr>
+                    <td class="ps-4">
+                        <div class="fw-bold text-dark">{{ ds.student_name }}</div>
+                    </td>
+                    <td>
+                        <div class="small"><i class="bi bi-telephone-fill text-muted me-1"></i>{{ ds.phones }}</div>
+                    </td>
+                    <td>
+                        <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 rounded-pill px-3 fw-semibold">
+                            {{ ds.group_name }}
+                        </span>
+                    </td>
+                    <td>
+                        <span class="text-danger small fw-semibold">
+                            <i class="bi bi-exclamation-circle me-1"></i>{{ ds.reason }}
+                        </span>
+                    </td>
+                    <td class="text-muted small">{{ ds.deleted_at|date:"Y-m-d H:i" }}</td>
+                    <td>
+                        <div class="d-flex gap-2">
+                            <!-- Restore form / button -->
+                            <button type="button" class="btn btn-sm btn-outline-success rounded-pill px-3" data-bs-toggle="modal" data-bs-target="#restoreModal{{ ds.id }}" title="Qayta tiklash">
+                                <i class="bi bi-arrow-counterclockwise me-1"></i>Tiklash
+                            </button>
+                            
+                            <!-- Permanent Delete -->
+                            <form action="{% url 'admin_deleted_student_delete_permanent' ds.id %}" method="post" style="display:inline;">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-sm btn-outline-danger rounded-pill px-3" onclick="return confirm('Butunlay o\'chirilsinmi?');" title="To'liq o'chirish">
+                                    <i class="bi bi-trash-fill"></i>
+                                </button>
+                            </form>
+                        </div>
+                        
+                        <!-- Restore Modal -->
+                        <div class="modal fade" id="restoreModal{{ ds.id }}" tabindex="-1" aria-hidden="true">
+                            <div class="modal-dialog">
+                                <div class="modal-content">
+                                    <form action="{% url 'admin_deleted_student_restore' ds.id %}" method="post">
+                                        {% csrf_token %}
+                                        <div class="modal-header">
+                                            <h5 class="modal-title">O'quvchini qayta tiklash</h5>
+                                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Yopish"></button>
+                                        </div>
+                                        <div class="modal-body text-start">
+                                            <p><b>{{ ds.student_name }}</b> ni qaysi guruhga qayta qo'shmoqchisiz?</p>
+                                            <select name="timeslot_id" class="form-select" required>
+                                                <option value="" selected disabled>-- Guruh va Dars Vaqtini tanlang --</option>
+                                                {% for ts in timeslots %}
+                                                <option value="{{ ts.id }}">{{ ts.group.name }} | {{ ts.days }} ({{ ts.start_time|time:"H:i" }}-{{ ts.end_time|time:"H:i" }})</option>
+                                                {% endfor %}
+                                            </select>
+                                        </div>
+                                        <div class="modal-footer">
+                                            <button type="button" class="btn btn-light" data-bs-dismiss="modal">Bekor qilish</button>
+                                            <button type="submit" class="btn btn-success">Tiklash</button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="6" class="text-center py-5">
+                        <i class="bi bi-archive text-muted" style="font-size:3rem; opacity:0.4;"></i>
+                        <p class="text-muted mt-3">O'chirilgan o'quvchilar mavjud emas.</p>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

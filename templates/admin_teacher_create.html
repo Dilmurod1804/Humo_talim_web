@@ -1,0 +1,47 @@
+{% extends 'base.html' %}
+{% block title %}Yangi O'qituvchi - HUMO{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6 col-lg-5">
+        <div class="glass-card p-5">
+            <div class="text-center mb-4">
+                <div style="background:linear-gradient(135deg,#11998e,#38ef7d);border-radius:16px;width:60px;height:60px;display:flex;align-items:center;justify-content:center;margin:0 auto;box-shadow:0 6px 20px rgba(17,153,142,0.35);">
+                    <i class="bi bi-person-plus-fill text-white fs-4"></i>
+                </div>
+                <h3 class="fw-black text-dark mt-3 mb-1">Yangi O'qituvchi</h3>
+                <p class="text-muted small">Login va parol avtomatik yaratiladi</p>
+            </div>
+            <form method="post">
+                {% csrf_token %}
+                <div class="row mb-3">
+                    <div class="col-6">
+                        <label class="form-label fw-semibold small text-dark">Ism</label>
+                        <input type="text" name="first_name" class="form-control" placeholder="Aziz" required>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label fw-semibold small text-dark">Familiya</label>
+                        <input type="text" name="last_name" class="form-control" placeholder="Rahimov" required>
+                    </div>
+                </div>
+                <div class="mb-4">
+                    <label class="form-label fw-semibold small text-dark">Telefon (ixtiyoriy)</label>
+                    <div class="input-group">
+                        <span class="input-group-text bg-white" style="border:1.5px solid #e5e7eb;border-right:none;border-radius:10px 0 0 10px;">
+                            <i class="bi bi-telephone text-muted"></i>
+                        </span>
+                        <input type="text" name="phone" class="form-control" placeholder="+998 90 123 45 67"
+                               style="border:1.5px solid #e5e7eb;border-left:none;border-radius:0 10px 10px 0;">
+                    </div>
+                </div>
+                <div class="alert small" style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;color:#166534;">
+                    <i class="bi bi-info-circle-fill me-2"></i>Saqlangandan so'ng yangi login va parol boshqaruv panelida ko'rinadi.
+                </div>
+                <button type="submit" class="btn w-100 py-2 fw-bold text-white mt-2"
+                        style="background:linear-gradient(135deg,#11998e,#38ef7d);border:none;border-radius:10px;box-shadow:0 4px 15px rgba(17,153,142,0.35);">
+                    <i class="bi bi-check-circle-fill me-2"></i>Saqlash
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

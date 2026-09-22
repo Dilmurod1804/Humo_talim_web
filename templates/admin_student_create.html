@@ -1,0 +1,52 @@
+{% extends 'base.html' %}
+{% block title %}O'quvchi Qo'shish - HUMO{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8 col-lg-6">
+        <div class="glass-card p-5">
+            <div class="d-flex align-items-center mb-4">
+                <a href="{% url 'admin_group_detail' timeslot.group.id %}" class="btn btn-light me-3" style="border-radius:12px;">
+                    <i class="bi bi-arrow-left"></i>
+                </a>
+                <div>
+                    <h3 class="fw-bold mb-1">Yangi O'quvchi</h3>
+                    <p class="text-muted small mb-0">Guruh: <b>{{ timeslot.group.name }}</b> | Dars: <b>{{ timeslot.days }} ({{ timeslot.start_time|time:"H:i" }}-{{ timeslot.end_time|time:"H:i" }})</b></p>
+                </div>
+            </div>
+
+            <form method="post" class="row g-3">
+                {% csrf_token %}
+                <div class="col-md-6">
+                    <label class="form-label fw-semibold text-muted small">Ism *</label>
+                    <input type="text" name="first_name" class="form-control" placeholder="Ali" required>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label fw-semibold text-muted small">Familiya *</label>
+                    <input type="text" name="last_name" class="form-control" placeholder="Valiyev" required>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label fw-semibold text-muted small">Yoshi *</label>
+                    <input type="number" name="age" class="form-control" placeholder="15" required>
+                </div>
+                <div class="col-md-8"></div>
+                
+                <div class="col-md-6">
+                    <label class="form-label fw-semibold text-muted small">Telefon 1 *</label>
+                    <input type="text" name="phone_1" class="form-control" placeholder="+998901234567" required>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label fw-semibold text-muted small">Telefon 2 (Ixtiyoriy)</label>
+                    <input type="text" name="phone_2" class="form-control" placeholder="+998901234567">
+                </div>
+                
+                <div class="col-12 mt-4">
+                    <button type="submit" class="btn w-100 py-2 fw-bold text-white" style="background:#667eea; border:none; border-radius:10px;">
+                        Saqlash va Qo'shish
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
