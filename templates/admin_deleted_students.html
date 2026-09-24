@@ -46,7 +46,7 @@
                     <td class="text-muted small">{{ ds.deleted_at|date:"Y-m-d H:i" }}</td>
                     <td>
                         <div class="d-flex gap-2">
-                            <!-- Restore form / button -->
+                            <!-- Restore button -->
                             <button type="button" class="btn btn-sm btn-outline-success rounded-pill px-3" data-bs-toggle="modal" data-bs-target="#restoreModal{{ ds.id }}" title="Qayta tiklash">
                                 <i class="bi bi-arrow-counterclockwise me-1"></i>Tiklash
                             </button>
@@ -58,34 +58,6 @@
                                     <i class="bi bi-trash-fill"></i>
                                 </button>
                             </form>
-                        </div>
-                        
-                        <!-- Restore Modal -->
-                        <div class="modal fade" id="restoreModal{{ ds.id }}" tabindex="-1" aria-hidden="true">
-                            <div class="modal-dialog">
-                                <div class="modal-content">
-                                    <form action="{% url 'admin_deleted_student_restore' ds.id %}" method="post">
-                                        {% csrf_token %}
-                                        <div class="modal-header">
-                                            <h5 class="modal-title">O'quvchini qayta tiklash</h5>
-                                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Yopish"></button>
-                                        </div>
-                                        <div class="modal-body text-start">
-                                            <p><b>{{ ds.student_name }}</b> ni qaysi guruhga qayta qo'shmoqchisiz?</p>
-                                            <select name="timeslot_id" class="form-select" required>
-                                                <option value="" selected disabled>-- Guruh va Dars Vaqtini tanlang --</option>
-                                                {% for ts in timeslots %}
-                                                <option value="{{ ts.id }}">{{ ts.group.name }} | {{ ts.days }} ({{ ts.start_time|time:"H:i" }}-{{ ts.end_time|time:"H:i" }})</option>
-                                                {% endfor %}
-                                            </select>
-                                        </div>
-                                        <div class="modal-footer">
-                                            <button type="button" class="btn btn-light" data-bs-dismiss="modal">Bekor qilish</button>
-                                            <button type="submit" class="btn btn-success">Tiklash</button>
-                                        </div>
-                                    </form>
-                                </div>
-                            </div>
                         </div>
                     </td>
                 </tr>
@@ -101,4 +73,38 @@
         </table>
     </div>
 </div>
+
+<!-- ═══════════════════════ RESTORE MODALS (Jadval tashqarisida) ═══════════════════════ -->
+{% for ds in deleted %}
+<div class="modal fade" id="restoreModal{{ ds.id }}" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0">
+            <form action="{% url 'admin_deleted_student_restore' ds.id %}" method="post">
+                {% csrf_token %}
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="modal-title fw-bold text-success">
+                        <i class="bi bi-arrow-counterclockwise me-2"></i>O'quvchini qayta tiklash
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Yopish"></button>
+                </div>
+                <div class="modal-body text-start">
+                    <p class="mb-3"><b>{{ ds.student_name }}</b> ni qaysi guruhga qayta qo'shmoqchisiz?</p>
+                    <label class="form-label small fw-semibold">Guruh va dars vaqti:</label>
+                    <select name="timeslot_id" class="form-select" required>
+                        <option value="" selected disabled>-- Guruh va Dars Vaqtini tanlang --</option>
+                        {% for ts in timeslots %}
+                        <option value="{{ ts.id }}">{{ ts.group.name }} | {{ ts.days }} ({{ ts.start_time|time:"H:i" }}-{{ ts.end_time|time:"H:i" }})</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="modal-footer border-0 pt-0">
+                    <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Bekor qilish</button>
+                    <button type="submit" class="btn btn-success rounded-pill px-4 fw-bold">Tiklash</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endfor %}
+
 {% endblock %}

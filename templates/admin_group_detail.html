@@ -2,115 +2,88 @@
 {% block title %}Guruh: {{ group.name }} - HUMO{% endblock %}
 
 {% block content %}
-<style>
-    .journal-table th, .journal-table td {
-        text-align: center;
-        vertical-align: middle;
-        min-width: 35px;
-        padding: 6px;
-        border: 1px solid rgba(0,0,0,0.1);
-    }
-    .journal-table .student-name {
-        text-align: left;
-        min-width: 200px;
-        position: sticky;
-        left: 0;
-        background: #fff;
-        z-index: 2;
-        box-shadow: 2px 0 5px rgba(0,0,0,0.05);
-    }
-    .journal-table thead th {
-        background: #f8fafc;
-        font-size: 0.85rem;
-    }
-    .journal-table thead th.student-name {
-        z-index: 3;
-    }
-    .cell-att {
-        cursor: pointer;
-        font-weight: bold;
-        transition: 0.2s;
-        user-select: none;
-    }
-    .cell-att:hover {
-        background: #f1f5f9;
-    }
-    .cell-att.present { color: #10b981; }
-    .cell-att.absent { color: #ef4444; }
-    
-    .cell-pay {
-        cursor: pointer;
-        font-weight: bold;
-        min-width: 100px;
-    }
-    .cell-pay.paid {
-        background: #d1fae5;
-        color: #065f46;
-    }
-    .cell-pay.unpaid {
-        color: #ef4444;
-    }
-</style>
-
-<div class="d-flex align-items-center justify-content-between mb-4">
+<!-- Page Header -->
+<div class="d-flex flex-column flex-md-row align-items-start align-items-md-center justify-content-between gap-3 mb-4">
     <div class="d-flex align-items-center gap-3">
-        <div style="background:linear-gradient(135deg,#667eea,#764ba2);border-radius:14px;width:54px;height:54px;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 20px rgba(102,126,234,0.35);">
+        <div style="background:linear-gradient(135deg,#667eea,#764ba2);border-radius:14px;width:54px;height:54px;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 20px rgba(102,126,234,0.35);flex-shrink:0;">
             <i class="bi bi-book-fill text-white fs-4"></i>
         </div>
         <div>
-            <h2 class="text-white fw-black mb-0" style="letter-spacing:-0.5px; text-shadow:0 2px 8px rgba(0,0,0,0.15);">{{ group.name }}</h2>
-            <small class="text-white" style="opacity:0.8;"><i class="bi bi-person-badge me-1"></i>O'qituvchi: {{ group.teacher }}</small>
+            <h2 class="text-white fw-black mb-0 fs-3" style="letter-spacing:-0.5px; text-shadow:0 2px 8px rgba(0,0,0,0.15);">{{ group.name }}</h2>
+            <small class="text-white" style="opacity:0.85;"><i class="bi bi-person-badge me-1"></i>O'qituvchi: <b>{{ group.teacher|default:"Biriktirilmagan" }}</b></small>
         </div>
     </div>
-    <form method="get" class="d-flex align-items-center gap-2">
-        <label class="text-white fw-bold mb-0">Oy:</label>
-        <input type="month" name="month" class="form-control border-0 shadow-sm"
-               value="{{ current_month }}" onchange="this.form.submit()"
-               style="border-radius:10px; max-width:180px; background:rgba(255,255,255,0.9);">
-    </form>
+    
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+        <form method="get" class="d-flex align-items-center gap-2">
+            <label class="text-white fw-bold mb-0 small">Oy:</label>
+            <input type="month" name="month" class="form-control border-0 shadow-sm"
+                   value="{{ current_month }}" onchange="this.form.submit()"
+                   style="border-radius:10px; max-width:170px; background:rgba(255,255,255,0.95);">
+        </form>
+        
+        <button type="button" class="btn btn-danger btn-sm rounded-pill px-3 shadow-sm" 
+                data-bs-toggle="modal" data-bs-target="#deleteGroupDetailModal">
+            <i class="bi bi-trash-fill me-1"></i> Guruhni o'chirish
+        </button>
+    </div>
 </div>
 
-<!-- Yangi Dars Soati -->
-<div class="glass-card mb-4 p-4">
-    <h5 class="fw-bold mb-3">Yangi Dars Vaqtini Qo'shish</h5>
-    <form method="post" class="row g-3 align-items-end">
+<!-- Yangi Dars Soati Qo'shish -->
+<div class="glass-card mb-4 p-3 p-md-4">
+    <h5 class="fw-bold mb-3 d-flex align-items-center gap-2">
+        <i class="bi bi-clock-history text-primary"></i>Yangi Dars Vaqtini Qo'shish
+    </h5>
+    <form method="post" class="row g-2 g-md-3 align-items-end">
         {% csrf_token %}
-        <div class="col-md-4">
+        <div class="col-12 col-md-4">
             <label class="form-label small fw-semibold text-muted">Dars Kunlari (Masalan: Du, Chor, Juma)</label>
             <input type="text" name="days" class="form-control" placeholder="Hafta kunlari..." required>
         </div>
-        <div class="col-md-3">
+        <div class="col-6 col-md-3">
             <label class="form-label small fw-semibold text-muted">Boshlanish vaqti</label>
             <input type="time" name="start_time" class="form-control" required>
         </div>
-        <div class="col-md-3">
+        <div class="col-6 col-md-3">
             <label class="form-label small fw-semibold text-muted">Tugash vaqti</label>
             <input type="time" name="end_time" class="form-control" required>
         </div>
-        <div class="col-md-2">
-            <button type="submit" class="btn w-100 text-white" style="background:#667eea; border:none; border-radius:8px;">
-                <i class="bi bi-plus-lg me-1"></i>Qo'shish
+        <div class="col-12 col-md-2">
+            <button type="submit" class="btn w-100 text-white fw-bold py-2" style="background:#667eea; border:none; border-radius:12px;">
+                <i class="bi bi-plus-lg me-1"></i> Qo'shish
             </button>
         </div>
     </form>
 </div>
 
+<!-- Guruh dars soatlari va jurnallar -->
 {% for ts in timeslots %}
 <div class="glass-card mb-4" style="overflow:hidden;">
-    <div class="p-4 d-flex align-items-center justify-content-between" style="border-bottom:1px solid rgba(0,0,0,0.06);">
-        <div class="d-flex align-items-center gap-2">
-            <span class="badge py-2 px-3" style="background:rgba(102,126,234,0.12);color:#667eea;border-radius:20px;font-weight:600;font-size:0.95rem;">
+    <div class="p-3 p-md-4 d-flex flex-column flex-sm-row align-items-start align-items-sm-center justify-content-between gap-2" style="border-bottom:1px solid rgba(0,0,0,0.06);">
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            <span class="badge py-2 px-3" style="background:rgba(102,126,234,0.12);color:#667eea;border-radius:20px;font-weight:600;font-size:0.92rem;">
                 <i class="bi bi-calendar-event me-1"></i> {{ ts.days }} |
                 <i class="bi bi-clock me-1"></i>{{ ts.start_time|time:"H:i" }} – {{ ts.end_time|time:"H:i" }}
             </span>
-            <small class="text-muted">{{ ts.students.count }} o'quvchi</small>
+            <small class="text-muted fw-semibold">{{ ts.students.count }} ta o'quvchi</small>
         </div>
-        <a href="{% url 'admin_student_create' ts.id %}" class="btn btn-sm btn-outline-primary" style="border-radius:20px;">
-            <i class="bi bi-person-plus-fill me-1"></i>O'quvchi qo'shish
-        </a>
+        
+        <div class="d-flex align-items-center gap-2">
+            <a href="{% url 'admin_student_create' ts.id %}" class="btn btn-sm btn-outline-primary rounded-pill px-3">
+                <i class="bi bi-person-plus-fill me-1"></i> O'quvchi qo'shish
+            </a>
+            
+            <!-- Dars soatini o'chirish -->
+            <form action="{% url 'admin_timeslot_delete' ts.id %}" method="post" style="display:inline;" onsubmit="return confirm('Ushbu dars soatini o\'chirmoqchimisiz?');">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-sm btn-outline-danger btn-icon-circle" title="Dars soatini o'chirish">
+                    <i class="bi bi-trash-fill"></i>
+                </button>
+            </form>
+        </div>
     </div>
 
-    <div class="table-responsive p-3">
+    <div class="table-responsive p-2 p-md-3">
         <table class="table journal-table table-hover mb-0" style="background:#fff;">
             <thead>
                 <tr>
@@ -119,7 +92,7 @@
                     <th>{{ d }}</th>
                     {% endfor %}
                     <th>To'lov</th>
-                    <th>O'chirish</th>
+                    <th>Amal</th>
                 </tr>
             </thead>
             <tbody>
@@ -133,14 +106,14 @@
                     
                     {% for st in student.attendance_matrix %}
                     <td class="cell-att {% if st == 'present' %}present{% elif st == 'absent' %}absent{% endif %}"
-                        data-sid="{{ student.id }}" data-day="{{ forloop.counter }}">
+                        data-sid="{{ student.id }}" data-day="{{ forloop.counter }}" title="Davomat: bosing">
                         {% if st == 'present' %}+{% elif st == 'absent' %}-{% else %}&nbsp;{% endif %}
                     </td>
                     {% endfor %}
 
                     <td class="cell-pay {% if student.paid_amount > 0 %}paid{% else %}unpaid{% endif %}"
                         data-sid="{{ student.id }}" data-paid="{{ student.paid_amount }}"
-                        onclick="openPaymentModal(this)">
+                        onclick="openPaymentModal(this)" title="To'lov kiritish: bosing">
                         {% if student.paid_amount > 0 %}
                             {{ student.paid_amount }}
                         {% else %}
@@ -149,19 +122,16 @@
                     </td>
                     
                     <td>
-                        <form action="{% url 'admin_student_delete' student.id %}" method="post" style="display:inline;">
-                            {% csrf_token %}
-                            <button type="submit" class="btn btn-sm btn-outline-danger border-0"
-                                    onclick="return confirm('Siz rostdan ham bu o\'quvchini o\'chirmoqchimisiz?');">
-                                <i class="bi bi-trash-fill"></i>
-                            </button>
-                        </form>
+                        <button type="button" class="btn btn-sm btn-outline-danger btn-icon-circle"
+                                data-bs-toggle="modal" data-bs-target="#delStudentGroupModal{{ student.id }}" title="O'chirish">
+                            <i class="bi bi-trash-fill"></i>
+                        </button>
                     </td>
                 </tr>
                 {% endif %}
                 {% empty %}
                 <tr>
-                    <td colspan="100%" class="text-center py-4 text-muted">Bu soatda faol o'quvchilar yo'q.</td>
+                    <td colspan="100%" class="text-center py-4 text-muted">Bu soatda faol o'quvchilar mavjud emas.</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -171,21 +141,90 @@
 {% empty %}
 <div class="glass-card p-5 text-center">
     <i class="bi bi-clock-history text-muted" style="font-size:3.5rem; opacity:0.4;"></i>
-    <p class="text-muted mt-3">Bu guruhga dars soatlari qo'shilmagan.</p>
+    <p class="text-muted mt-3">Bu guruhga hali dars soatlari qo'shilmagan. Yuqoridagi forma orqali birinchi dars vaqtini kiriting.</p>
 </div>
 {% endfor %}
 
-<!-- Payment Modal -->
-<div class="modal fade" id="paymentModal" tabindex="-1">
+<!-- ═══════════════════════ MODALLAR (Konteynerlar tashqarisida) ═══════════════════════ -->
+
+<!-- 1. Guruhni o'chirish modali -->
+<div class="modal fade" id="deleteGroupDetailModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0">
+            <form action="{% url 'admin_group_delete' group.id %}" method="post">
+                {% csrf_token %}
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="modal-title fw-bold text-danger">
+                        <i class="bi bi-exclamation-triangle-fill me-2"></i>Guruhni butunlay o'chirish
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Yopish"></button>
+                </div>
+                <div class="modal-body text-start">
+                    <p class="mb-2">Siz haqiqatdan ham <b>"{{ group.name }}"</b> guruhini o'chirmoqchimisiz?</p>
+                    <div class="alert alert-danger small mb-0">
+                        <i class="bi bi-info-circle-fill me-1"></i>Guruh o'chirilganda unga tegishli barcha dars soatlari o'chiriladi va mavjud o'quvchilar xavfsiz tarzda <b>Arxiv</b> bo'limiga saqlanadi.
+                    </div>
+                </div>
+                <div class="modal-footer border-0 pt-0">
+                    <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Bekor qilish</button>
+                    <button type="submit" class="btn btn-danger rounded-pill px-4 fw-bold">
+                        <i class="bi bi-trash-fill me-1"></i>Guruhni o'chirish
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 2. O'quvchilarni o'chirish modallari -->
+{% for ts in timeslots %}
+    {% for student in ts.students.all %}
+    {% if student.is_active %}
+    <div class="modal fade" id="delStudentGroupModal{{ student.id }}" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0">
+                <form action="{% url 'admin_student_delete' student.id %}" method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                    <div class="modal-header border-0 pb-0">
+                        <h5 class="modal-title fw-bold text-danger">
+                            <i class="bi bi-exclamation-triangle-fill me-2"></i>O'quvchini o'chirish
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Yopish"></button>
+                    </div>
+                    <div class="modal-body text-start">
+                        <p class="mb-2">Siz haqiqatdan ham <b>{{ student.first_name }} {{ student.last_name }}</b>ni o'chirmoqchimisiz?</p>
+                        <div class="alert alert-warning small mb-3">
+                            <i class="bi bi-info-circle me-1"></i>O'quvchi ma'lumotlari <b>Arxiv</b> bo'limiga o'tkaziladi.
+                        </div>
+                        <label class="form-label small fw-semibold">O'chirish sababi:</label>
+                        <input type="text" name="reason" class="form-control" placeholder="Masalan: Kursni tugatdi...">
+                    </div>
+                    <div class="modal-footer border-0 pt-0">
+                        <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Bekor qilish</button>
+                        <button type="submit" class="btn btn-danger rounded-pill px-4 fw-bold">
+                            <i class="bi bi-trash-fill me-1"></i>O'chirish
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    {% endfor %}
+{% endfor %}
+
+<!-- 3. Payment Modal -->
+<div class="modal fade" id="paymentModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-sm modal-dialog-centered">
     <div class="modal-content border-0 rounded-4 shadow">
       <div class="modal-header border-0 pb-0">
         <h6 class="modal-title fw-bold">To'lov kiritish</h6>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Yopish"></button>
       </div>
       <div class="modal-body">
         <input type="hidden" id="pay_student_id">
-        <label class="form-label small">Summa</label>
+        <label class="form-label small fw-semibold">Summa (so'm)</label>
         <input type="number" class="form-control" id="pay_amount" placeholder="Masalan: 300000">
       </div>
       <div class="modal-footer border-0 pt-0">
@@ -206,7 +245,6 @@
         cell.addEventListener('click', function() {
             const sid = this.dataset.sid;
             const day = this.dataset.day;
-            // day ni 2 xonali formatga o'tkazish
             const dayStr = day.padStart(2, '0');
             const dateStr = currentMonth + '-' + dayStr;
 
@@ -214,7 +252,6 @@
             if (this.classList.contains('present')) currentStatus = 'present';
             else if (this.classList.contains('absent')) currentStatus = 'absent';
 
-            // Toggle logic: '' -> 'present' -> 'absent' -> ''
             let nextStatus = '';
             if (currentStatus === '') nextStatus = 'present';
             else if (currentStatus === 'present') nextStatus = 'absent';

@@ -23,6 +23,7 @@ from .models import (
     TemporaryStudent, TimeSlot, MonthlyPayment
 )
 from .forms import TemporaryStudentForm
+from django.db.models import Q
 import calendar
 import openpyxl
 from django.http import HttpResponse
@@ -108,9 +109,30 @@ def _admin_only(request):
 def admin_dashboard(request):
     if not _admin_only(request):
         return redirect('home')
-    groups = Group.objects.select_related('teacher').prefetch_related('time_slots')
-    teachers = Teacher.objects.all()
-    return render(request, 'admin_dashboard.html', {'groups': groups, 'teachers': teachers})
+    
+    query = request.GET.get('q', '').strip()
+    search_results = []
+    
+    if query:
+        # Django Q obyekti yordamida ism va familiya bo'yicha icontains qidiruv
+        words = query.split()
+        q_filter = Q()
+        for w in words:
+            q_filter |= Q(first_name__icontains=w) | Q(last_name__icontains=w)
+            
+        search_results = Student.objects.filter(q_filter).select_related(
+            'time_slot__group__teacher'
+        ).prefetch_related('monthly_payments').order_by('first_name', 'last_name')
+
+    groups = Group.objects.select_related('teacher').prefetch_related('time_slots__students')
+    teachers = Teacher.objects.all().prefetch_related('groups')
+    
+    return render(request, 'admin_dashboard.html', {
+        'groups': groups, 
+        'teachers': teachers,
+        'search_query': query,
+        'search_results': search_results,
+    })
 
 
 @admin_required
@@ -120,11 +142,62 @@ def admin_group_create(request):
     if request.method == 'POST':
         name = request.POST.get('name', '').strip()
         teacher_id = request.POST.get('teacher_id')
-        teacher = get_object_or_404(Teacher, id=teacher_id)
+        teacher = get_object_or_404(Teacher, id=teacher_id) if teacher_id else None
         Group.objects.create(name=name, teacher=teacher)
         return redirect('admin_dashboard')
     teachers = Teacher.objects.all()
     return render(request, 'admin_group_create.html', {'teachers': teachers})
+
+
+@admin_required
+def admin_group_delete(request, id):
+    if not _admin_only(request):
+        return redirect('home')
+    group = get_object_or_404(Group, id=id)
+    if request.method == 'POST':
+        # Guruhdagi o'quvchilarni DeletedStudent ga arxivlash
+        for ts in group.time_slots.all():
+            for student in ts.students.all():
+                DeletedStudent.objects.create(
+                    student_name=f"{student.first_name} {student.last_name}",
+                    phones=f"{student.phone_1}, {student.phone_2 or ''}".rstrip(', '),
+                    group_name=group.name,
+                    reason=f"Guruh o'chirilishi sababli arxivlandi ({group.name})",
+                    first_name=student.first_name,
+                    last_name=student.last_name,
+                    age=student.age,
+                    phone_1=student.phone_1,
+                    phone_2=student.phone_2,
+                    time_slot_id=None
+                )
+        group.delete()
+        return redirect('admin_dashboard')
+    return redirect('admin_dashboard')
+
+
+@admin_required
+def admin_teacher_delete(request, id):
+    if not _admin_only(request):
+        return redirect('home')
+    teacher = get_object_or_404(Teacher, id=id)
+    if request.method == 'POST':
+        user = teacher.user
+        teacher.delete()
+        if user:
+            user.delete()
+        return redirect('admin_dashboard')
+    return redirect('admin_dashboard')
+
+
+@admin_required
+def admin_timeslot_delete(request, id):
+    if not _admin_only(request):
+        return redirect('home')
+    timeslot = get_object_or_404(TimeSlot, id=id)
+    group_id = timeslot.group.id
+    if request.method == 'POST':
+        timeslot.delete()
+    return redirect('admin_group_detail', id=group_id)
 
 
 @admin_required
@@ -304,6 +377,9 @@ def admin_student_delete(request, id):
             time_slot_id=student.time_slot.id if student.time_slot else None
         )
         student.delete()
+        next_url = request.POST.get('next') or request.GET.get('next')
+        if next_url:
+            return redirect(next_url)
         if group_id:
             return redirect('admin_group_detail', id=group_id)
         return redirect('admin_dashboard')
