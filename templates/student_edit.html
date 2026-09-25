@@ -1,0 +1,67 @@
+{% extends 'base.html' %}
+{% block title %}O'quvchini Tahrirlash - HUMO{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8 col-lg-6">
+        <div class="glass-card p-5">
+            <div class="d-flex align-items-center mb-4">
+                <a href="{{ next|default:'/' }}" class="btn btn-light me-3" style="border-radius:12px;">
+                    <i class="bi bi-arrow-left"></i>
+                </a>
+                <div>
+                    <h3 class="fw-bold mb-1">O'quvchini Tahrirlash</h3>
+                    <p class="text-muted small mb-0">{{ student.first_name }} {{ student.last_name }}</p>
+                </div>
+            </div>
+
+            <form method="post" class="row g-3">
+                {% csrf_token %}
+                <input type="hidden" name="next" value="{{ next }}">
+                
+                <div class="col-12">
+                    <div class="alert alert-info py-2 px-3 small rounded-3 mb-0" style="background:rgba(99,102,241,0.12); border:1px solid rgba(99,102,241,0.25); color:#4338ca;">
+                        <i class="bi bi-info-circle-fill me-1"></i> Iltimos, ma'lumotlarni faqat <b>Lotin alifbosida</b> kiriting.
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label fw-semibold text-muted small">Ism (Lotin) *</label>
+                    <input type="text" name="first_name" class="form-control" placeholder="Masalan: Jasur" value="{{ student.first_name }}" required>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label fw-semibold text-muted small">Familiya (Lotin) *</label>
+                    <input type="text" name="last_name" class="form-control" placeholder="Masalan: Aliyev" value="{{ student.last_name }}" required>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label fw-semibold text-muted small">Yoshi (ixtiyoriy)</label>
+                    <input type="number" name="age" class="form-control" placeholder="15" value="{{ student.age|default:'' }}">
+                </div>
+                
+                {% if role == 'admin' %}
+                <div class="col-md-4">
+                    <label class="form-label fw-semibold text-muted small">To'lov tarifi (so'm)</label>
+                    <input type="number" name="payment_rate" class="form-control" placeholder="100000" value="{{ student.payment_rate }}">
+                </div>
+                {% else %}
+                <div class="col-md-8"></div>
+                {% endif %}
+                
+                <div class="col-md-6">
+                    <label class="form-label fw-semibold text-muted small">Telefon 1 *</label>
+                    <input type="text" name="phone_1" class="form-control" placeholder="+998901234567" value="{{ student.phone_1 }}" required>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label fw-semibold text-muted small">Telefon 2 (Ixtiyoriy)</label>
+                    <input type="text" name="phone_2" class="form-control" placeholder="+998901234567" value="{{ student.phone_2|default:'' }}">
+                </div>
+                
+                <div class="col-12 mt-4">
+                    <button type="submit" class="btn w-100 py-2 fw-bold text-white shadow-sm" style="background:linear-gradient(135deg, {% if role == 'admin' %}#6366f1, #8b5cf6{% else %}#10b981, #059669{% endif %}); border:none; border-radius:12px;">
+                        <i class="bi bi-save-fill me-1"></i> O'zgarishlarni Saqlash
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

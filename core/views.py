@@ -291,7 +291,8 @@ def admin_group_detail(request, id):
     from .schedule_helper import parse_schedule_weekdays
     for ts in timeslots:
         ts_weekdays = parse_schedule_weekdays(ts.days)
-        for s in ts.students.all():
+        ts.active_students = [s for s in ts.students.all() if s.is_active]
+        for s in ts.active_students:
             matrix = []
             for d in days_data:
                 is_lesson = (d['weekday_idx'] in ts_weekdays)
@@ -398,6 +399,7 @@ def admin_student_create(request, timeslot_id):
         age = request.POST.get('age', '').strip()
         phone_1 = request.POST.get('phone_1', '').strip()
         phone_2 = request.POST.get('phone_2', '').strip()
+        photo = request.FILES.get('photo')
 
         if contains_cyrillic(first_name) or contains_cyrillic(last_name):
             messages.error(request, "Ism va familiyada faqat lotin alifbosidan foydalaning (Kirill harflari taqiqlangan)!")
@@ -410,15 +412,20 @@ def admin_student_create(request, timeslot_id):
                 'phone_2_val': phone_2,
             })
 
-        if first_name and last_name and age and phone_1:
-            Student.objects.create(
+        if first_name and last_name and phone_1:
+            student = Student(
                 first_name=first_name,
                 last_name=last_name,
-                age=int(age),
                 phone_1=phone_1,
                 phone_2=phone_2,
                 time_slot=timeslot
             )
+            if age.isdigit():
+                student.age = int(age)
+            if photo:
+                student.photo = photo
+            student.save()
+
             messages.success(request, f"O'quvchi '{first_name} {last_name}' muvaffaqiyatli qo'shildi.")
             return redirect('admin_group_detail', id=timeslot.group.id)
     return render(request, 'admin_student_create.html', {'timeslot': timeslot})
@@ -707,7 +714,8 @@ def teacher_dashboard(request):
     for g in groups:
         for ts in g.time_slots.all():
             ts_weekdays = parse_schedule_weekdays(ts.days)
-            for s in ts.students.all():
+            ts.active_students = [s for s in ts.students.all() if s.is_active]
+            for s in ts.active_students:
                 matrix = []
                 for d in days_data:
                     is_lesson = (d['weekday_idx'] in ts_weekdays)
@@ -775,6 +783,7 @@ def teacher_student_create(request, timeslot_id):
         age = request.POST.get('age', '').strip()
         phone_1 = request.POST.get('phone_1', '').strip()
         phone_2 = request.POST.get('phone_2', '').strip()
+        photo = request.FILES.get('photo')
 
         if contains_cyrillic(first_name) or contains_cyrillic(last_name):
             messages.error(request, "Ism va familiyada faqat lotin alifbosidan foydalaning (Kirill harflari taqiqlangan)!")
@@ -787,15 +796,20 @@ def teacher_student_create(request, timeslot_id):
                 'phone_2_val': phone_2,
             })
 
-        if first_name and last_name and age and phone_1:
-            Student.objects.create(
+        if first_name and last_name and phone_1:
+            student = Student(
                 first_name=first_name,
                 last_name=last_name,
-                age=int(age),
                 phone_1=phone_1,
                 phone_2=phone_2,
                 time_slot=timeslot
             )
+            if age.isdigit():
+                student.age = int(age)
+            if photo:
+                student.photo = photo
+            student.save()
+
             messages.success(request, f"O'quvchi '{first_name} {last_name}' muvaffaqiyatli qo'shildi.")
             return redirect('teacher_dashboard')
     return render(request, 'teacher_student_create.html', {'timeslot': timeslot})
@@ -847,3 +861,225 @@ def parent_view(request):
     ).select_related('teacher')
     return render(request, 'parent_view.html', {'groups': groups})
 
+
+# ─────────────────────────────────────────────
+# ADMIN: Toggle Teacher Edit Permission
+# ─────────────────────────────────────────────
+
+@admin_required
+def admin_teacher_toggle_edit(request, id):
+    """Admin o'qituvchiga o'quvchini tahrirlash ruxsatini yoqadi/o'chiradi (toggle)."""
+    if not _admin_only(request):
+        return redirect('home')
+    teacher = get_object_or_404(Teacher, id=id)
+    if request.method == 'POST':
+        teacher.can_edit_students = not teacher.can_edit_students
+        teacher.save()
+        status_text = "yoqildi ✅" if teacher.can_edit_students else "o'chirildi ❌"
+        messages.success(request, f"{teacher.first_name} {teacher.last_name} uchun tahrirlash ruxsati {status_text}")
+    return redirect('admin_dashboard')
+
+
+# ─────────────────────────────────────────────
+# ADMIN: Student Edit
+# ─────────────────────────────────────────────
+
+@admin_required
+def admin_student_edit(request, id):
+    """Admin tomonidan o'quvchi ma'lumotlarini tahrirlash."""
+    if not _admin_only(request):
+        return redirect('home')
+    student = get_object_or_404(Student, id=id)
+    next_url = request.GET.get('next') or request.POST.get('next', '')
+
+    if request.method == 'POST':
+        first_name = request.POST.get('first_name', '').strip()
+        last_name = request.POST.get('last_name', '').strip()
+        age_raw = request.POST.get('age', '').strip()
+        phone_1 = request.POST.get('phone_1', '').strip()
+        phone_2 = request.POST.get('phone_2', '').strip()
+        payment_rate_raw = request.POST.get('payment_rate', '').strip()
+
+        errors = []
+        if contains_cyrillic(first_name) or contains_cyrillic(last_name):
+            errors.append("Ism va familiyada faqat lotin alifbosidan foydalaning!")
+
+        if errors:
+            for e in errors:
+                messages.error(request, e)
+        else:
+            student.first_name = first_name or student.first_name
+            student.last_name = last_name or student.last_name
+            student.age = int(age_raw) if age_raw.isdigit() else student.age
+            student.phone_1 = phone_1 or student.phone_1
+            student.phone_2 = phone_2
+            if payment_rate_raw.isdigit():
+                student.payment_rate = int(payment_rate_raw)
+            student.save()
+            messages.success(request, f"O'quvchi ma'lumotlari yangilandi.")
+            if next_url:
+                return redirect(next_url)
+            if student.time_slot:
+                return redirect('admin_group_detail', id=student.time_slot.group.id)
+            return redirect('admin_dashboard')
+
+    return render(request, 'student_edit.html', {
+        'student': student,
+        'next': next_url,
+        'role': 'admin',
+    })
+
+
+# ─────────────────────────────────────────────
+# TEACHER: Student Edit (faqat ruxsat berilgan bo'lsa)
+# ─────────────────────────────────────────────
+
+@login_required(login_url='/teacher/login/')
+def teacher_student_edit(request, id):
+    """O'qituvchi tomonidan o'quvchi ma'lumotlarini tahrirlash (faqat admin ruxsat bersa)."""
+    if request.user.role != 'teacher':
+        return redirect('home')
+    student = get_object_or_404(Student, id=id)
+
+    # Guruhga tegishliligini tekshirish
+    if not (student.time_slot and student.time_slot.group and
+            student.time_slot.group.teacher and
+            student.time_slot.group.teacher.user == request.user):
+        messages.error(request, "Bu o'quvchi sizning guruhingizga tegishli emas.")
+        return redirect('teacher_dashboard')
+
+    teacher = request.user.teacher_profile
+    if not teacher.can_edit_students:
+        messages.error(request, "Sizda o'quvchini tahrirlash ruxsati yo'q. Admin bilan bog'laning.")
+        return redirect('teacher_dashboard')
+
+    if request.method == 'POST':
+        first_name = request.POST.get('first_name', '').strip()
+        last_name = request.POST.get('last_name', '').strip()
+        age_raw = request.POST.get('age', '').strip()
+        phone_1 = request.POST.get('phone_1', '').strip()
+        phone_2 = request.POST.get('phone_2', '').strip()
+
+        if contains_cyrillic(first_name) or contains_cyrillic(last_name):
+            messages.error(request, "Ism va familiyada faqat lotin alifbosidan foydalaning!")
+        else:
+            student.first_name = first_name or student.first_name
+            student.last_name = last_name or student.last_name
+            student.age = int(age_raw) if age_raw.isdigit() else student.age
+            student.phone_1 = phone_1 or student.phone_1
+            student.phone_2 = phone_2
+            student.save()
+            messages.success(request, f"O'quvchi ma'lumotlari yangilandi.")
+            return redirect('teacher_dashboard')
+
+    return render(request, 'student_edit.html', {
+        'student': student,
+        'next': request.GET.get('next', ''),
+        'role': 'teacher',
+    })
+
+
+# ─────────────────────────────────────────────
+# SHARED: Student Photo Upload
+# ─────────────────────────────────────────────
+
+def student_photo_upload(request, id):
+    """O'quvchiga rasm yuklash. Admin yoki ruxsat berilgan o'qituvchi."""
+    is_admin = request.session.get('admin_authenticated')
+    is_teacher = request.user.is_authenticated and request.user.role == 'teacher'
+
+    if not is_admin and not is_teacher:
+        return JsonResponse({'status': 'error', 'msg': 'Ruxsat yo\'q'}, status=403)
+
+    student = get_object_or_404(Student, id=id)
+
+    # O'qituvchi faqat o'z guruhidagi o'quvchini o'zgartira oladi
+    if is_teacher and not is_admin:
+        teacher = request.user.teacher_profile
+        if not (student.time_slot and student.time_slot.group and
+                student.time_slot.group.teacher and
+                student.time_slot.group.teacher.user == request.user):
+            return JsonResponse({'status': 'error', 'msg': 'Ruxsat yo\'q'}, status=403)
+
+    if request.method == 'POST':
+        photo = request.FILES.get('photo')
+        if photo:
+            # Eski rasmni o'chirish
+            if student.photo:
+                try:
+                    import os
+                    if os.path.exists(student.photo.path):
+                        os.remove(student.photo.path)
+                except Exception:
+                    pass
+            student.photo = photo
+            student.save()
+            return JsonResponse({'status': 'success', 'photo_url': student.photo.url})
+        return JsonResponse({'status': 'error', 'msg': 'Rasm tanlanmadi'}, status=400)
+
+    return JsonResponse({'status': 'error', 'msg': 'Noto\'g\'ri so\'rov'}, status=400)
+
+
+from .models import Message
+
+@admin_required
+def admin_chat_list(request):
+    teachers = Teacher.objects.all()
+    teacher_data = []
+    for t in teachers:
+        unread = Message.objects.filter(sender=t.user, receiver=request.user, is_read=False).count()
+        teacher_data.append({'teacher': t, 'unread': unread})
+    return render(request, 'admin_chat_list.html', {'teacher_data': teacher_data})
+
+@admin_required
+def admin_chat_detail(request, teacher_id):
+    teacher = get_object_or_404(Teacher, id=teacher_id)
+    t_user = teacher.user
+    
+    # Mark messages as read
+    Message.objects.filter(sender=t_user, receiver=request.user, is_read=False).update(is_read=True)
+    
+    messages_qs = Message.objects.filter(
+        (Q(sender=request.user) & Q(receiver=t_user)) |
+        (Q(sender=t_user) & Q(receiver=request.user))
+    ).order_by('timestamp')
+    
+    if request.method == 'POST':
+        content = request.POST.get('content', '').strip()
+        if content:
+            Message.objects.create(sender=request.user, receiver=t_user, content=content)
+            return redirect('admin_chat_detail', teacher_id=teacher_id)
+            
+    return render(request, 'admin_chat_detail.html', {
+        'chat_user': t_user, 
+        'teacher': teacher,
+        'chat_messages': messages_qs
+    })
+
+@login_required(login_url='/teacher/login/')
+def teacher_chat(request):
+    if request.user.role != 'teacher':
+        return redirect('home')
+        
+    admin_user = CustomUser.objects.filter(role='admin').first()
+    if not admin_user:
+        return HttpResponse("Admin topilmadi", status=404)
+        
+    # Mark messages as read
+    Message.objects.filter(sender=admin_user, receiver=request.user, is_read=False).update(is_read=True)
+    
+    messages_qs = Message.objects.filter(
+        (Q(sender=request.user) & Q(receiver=admin_user)) |
+        (Q(sender=admin_user) & Q(receiver=request.user))
+    ).order_by('timestamp')
+    
+    if request.method == 'POST':
+        content = request.POST.get('content', '').strip()
+        if content:
+            Message.objects.create(sender=request.user, receiver=admin_user, content=content)
+            return redirect('teacher_chat')
+            
+    return render(request, 'teacher_chat.html', {
+        'chat_user': admin_user,
+        'chat_messages': messages_qs
+    })

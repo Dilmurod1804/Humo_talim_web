@@ -58,7 +58,7 @@
 
 <!-- Guruh dars soatlari va jurnallar -->
 {% for ts in timeslots %}
-<div class="glass-card mb-4" style="overflow:hidden;">
+<div class="glass-card mb-4">
     <div class="p-3 p-md-4 d-flex flex-column flex-sm-row align-items-start align-items-sm-center justify-content-between gap-2" style="border-bottom:1px solid rgba(0,0,0,0.06);">
         <div class="d-flex align-items-center gap-2 flex-wrap">
             <span class="badge py-2 px-3" style="background:rgba(102,126,234,0.12);color:#667eea;border-radius:20px;font-weight:600;font-size:0.92rem;">
@@ -83,11 +83,11 @@
         </div>
     </div>
 
-    <div class="table-responsive p-2 p-md-3">
-        <table class="table journal-table table-hover mb-0" style="background:#fff;">
+    <div class="journal-wrapper">
+        <table class="table journal-table mb-0">
             <thead>
                 <tr>
-                    <th class="student-name">F.I.O. (Tarif)</th>
+                    <th class="student-name"><span class="text-muted opacity-75 me-1">#</span> F.I.O. (Tarif)</th>
                     {% for d in days_data %}
                     <th class="att-header-cell {% if d.is_today %}today-col{% elif d.is_weekend %}weekend-col{% endif %}" title="{{ d.date_str }} ({{ d.weekday }})">
                         <div class="att-date-num">{{ d.display_date }}</div>
@@ -99,12 +99,48 @@
                 </tr>
             </thead>
             <tbody>
-                {% for student in ts.students.all %}
-                {% if student.is_active %}
+                {% for student in ts.active_students %}
                 <tr>
                     <td class="student-name">
-                        <div class="fw-bold text-dark">{{ student.first_name }} {{ student.last_name }}</div>
-                        <div class="small text-muted">{{ student.payment_rate }} so'm</div>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div class="d-flex align-items-center gap-2">
+                                <span class="badge bg-secondary bg-opacity-20 text-dark fw-bold rounded-circle d-inline-flex align-items-center justify-content-center flex-shrink-0" style="width:22px;height:22px;font-size:0.75rem;">{{ forloop.counter }}</span>
+                                {% if student.photo %}
+                                <img src="{{ student.photo.url }}" alt="Rasm"
+                                     class="student-avatar-thumb"
+                                     onclick="openImgPreview('{{ student.photo.url }}','{{ student.first_name }} {{ student.last_name }}')"
+                                     title="Kattalashtirish uchun bosing">
+                                {% else %}
+                                <div class="student-avatar-thumb no-photo"><i class="bi bi-person"></i></div>
+                                {% endif %}
+                                <div>
+                                    <div class="fw-bold text-dark inline-edit-trigger"
+                                         onclick="openInlineEdit({{ student.id }},'{{ student.first_name }}','{{ student.last_name }}','{{ student.age|default:'' }}','{{ student.phone_1 }}','{{ student.phone_2|default:'' }}')"
+                                         title="Bosib tahrirlash">
+                                        {{ student.first_name }} {{ student.last_name }}
+                                        <i class="bi bi-pencil-fill ms-1" style="font-size:0.65rem;opacity:0.4;"></i>
+                                    </div>
+                                    <div class="small text-muted">{{ student.payment_rate }} so'm</div>
+                                </div>
+                            </div>
+                            <div class="dropdown">
+                                <button class="btn btn-sm btn-light rounded-circle action-dot-btn" type="button"
+                                        data-bs-toggle="dropdown" aria-expanded="false"
+                                        style="width:28px;height:28px;padding:0;line-height:1;">
+                                    <i class="bi bi-three-dots-vertical"></i>
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end shadow-sm" style="border:none;border-radius:12px;min-width:180px;">
+                                    <li><a class="dropdown-item small" href="{% url 'admin_student_edit' student.id %}?next={{ request.path|urlencode }}"><i class="bi bi-pencil-square me-2 text-primary"></i>Tahrirlash</a></li>
+                                    <li><a class="dropdown-item small" href="#" onclick="openInlineEdit({{ student.id }},'{{ student.first_name }}','{{ student.last_name }}','{{ student.age|default:'' }}','{{ student.phone_1 }}','{{ student.phone_2|default:'' }}');return false;"><i class="bi bi-lightning-charge-fill me-2 text-warning"></i>Tez tahrirlash</a></li>
+                                    {% if not student.photo %}
+                                    <li><a class="dropdown-item small" href="#" onclick="triggerPhotoUpload({{ student.id }});return false;"><i class="bi bi-image me-2 text-success"></i>Rasm yuklash</a></li>
+                                    {% else %}
+                                    <li><a class="dropdown-item small" href="#" onclick="openImgPreview('{{ student.photo.url }}','{{ student.first_name }} {{ student.last_name }}');return false;"><i class="bi bi-zoom-in me-2 text-info"></i>Rasmni ko'rish</a></li>
+                                    <li><a class="dropdown-item small" href="#" onclick="triggerPhotoUpload({{ student.id }});return false;"><i class="bi bi-image me-2 text-warning"></i>Rasmni yangilash</a></li>
+                                    {% endif %}
+                                </ul>
+                            </div>
+                        </div>
                     </td>
                     
                     {% for item in student.attendance_matrix %}
@@ -137,7 +173,6 @@
                         </button>
                     </td>
                 </tr>
-                {% endif %}
                 {% empty %}
                 <tr>
                     <td colspan="100%" class="text-center py-4 text-muted">Bu soatda faol o'quvchilar mavjud emas.</td>
@@ -243,12 +278,91 @@
   </div>
 </div>
 
+<!-- 4. IMAGE PREVIEW MODAL -->
+<div class="modal fade" id="imgPreviewModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered" style="max-width:420px;">
+    <div class="modal-content border-0 rounded-4 shadow-lg" style="background:rgba(15,23,42,0.95);backdrop-filter:blur(20px);">
+      <div class="modal-header border-0 pb-1" style="background:linear-gradient(135deg,#6366f1,#8b5cf6);border-radius:1rem 1rem 0 0;">
+        <h6 class="modal-title fw-bold text-white" id="imgPreviewName"></h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body text-center p-3">
+        <img id="imgPreviewSrc" src="" alt="O'quvchi rasmi"
+             style="max-width:100%;max-height:70vh;border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,0.5);">
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 5. INLINE QUICK-EDIT MODAL -->
+<div class="modal fade" id="inlineEditModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered" style="max-width:460px;">
+    <div class="modal-content border-0 rounded-4 shadow-lg">
+      <form id="inlineEditForm" method="post">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <div class="modal-header border-0 pb-0" style="background:linear-gradient(135deg,#6366f1,#8b5cf6);border-radius:1rem 1rem 0 0;">
+          <h6 class="modal-title fw-bold text-white"><i class="bi bi-lightning-charge-fill me-2"></i>Tez Tahrirlash</h6>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body p-4">
+          <div class="row g-3">
+            <div class="col-6">
+              <label class="form-label small fw-semibold text-muted">Ism *</label>
+              <input type="text" name="first_name" id="ie_first_name" class="form-control" required>
+            </div>
+            <div class="col-6">
+              <label class="form-label small fw-semibold text-muted">Familiya *</label>
+              <input type="text" name="last_name" id="ie_last_name" class="form-control" required>
+            </div>
+            <div class="col-4">
+              <label class="form-label small fw-semibold text-muted">Yoshi</label>
+              <input type="number" name="age" id="ie_age" class="form-control" placeholder="—">
+            </div>
+            <div class="col-8">
+              <label class="form-label small fw-semibold text-muted">Telefon 1 *</label>
+              <input type="text" name="phone_1" id="ie_phone1" class="form-control" required>
+            </div>
+            <div class="col-12">
+              <label class="form-label small fw-semibold text-muted">Telefon 2</label>
+              <input type="text" name="phone_2" id="ie_phone2" class="form-control">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer border-0 pt-0">
+          <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Bekor</button>
+          <button type="submit" class="btn text-white rounded-pill px-4 fw-bold" style="background:linear-gradient(135deg,#6366f1,#8b5cf6);border:none;"><i class="bi bi-save-fill me-1"></i>Saqlash</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 {% endblock %}
 
 {% block extra_js %}
 <script>
     const currentMonth = "{{ current_month }}"; // YYYY-MM
     let activePayCell = null;
+
+    // ── IMAGE PREVIEW ──────────────────────────────────────
+    function openImgPreview(url, name) {
+        document.getElementById('imgPreviewSrc').src = url;
+        document.getElementById('imgPreviewName').textContent = name;
+        new bootstrap.Modal(document.getElementById('imgPreviewModal')).show();
+    }
+
+    // ── INLINE QUICK-EDIT ──────────────────────────────────
+    function openInlineEdit(id, fn, ln, age, ph1, ph2) {
+        const form = document.getElementById('inlineEditForm');
+        form.action = '/admin/student/' + id + '/edit/';
+        document.getElementById('ie_first_name').value = fn;
+        document.getElementById('ie_last_name').value  = ln;
+        document.getElementById('ie_age').value        = age;
+        document.getElementById('ie_phone1').value     = ph1;
+        document.getElementById('ie_phone2').value     = ph2 || '';
+        new bootstrap.Modal(document.getElementById('inlineEditModal')).show();
+    }
 
     document.querySelectorAll('.cell-att').forEach(cell => {
         cell.addEventListener('click', function() {

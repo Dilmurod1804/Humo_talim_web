@@ -2,58 +2,10 @@
 {% block title %}O'qituvchi Paneli - HUMO{% endblock %}
 
 {% block content %}
-<style>
-    .journal-table th, .journal-table td {
-        text-align: center;
-        vertical-align: middle;
-        min-width: 35px;
-        padding: 6px;
-        border: 1px solid rgba(0,0,0,0.1);
-    }
-    .journal-table .student-name {
-        text-align: left;
-        min-width: 200px;
-        position: sticky;
-        left: 0;
-        background: #fff;
-        z-index: 2;
-        box-shadow: 2px 0 5px rgba(0,0,0,0.05);
-    }
-    .journal-table thead th {
-        background: #f8fafc;
-        font-size: 0.85rem;
-    }
-    .journal-table thead th.student-name {
-        z-index: 3;
-    }
-    .cell-att {
-        cursor: pointer;
-        font-weight: bold;
-        transition: 0.2s;
-        user-select: none;
-    }
-    .cell-att:hover {
-        background: #f1f5f9;
-    }
-    .cell-att.present { color: #10b981; }
-    .cell-att.absent { color: #ef4444; }
-    
-    .cell-pay {
-        cursor: pointer;
-        font-weight: bold;
-        min-width: 100px;
-    }
-    .cell-pay.paid {
-        background: #d1fae5;
-        color: #065f46;
-    }
-    .cell-pay.unpaid {
-        color: #ef4444;
-    }
-</style>
+
 
 <!-- Header -->
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center mb-4 gap-3">
     <div>
         <h2 class="text-white fw-black mb-0" style="letter-spacing:-1px; text-shadow: 0 2px 8px rgba(0,0,0,0.15);">
             <i class="bi bi-hand-wave me-2"></i>Salom, {{ teacher.first_name }}!
@@ -61,10 +13,15 @@
         <p class="text-white mb-0" style="opacity:0.85;">Davomat jurnali (<b>{{ current_month }}</b>)</p>
     </div>
 
-    <form method="get" class="d-flex align-items-center gap-2">
-        <label class="text-white fw-bold mb-0">Oy tanlash:</label>
-        <input type="month" name="month" class="form-control border-0 shadow-sm" value="{{ current_month }}" onchange="this.form.submit()" style="border-radius:10px; max-width:180px; background:rgba(255,255,255,0.9);">
-    </form>
+    <div class="d-flex flex-wrap align-items-center gap-2">
+        <a href="{% url 'teacher_chat' %}" class="btn text-white fw-bold d-flex align-items-center gap-2" style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.4); border-radius:10px;">
+            <i class="bi bi-chat-dots-fill"></i> Admin bilan chat
+        </a>
+        <form method="get" class="d-flex align-items-center gap-2 m-0">
+            <label class="text-white fw-bold mb-0 d-none d-sm-block">Oy:</label>
+            <input type="month" name="month" class="form-control border-0 shadow-sm" value="{{ current_month }}" onchange="this.form.submit()" style="border-radius:10px; max-width:180px; background:rgba(255,255,255,0.9);">
+        </form>
+    </div>
 </div>
 
 {% for group in groups %}
@@ -91,11 +48,11 @@
             </a>
         </div>
 
-        <div class="table-responsive">
-            <table class="table journal-table table-hover mb-0" style="background:#fff;">
+        <div class="journal-wrapper">
+            <table class="table journal-table mb-0">
                 <thead>
                     <tr>
-                        <th class="student-name">F.I.O. (Tarif)</th>
+                        <th class="student-name"><span class="text-muted opacity-75 me-1">#</span> F.I.O. (Tarif)</th>
                         {% for d in days_data %}
                         <th class="att-header-cell {% if d.is_today %}today-col{% elif d.is_weekend %}weekend-col{% endif %}" title="{{ d.date_str }} ({{ d.weekday }})">
                             <div class="att-date-num">{{ d.display_date }}</div>
@@ -107,12 +64,56 @@
                     </tr>
                 </thead>
                 <tbody>
-                    {% for student in ts.students.all %}
-                    {% if student.is_active %}
+                    {% for student in ts.active_students %}
                     <tr>
                         <td class="student-name">
-                            <div class="fw-bold text-dark">{{ student.first_name }} {{ student.last_name }}</div>
-                            <div class="small text-muted">{{ student.payment_rate }} so'm</div>
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div class="d-flex align-items-center gap-2">
+                                    <span class="badge bg-secondary bg-opacity-20 text-dark fw-bold rounded-circle d-inline-flex align-items-center justify-content-center flex-shrink-0" style="width:22px;height:22px;font-size:0.75rem;">{{ forloop.counter }}</span>
+                                    {% if student.photo %}
+                                    <img src="{{ student.photo.url }}" alt="Rasm"
+                                         class="student-avatar-thumb"
+                                         onclick="openImgPreview('{{ student.photo.url }}','{{ student.first_name }} {{ student.last_name }}')"
+                                         title="Kattalashtirish uchun bosing">
+                                    {% else %}
+                                    <div class="student-avatar-thumb no-photo"><i class="bi bi-person"></i></div>
+                                    {% endif %}
+                                    <div>
+                                        {% if request.user.teacher_profile.can_edit_students %}
+                                        <div class="fw-bold text-dark inline-edit-trigger"
+                                             onclick="openInlineEdit({{ student.id }},'{{ student.first_name }}','{{ student.last_name }}','{{ student.age|default:'' }}','{{ student.phone_1 }}','{{ student.phone_2|default:'' }}')"
+                                             title="Bosib tahrirlash">
+                                            {{ student.first_name }} {{ student.last_name }}
+                                            <i class="bi bi-pencil-fill ms-1" style="font-size:0.65rem;opacity:0.4;"></i>
+                                        </div>
+                                        {% else %}
+                                        <div class="fw-bold text-dark">{{ student.first_name }} {{ student.last_name }}</div>
+                                        {% endif %}
+                                        <div class="small text-muted">{{ student.payment_rate }} so'm</div>
+                                    </div>
+                                </div>
+                                <div class="dropdown">
+                                    <button class="btn btn-sm btn-light rounded-circle action-dot-btn" type="button"
+                                            data-bs-toggle="dropdown" aria-expanded="false"
+                                            style="width:28px;height:28px;padding:0;line-height:1;">
+                                        <i class="bi bi-three-dots-vertical"></i>
+                                    </button>
+                                    <ul class="dropdown-menu dropdown-menu-end shadow-sm" style="border:none;border-radius:12px;min-width:185px;">
+                                        {% if request.user.teacher_profile.can_edit_students %}
+                                        <li><a class="dropdown-item small" href="{% url 'teacher_student_edit' student.id %}?next={{ request.path|urlencode }}"><i class="bi bi-pencil-square me-2 text-primary"></i>Tahrirlash</a></li>
+                                        <li><a class="dropdown-item small" href="#" onclick="openInlineEdit({{ student.id }},'{{ student.first_name }}','{{ student.last_name }}','{{ student.age|default:'' }}','{{ student.phone_1 }}','{{ student.phone_2|default:'' }}');return false;"><i class="bi bi-lightning-charge-fill me-2 text-warning"></i>Tez tahrirlash</a></li>
+                                        {% else %}
+                                        <li><a class="dropdown-item small disabled" href="#"><i class="bi bi-pencil-square me-2 text-muted"></i>Tahrirlash</a></li>
+                                        {% endif %}
+                                        {% if not student.photo %}
+                                        <li><a class="dropdown-item small" href="#" onclick="triggerPhotoUpload({{ student.id }});return false;"><i class="bi bi-image me-2 text-success"></i>Rasm yuklash</a></li>
+                                        {% else %}
+                                        <li><a class="dropdown-item small" href="#" onclick="openImgPreview('{{ student.photo.url }}','{{ student.first_name }} {{ student.last_name }}');return false;"><i class="bi bi-zoom-in me-2 text-info"></i>Rasmni ko'rish</a></li>
+                                        <li><a class="dropdown-item small" href="#" onclick="triggerPhotoUpload({{ student.id }});return false;"><i class="bi bi-image me-2 text-warning"></i>Rasmni yangilash</a></li>
+                                        {% endif %}
+                                    </ul>
+                                </div>
+                            </div>
                         </td>
                         
                         {% for item in student.attendance_matrix %}
@@ -146,7 +147,6 @@
                             </button>
                         </td>
                     </tr>
-                    {% endif %}
                     {% empty %}
                     <tr><td colspan="100%" class="text-center py-4 text-muted">Bu soatda faol o'quvchilar yo'q.</td></tr>
                     {% endfor %}
@@ -217,12 +217,95 @@
   </div>
 </div>
 
+<!-- IMAGE PREVIEW MODAL -->
+<div class="modal fade" id="imgPreviewModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered" style="max-width:420px;">
+    <div class="modal-content border-0 rounded-4 shadow-lg" style="background:rgba(15,23,42,0.95);backdrop-filter:blur(20px);">
+      <div class="modal-header border-0 pb-1" style="background:linear-gradient(135deg,#10b981,#059669);border-radius:1rem 1rem 0 0;">
+        <h6 class="modal-title fw-bold text-white" id="imgPreviewName"></h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body text-center p-3">
+        <img id="imgPreviewSrc" src="" alt="O'quvchi rasmi"
+             style="max-width:100%;max-height:70vh;border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,0.5);">
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- INLINE QUICK-EDIT MODAL (only if teacher has permission) -->
+{% if request.user.teacher_profile.can_edit_students %}
+<div class="modal fade" id="inlineEditModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered" style="max-width:460px;">
+    <div class="modal-content border-0 rounded-4 shadow-lg">
+      <form id="inlineEditForm" method="post">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <div class="modal-header border-0 pb-0" style="background:linear-gradient(135deg,#10b981,#059669);border-radius:1rem 1rem 0 0;">
+          <h6 class="modal-title fw-bold text-white"><i class="bi bi-lightning-charge-fill me-2"></i>Tez Tahrirlash</h6>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body p-4">
+          <div class="row g-3">
+            <div class="col-6">
+              <label class="form-label small fw-semibold text-muted">Ism *</label>
+              <input type="text" name="first_name" id="ie_first_name" class="form-control" required>
+            </div>
+            <div class="col-6">
+              <label class="form-label small fw-semibold text-muted">Familiya *</label>
+              <input type="text" name="last_name" id="ie_last_name" class="form-control" required>
+            </div>
+            <div class="col-4">
+              <label class="form-label small fw-semibold text-muted">Yoshi</label>
+              <input type="number" name="age" id="ie_age" class="form-control" placeholder="—">
+            </div>
+            <div class="col-8">
+              <label class="form-label small fw-semibold text-muted">Telefon 1 *</label>
+              <input type="text" name="phone_1" id="ie_phone1" class="form-control" required>
+            </div>
+            <div class="col-12">
+              <label class="form-label small fw-semibold text-muted">Telefon 2</label>
+              <input type="text" name="phone_2" id="ie_phone2" class="form-control">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer border-0 pt-0">
+          <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Bekor</button>
+          <button type="submit" class="btn text-white rounded-pill px-4 fw-bold" style="background:linear-gradient(135deg,#10b981,#059669);border:none;"><i class="bi bi-save-fill me-1"></i>Saqlash</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 {% endblock %}
 
 {% block extra_js %}
 <script>
     const currentMonth = "{{ current_month }}"; // YYYY-MM
     let activePayCell = null;
+
+    // ── IMAGE PREVIEW ──────────────────────────────────────
+    function openImgPreview(url, name) {
+        document.getElementById('imgPreviewSrc').src = url;
+        document.getElementById('imgPreviewName').textContent = name;
+        new bootstrap.Modal(document.getElementById('imgPreviewModal')).show();
+    }
+
+    // ── INLINE QUICK-EDIT (teacher) ────────────────────────
+    function openInlineEdit(id, fn, ln, age, ph1, ph2) {
+        const modal = document.getElementById('inlineEditModal');
+        if (!modal) return;
+        const form = document.getElementById('inlineEditForm');
+        form.action = '/teacher/student/' + id + '/edit/';
+        document.getElementById('ie_first_name').value = fn;
+        document.getElementById('ie_last_name').value  = ln;
+        document.getElementById('ie_age').value        = age;
+        document.getElementById('ie_phone1').value     = ph1;
+        document.getElementById('ie_phone2').value     = ph2 || '';
+        new bootstrap.Modal(modal).show();
+    }
 
     document.querySelectorAll('.cell-att').forEach(cell => {
         cell.addEventListener('click', function() {

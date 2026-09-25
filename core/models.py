@@ -21,6 +21,7 @@ class Teacher(models.Model):
     phone = models.CharField(max_length=20, blank=True, null=True)
     generated_login = models.CharField(max_length=50)
     generated_password = models.CharField(max_length=50)
+    can_edit_students = models.BooleanField(default=False, help_text="O'qituvchiga o'quvchilarni tahrirlash ruxsati")
 
     def __str__(self):
         return f"{self.first_name} {self.last_name}"
@@ -44,13 +45,14 @@ class TimeSlot(models.Model):
 class Student(models.Model):
     first_name = models.CharField(max_length=100, validators=[validate_latin_only])
     last_name = models.CharField(max_length=100, validators=[validate_latin_only])
-    age = models.IntegerField()
+    age = models.IntegerField(blank=True, null=True)
     phone_1 = models.CharField(max_length=20)
     phone_2 = models.CharField(max_length=20, blank=True, null=True)
     payment_rate = models.IntegerField(default=0, help_text="Oylik to'lov summasi")
     time_slot = models.ForeignKey(TimeSlot, on_delete=models.SET_NULL, null=True, related_name='students')
     joined_date = models.DateField(auto_now_add=True)
     is_active = models.BooleanField(default=True)
+    photo = models.ImageField(upload_to='students/photos/', blank=True, null=True, help_text="O'quvchi rasmi (ixtiyoriy)")
 
     def __str__(self):
         return f"{self.first_name} {self.last_name}"
@@ -120,3 +122,16 @@ class MonthlyPayment(models.Model):
 
     def __str__(self):
         return f"{self.student} - {self.month} ({self.amount_paid})"
+
+class Message(models.Model):
+    sender = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='sent_messages')
+    receiver = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='received_messages')
+    content = models.TextField()
+    timestamp = models.DateTimeField(auto_now_add=True)
+    is_read = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ['timestamp']
+
+    def __str__(self):
+        return f"From {self.sender} to {self.receiver} at {self.timestamp.strftime('%Y-%m-%d %H:%M')}"

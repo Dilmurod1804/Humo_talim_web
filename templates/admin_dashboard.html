@@ -239,9 +239,14 @@
                     <i class="bi bi-people-fill text-success"></i> O'qituvchilar
                     <span class="badge bg-success bg-opacity-10 text-success rounded-pill px-2 fs-6">{{ teachers|length }}</span>
                 </h4>
-                <a href="{% url 'admin_teacher_create' %}" class="btn btn-success fw-semibold px-3 py-2 d-flex align-items-center gap-1 shadow-sm">
-                    <i class="bi bi-person-plus-fill"></i> Qo'shish
-                </a>
+                <div class="d-flex gap-2">
+                    <a href="{% url 'admin_chat_list' %}" class="btn btn-outline-primary fw-semibold px-3 py-2 d-flex align-items-center gap-1 shadow-sm">
+                        <i class="bi bi-chat-dots-fill"></i> Chat
+                    </a>
+                    <a href="{% url 'admin_teacher_create' %}" class="btn btn-success fw-semibold px-3 py-2 d-flex align-items-center gap-1 shadow-sm">
+                        <i class="bi bi-person-plus-fill"></i> Qo'shish
+                    </a>
+                </div>
             </div>
 
             <div class="p-3">
@@ -270,9 +275,18 @@
                             <span class="text-muted">Login:</span>
                             <strong class="text-primary">{{ teacher.generated_login }}</strong>
                         </div>
-                        <div class="d-flex justify-content-between">
+                        <div class="d-flex justify-content-between mb-2">
                             <span class="text-muted">Parol:</span>
                             <strong class="text-danger">{{ teacher.generated_password }}</strong>
+                        </div>
+                        <div class="d-flex justify-content-between align-items-center pt-2 border-top">
+                            <span class="text-muted small">Tahrirlash ruxsati:</span>
+                            <form action="{% url 'admin_teacher_toggle_edit' teacher.id %}" method="post" class="m-0 p-0">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-sm {% if teacher.can_edit_students %}btn-success{% else %}btn-outline-secondary{% endif %} rounded-pill px-2 py-0" style="font-size:0.75rem;">
+                                    {% if teacher.can_edit_students %}Yoqilgan{% else %}O'chirilgan{% endif %}
+                                </button>
+                            </form>
                         </div>
                     </div>
                 </div>

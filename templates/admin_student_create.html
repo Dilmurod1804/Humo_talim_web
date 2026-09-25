@@ -15,7 +15,7 @@
                 </div>
             </div>
 
-            <form method="post" class="row g-3">
+            <form method="post" class="row g-3" enctype="multipart/form-data">
                 {% csrf_token %}
                 <div class="col-12">
                     <div class="alert alert-info py-2 px-3 small rounded-3 mb-0" style="background:rgba(99,102,241,0.12); border:1px solid rgba(99,102,241,0.25); color:#4338ca;">
@@ -31,10 +31,13 @@
                     <input type="text" name="last_name" class="form-control" placeholder="Masalan: Aliyev" value="{{ last_name_val|default:'' }}" required>
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label fw-semibold text-muted small">Yoshi *</label>
-                    <input type="number" name="age" class="form-control" placeholder="15" value="{{ age_val|default:'' }}" required>
+                    <label class="form-label fw-semibold text-muted small">Yoshi (ixtiyoriy)</label>
+                    <input type="number" name="age" class="form-control" placeholder="15" value="{{ age_val|default:'' }}">
                 </div>
-                <div class="col-md-8"></div>
+                <div class="col-md-8">
+                    <label class="form-label fw-semibold text-muted small">Rasm (ixtiyoriy)</label>
+                    <input type="file" name="photo" class="form-control" accept="image/*">
+                </div>
                 
                 <div class="col-md-6">
                     <label class="form-label fw-semibold text-muted small">Telefon 1 *</label>
