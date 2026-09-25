@@ -17,32 +17,37 @@
 
             <form method="post" class="row g-3">
                 {% csrf_token %}
-                <div class="col-md-6">
-                    <label class="form-label fw-semibold text-muted small">Ism *</label>
-                    <input type="text" name="first_name" class="form-control" placeholder="Ali" required>
+                <div class="col-12">
+                    <div class="alert alert-info py-2 px-3 small rounded-3 mb-0" style="background:rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.25); color:#065f46;">
+                        <i class="bi bi-info-circle-fill me-1"></i> Iltimos, ma'lumotlarni faqat <b>Lotin alifbosida</b> kiriting (Kirill harflari qabul qilinmaydi).
+                    </div>
                 </div>
                 <div class="col-md-6">
-                    <label class="form-label fw-semibold text-muted small">Familiya *</label>
-                    <input type="text" name="last_name" class="form-control" placeholder="Valiyev" required>
+                    <label class="form-label fw-semibold text-muted small">Ism (Lotin) *</label>
+                    <input type="text" name="first_name" class="form-control" placeholder="Masalan: Ali" value="{{ first_name_val|default:'' }}" required>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label fw-semibold text-muted small">Familiya (Lotin) *</label>
+                    <input type="text" name="last_name" class="form-control" placeholder="Masalan: Valiyev" value="{{ last_name_val|default:'' }}" required>
                 </div>
                 <div class="col-md-4">
                     <label class="form-label fw-semibold text-muted small">Yoshi *</label>
-                    <input type="number" name="age" class="form-control" placeholder="15" required>
+                    <input type="number" name="age" class="form-control" placeholder="15" value="{{ age_val|default:'' }}" required>
                 </div>
                 <div class="col-md-8"></div>
                 
                 <div class="col-md-6">
                     <label class="form-label fw-semibold text-muted small">Telefon 1 *</label>
-                    <input type="text" name="phone_1" class="form-control" placeholder="+998901234567" required>
+                    <input type="text" name="phone_1" class="form-control" placeholder="+998901234567" value="{{ phone_1_val|default:'' }}" required>
                 </div>
                 <div class="col-md-6">
                     <label class="form-label fw-semibold text-muted small">Telefon 2 (Ixtiyoriy)</label>
-                    <input type="text" name="phone_2" class="form-control" placeholder="+998901234567">
+                    <input type="text" name="phone_2" class="form-control" placeholder="+998901234567" value="{{ phone_2_val|default:'' }}">
                 </div>
                 
                 <div class="col-12 mt-4">
-                    <button type="submit" class="btn w-100 py-2 fw-bold text-white" style="background:#667eea; border:none; border-radius:10px;">
-                        Saqlash va Qo'shish
+                    <button type="submit" class="btn w-100 py-2 fw-bold text-white shadow-sm" style="background:linear-gradient(135deg, #10b981, #059669); border:none; border-radius:12px;">
+                        <i class="bi bi-person-check-fill me-1"></i> Saqlash va Qo'shish
                     </button>
                 </div>
             </form>

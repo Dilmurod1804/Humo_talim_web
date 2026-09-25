@@ -105,6 +105,9 @@ def _admin_only(request):
     return request.session.get('admin_authenticated')
 
 
+from django.contrib import messages
+from .validators import contains_cyrillic
+
 @admin_required
 def admin_dashboard(request):
     if not _admin_only(request):
@@ -114,7 +117,6 @@ def admin_dashboard(request):
     search_results = []
     
     if query:
-        # Django Q obyekti yordamida ism va familiya bo'yicha icontains qidiruv
         words = query.split()
         q_filter = Q()
         for w in words:
@@ -142,8 +144,15 @@ def admin_group_create(request):
     if request.method == 'POST':
         name = request.POST.get('name', '').strip()
         teacher_id = request.POST.get('teacher_id')
+        
+        if contains_cyrillic(name):
+            messages.error(request, "Guruh nomida faqat lotin alifbosidagi harflardan foydalaning (Kirill harflari taqiqlangan)!")
+            teachers = Teacher.objects.all()
+            return render(request, 'admin_group_create.html', {'teachers': teachers, 'name_val': name})
+            
         teacher = get_object_or_404(Teacher, id=teacher_id) if teacher_id else None
         Group.objects.create(name=name, teacher=teacher)
+        messages.success(request, f"'{name}' guruhi muvaffaqiyatli yaratildi.")
         return redirect('admin_dashboard')
     teachers = Teacher.objects.all()
     return render(request, 'admin_group_create.html', {'teachers': teachers})
@@ -171,6 +180,7 @@ def admin_group_delete(request, id):
                     time_slot_id=None
                 )
         group.delete()
+        messages.success(request, f"'{group.name}' guruhi o'chirildi va o'quvchilar arxivlandi.")
         return redirect('admin_dashboard')
     return redirect('admin_dashboard')
 
@@ -185,6 +195,7 @@ def admin_teacher_delete(request, id):
         teacher.delete()
         if user:
             user.delete()
+        messages.success(request, f"O'qituvchi o'chirildi.")
         return redirect('admin_dashboard')
     return redirect('admin_dashboard')
 
@@ -197,6 +208,7 @@ def admin_timeslot_delete(request, id):
     group_id = timeslot.group.id
     if request.method == 'POST':
         timeslot.delete()
+        messages.success(request, "Dars vaqti o'chirildi.")
     return redirect('admin_group_detail', id=group_id)
 
 
@@ -210,6 +222,11 @@ def admin_group_detail(request, id):
         days = request.POST.get('days', '').strip()
         start_time = request.POST.get('start_time', '').strip()
         end_time = request.POST.get('end_time', '').strip()
+        
+        if contains_cyrillic(days):
+            messages.error(request, "Dars kunlarida faqat lotin alifbosidagi harflardan foydalaning!")
+            return redirect('admin_group_detail', id=group.id)
+            
         if days and start_time and end_time:
             TimeSlot.objects.create(
                 group=group, 
@@ -217,6 +234,7 @@ def admin_group_detail(request, id):
                 start_time=start_time, 
                 end_time=end_time
             )
+            messages.success(request, "Yangi dars vaqti muvaffaqiyatli qo'shildi.")
         return redirect('admin_group_detail', id=group.id)
 
     # Jurnal oynasi (Oy bo'yicha)
@@ -228,7 +246,23 @@ def admin_group_detail(request, id):
         req_month = f"{y}-{m:02d}"
 
     num_days = calendar.monthrange(y, m)[1]
-    days_range = list(range(1, num_days + 1))
+    weekdays_uz = ['Du', 'Se', 'Chor', 'Pay', 'Ju', 'Sha', 'Yak']
+    today_date = date.today()
+
+    days_data = []
+    for d in range(1, num_days + 1):
+        cur_d = date(y, m, d)
+        w_idx = cur_d.weekday()
+        days_data.append({
+            'day': d,
+            'weekday_idx': w_idx,
+            'date_str': cur_d.strftime('%Y-%m-%d'),
+            'display_day': f"{d:02d}",
+            'display_date': cur_d.strftime('%d.%m'),
+            'weekday': weekdays_uz[w_idx],
+            'is_weekend': w_idx in (5, 6),
+            'is_today': cur_d == today_date,
+        })
     
     timeslots = group.time_slots.prefetch_related('students')
 
@@ -240,7 +274,6 @@ def admin_group_detail(request, id):
 
     attendance_map = {sid: {} for sid in student_ids}
     if student_ids:
-        # Oyning boshi va oxiri
         start_d = date(y, m, 1)
         end_d = date(y, m, num_days)
         attendances = Attendance.objects.filter(student_id__in=student_ids, date__range=(start_d, end_d))
@@ -254,17 +287,29 @@ def admin_group_detail(request, id):
         for p in payments:
             payment_map[p.student_id] = p.amount_paid
 
-    # Annotate students
+    # Annotate students with smart schedule attendance matrix
+    from .schedule_helper import parse_schedule_weekdays
     for ts in timeslots:
+        ts_weekdays = parse_schedule_weekdays(ts.days)
         for s in ts.students.all():
-            s.attendance_matrix = [attendance_map.get(s.id, {}).get(d, '') for d in days_range]
+            matrix = []
+            for d in days_data:
+                is_lesson = (d['weekday_idx'] in ts_weekdays)
+                st = attendance_map.get(s.id, {}).get(d['day'], '')
+                matrix.append({
+                    'day': d['day'],
+                    'date_str': d['date_str'],
+                    'is_lesson': is_lesson,
+                    'status': st,
+                })
+            s.attendance_matrix = matrix
             s.paid_amount = payment_map.get(s.id, 0)
 
     return render(request, 'admin_group_detail.html', {
         'group': group,
         'timeslots': timeslots,
         'current_month': req_month,
-        'days_range': days_range,
+        'days_data': days_data,
     })
 
 
@@ -276,6 +321,14 @@ def admin_teacher_create(request):
         first_name = request.POST.get('first_name', '').strip()
         last_name = request.POST.get('last_name', '').strip()
         phone = request.POST.get('phone', '').strip()
+
+        if contains_cyrillic(first_name) or contains_cyrillic(last_name):
+            messages.error(request, "Ism va familiyada faqat lotin alifbosidan foydalaning (Kirill harflari taqiqlangan)!")
+            return render(request, 'admin_teacher_create.html', {
+                'first_name_val': first_name,
+                'last_name_val': last_name,
+                'phone_val': phone,
+            })
 
         login_str = f"t_{first_name.lower()[:3]}_{random.randint(100, 999)}"
         pwd_str = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
@@ -289,6 +342,7 @@ def admin_teacher_create(request):
             generated_login=login_str,
             generated_password=pwd_str,
         )
+        messages.success(request, f"O'qituvchi '{first_name} {last_name}' muvaffaqiyatli yaratildi.")
         return redirect('admin_dashboard')
     return render(request, 'admin_teacher_create.html')
 
@@ -310,7 +364,6 @@ def admin_deleted_student_restore(request, id):
         timeslot_id = request.POST.get('timeslot_id')
         if timeslot_id:
             ts = get_object_or_404(TimeSlot, id=timeslot_id)
-            # Recreate student if fields are present, else fallback
             Student.objects.create(
                 first_name=ds.first_name or ds.student_name.split()[0] if ds.student_name else "Ism",
                 last_name=ds.last_name or (ds.student_name.split()[1] if len(ds.student_name.split()) > 1 else ""),
@@ -320,6 +373,7 @@ def admin_deleted_student_restore(request, id):
                 time_slot=ts
             )
             ds.delete()
+            messages.success(request, "O'quvchi guruhga qayta tiklandi.")
     return redirect('admin_deleted_students')
 
 @admin_required
@@ -329,6 +383,7 @@ def admin_deleted_student_delete_permanent(request, id):
     if request.method == 'POST':
         ds = get_object_or_404(DeletedStudent, id=id)
         ds.delete()
+        messages.success(request, "O'quvchi arxivdan butunlay o'chirildi.")
     return redirect('admin_deleted_students')
 
 
@@ -343,6 +398,18 @@ def admin_student_create(request, timeslot_id):
         age = request.POST.get('age', '').strip()
         phone_1 = request.POST.get('phone_1', '').strip()
         phone_2 = request.POST.get('phone_2', '').strip()
+
+        if contains_cyrillic(first_name) or contains_cyrillic(last_name):
+            messages.error(request, "Ism va familiyada faqat lotin alifbosidan foydalaning (Kirill harflari taqiqlangan)!")
+            return render(request, 'admin_student_create.html', {
+                'timeslot': timeslot,
+                'first_name_val': first_name,
+                'last_name_val': last_name,
+                'age_val': age,
+                'phone_1_val': phone_1,
+                'phone_2_val': phone_2,
+            })
+
         if first_name and last_name and age and phone_1:
             Student.objects.create(
                 first_name=first_name,
@@ -352,6 +419,7 @@ def admin_student_create(request, timeslot_id):
                 phone_2=phone_2,
                 time_slot=timeslot
             )
+            messages.success(request, f"O'quvchi '{first_name} {last_name}' muvaffaqiyatli qo'shildi.")
             return redirect('admin_group_detail', id=timeslot.group.id)
     return render(request, 'admin_student_create.html', {'timeslot': timeslot})
 
@@ -362,13 +430,18 @@ def admin_student_delete(request, id):
         return redirect('home')
     student = get_object_or_404(Student, id=id)
     if request.method == 'POST':
+        reason = request.POST.get('reason', '').strip()
+        if contains_cyrillic(reason):
+            messages.error(request, "O'chirish sababida faqat lotin harflaridan foydalaning!")
+            reason = "Admin tomonidan o'chirildi"
+
         group_id = student.time_slot.group.id if student.time_slot else None
         
         DeletedStudent.objects.create(
             student_name=f"{student.first_name} {student.last_name}",
             phones=f"{student.phone_1}, {student.phone_2 or ''}".rstrip(', '),
             group_name=student.time_slot.group.name if student.time_slot else "Noma'lum",
-            reason="Admin tomonidan o'chirildi",
+            reason=reason or "Admin tomonidan o'chirildi",
             first_name=student.first_name,
             last_name=student.last_name,
             age=student.age,
@@ -377,6 +450,7 @@ def admin_student_delete(request, id):
             time_slot_id=student.time_slot.id if student.time_slot else None
         )
         student.delete()
+        messages.success(request, f"O'quvchi arxivga o'tkazildi.")
         next_url = request.POST.get('next') or request.GET.get('next')
         if next_url:
             return redirect(next_url)
@@ -502,30 +576,34 @@ def admin_temp_student_delete(request, id):
 
 @admin_required
 def admin_attendance_mark(request):
-    """Admin uchun davomat belgilash (AJAX endpoint)."""
+    """Admin uchun davomat belgilash (AJAX endpoint). Toggle: present -> absent -> none"""
     if not _admin_only(request):
         return JsonResponse({'status': 'error', 'msg': 'Ruxsat yo\'q'}, status=403)
     if request.method != 'POST':
         return JsonResponse({'status': 'error', 'msg': 'Noto\'g\'ri so\'rov'}, status=400)
 
     student_id = request.POST.get('student_id')
-    status_val = request.POST.get('status')
+    status_val = request.POST.get('status', '').strip().lower()
     req_date = request.POST.get('date', date.today().isoformat())
 
-    if status_val not in ('present', 'absent'):
-        # For backwards compatibility or mapping if needed
-        if status_val in ('green', 'blue'): status_val = 'present'
-        elif status_val in ('red', 'yellow'): status_val = 'absent'
-        else: return JsonResponse({'status': 'error', 'msg': 'Noto\'g\'ri status'}, status=400)
+    # Map backwards compatible status values
+    if status_val in ('green', 'blue'):
+        status_val = 'present'
+    elif status_val in ('red', 'yellow'):
+        status_val = 'absent'
 
     student = get_object_or_404(Student, id=student_id)
     
-    if status_val:
+    if status_val in ('present', 'absent'):
         att, _ = Attendance.objects.update_or_create(
             student=student, date=req_date,
             defaults={'status': status_val},
         )
-    return JsonResponse({'status': 'success', 'attendance': status_val})
+        return JsonResponse({'status': 'success', 'attendance': status_val})
+    else:
+        # Bo'shatish yoki o'chirish holati
+        Attendance.objects.filter(student=student, date=req_date).delete()
+        return JsonResponse({'status': 'success', 'attendance': ''})
 
 @admin_required
 def payment_mark(request):
@@ -585,7 +663,23 @@ def teacher_dashboard(request):
         req_month = f"{y}-{m:02d}"
 
     num_days = calendar.monthrange(y, m)[1]
-    days_range = list(range(1, num_days + 1))
+    weekdays_uz = ['Du', 'Se', 'Chor', 'Pay', 'Ju', 'Sha', 'Yak']
+    today_date = date.today()
+
+    days_data = []
+    for d in range(1, num_days + 1):
+        cur_d = date(y, m, d)
+        w_idx = cur_d.weekday()
+        days_data.append({
+            'day': d,
+            'weekday_idx': w_idx,
+            'date_str': cur_d.strftime('%Y-%m-%d'),
+            'display_day': f"{d:02d}",
+            'display_date': cur_d.strftime('%d.%m'),
+            'weekday': weekdays_uz[w_idx],
+            'is_weekend': w_idx in (5, 6),
+            'is_today': cur_d == today_date,
+        })
         
     student_ids = []
     for g in groups:
@@ -608,40 +702,62 @@ def teacher_dashboard(request):
         for p in payments:
             payment_map[p.student_id] = p.amount_paid
 
-    # Annotate students
+    # Annotate students with smart schedule attendance matrix
+    from .schedule_helper import parse_schedule_weekdays
     for g in groups:
         for ts in g.time_slots.all():
+            ts_weekdays = parse_schedule_weekdays(ts.days)
             for s in ts.students.all():
-                s.attendance_matrix = [attendance_map.get(s.id, {}).get(d, '') for d in days_range]
+                matrix = []
+                for d in days_data:
+                    is_lesson = (d['weekday_idx'] in ts_weekdays)
+                    st = attendance_map.get(s.id, {}).get(d['day'], '')
+                    matrix.append({
+                        'day': d['day'],
+                        'date_str': d['date_str'],
+                        'is_lesson': is_lesson,
+                        'status': st,
+                    })
+                s.attendance_matrix = matrix
                 s.paid_amount = payment_map.get(s.id, 0)
 
     return render(request, 'teacher_dashboard.html', {
         'teacher': teacher,
         'groups': groups,
         'current_month': req_month,
-        'days_range': days_range,
+        'days_data': days_data,
     })
 
 
 @login_required(login_url='/teacher/login/')
 def teacher_attendance_mark(request):
+    """O'qituvchi uchun davomat belgilash (AJAX). Toggle: present -> absent -> none"""
     if request.user.role != 'teacher' or request.method != 'POST':
         return JsonResponse({'status': 'error', 'msg': 'Bad request'}, status=400)
     student_id = request.POST.get('student_id')
-    status = request.POST.get('status')
+    status = request.POST.get('status', '').strip().lower()
     req_date = request.POST.get('date', date.today().isoformat())
 
-    if status not in ('present', 'absent'):
-        if status in ('green', 'blue'): status = 'present'
-        elif status in ('red', 'yellow'): status = 'absent'
-        else: return JsonResponse({'status': 'error', 'msg': 'Invalid status'}, status=400)
+    if status in ('green', 'blue'):
+        status = 'present'
+    elif status in ('red', 'yellow'):
+        status = 'absent'
 
     student = get_object_or_404(Student, id=student_id)
-    att, _ = Attendance.objects.update_or_create(
-        student=student, date=req_date,
-        defaults={'status': status},
-    )
-    return JsonResponse({'status': 'success', 'attendance': att.status})
+    # Check if student belongs to this teacher
+    if not (student.time_slot and student.time_slot.group and student.time_slot.group.teacher and student.time_slot.group.teacher.user == request.user):
+        return JsonResponse({'status': 'error', 'msg': 'Ruxsat yo\'q'}, status=403)
+
+    if status in ('present', 'absent'):
+        att, _ = Attendance.objects.update_or_create(
+            student=student, date=req_date,
+            defaults={'status': status},
+        )
+        return JsonResponse({'status': 'success', 'attendance': att.status})
+    else:
+        # Bo'shatish yoki o'chirish holati
+        Attendance.objects.filter(student=student, date=req_date).delete()
+        return JsonResponse({'status': 'success', 'attendance': ''})
 
 
 @login_required(login_url='/teacher/login/')
@@ -650,7 +766,7 @@ def teacher_student_create(request, timeslot_id):
         return redirect('home')
     timeslot = get_object_or_404(TimeSlot, id=timeslot_id)
     # Check if timeslot belongs to this teacher
-    if timeslot.group.teacher.user != request.user:
+    if not (timeslot.group and timeslot.group.teacher and timeslot.group.teacher.user == request.user):
         return redirect('teacher_dashboard')
 
     if request.method == 'POST':
@@ -659,6 +775,18 @@ def teacher_student_create(request, timeslot_id):
         age = request.POST.get('age', '').strip()
         phone_1 = request.POST.get('phone_1', '').strip()
         phone_2 = request.POST.get('phone_2', '').strip()
+
+        if contains_cyrillic(first_name) or contains_cyrillic(last_name):
+            messages.error(request, "Ism va familiyada faqat lotin alifbosidan foydalaning (Kirill harflari taqiqlangan)!")
+            return render(request, 'teacher_student_create.html', {
+                'timeslot': timeslot,
+                'first_name_val': first_name,
+                'last_name_val': last_name,
+                'age_val': age,
+                'phone_1_val': phone_1,
+                'phone_2_val': phone_2,
+            })
+
         if first_name and last_name and age and phone_1:
             Student.objects.create(
                 first_name=first_name,
@@ -668,29 +796,34 @@ def teacher_student_create(request, timeslot_id):
                 phone_2=phone_2,
                 time_slot=timeslot
             )
+            messages.success(request, f"O'quvchi '{first_name} {last_name}' muvaffaqiyatli qo'shildi.")
             return redirect('teacher_dashboard')
-    # Actually teachers can just use a modal in their dashboard or a separate page.
-    # We will use the same admin_student_create template for simplicity, just pass a flag or separate template
     return render(request, 'teacher_student_create.html', {'timeslot': timeslot})
 
 
 @login_required(login_url='/teacher/login/')
 def teacher_student_delete(request, id):
+    """O'qituvchi o'z guruhidagi o'quvchini xavfsiz o'chirib, arxivga yuborishi."""
     if request.user.role != 'teacher':
         return redirect('home')
     student = get_object_or_404(Student, id=id)
+    
     # Ensure student belongs to teacher
-    if student.time_slot and student.time_slot.group.teacher.user != request.user:
+    if not (student.time_slot and student.time_slot.group and student.time_slot.group.teacher and student.time_slot.group.teacher.user == request.user):
         return redirect('teacher_dashboard')
         
     if request.method == 'POST':
         reason = request.POST.get('reason', '').strip()
-        group_name = student.time_slot.group.name if student.time_slot else "Noma'lum"
+        if contains_cyrillic(reason):
+            messages.error(request, "O'chirish sababida faqat lotin harflaridan foydalaning!")
+            reason = "O'qituvchi tomonidan chiqarildi"
+            
+        group_name = student.time_slot.group.name if (student.time_slot and student.time_slot.group) else "Noma'lum"
         DeletedStudent.objects.create(
             student_name=f"{student.first_name} {student.last_name}",
             phones=f"{student.phone_1}, {student.phone_2 or ''}".rstrip(', '),
             group_name=group_name,
-            reason=reason,
+            reason=reason or "O'qituvchi tomonidan chiqarildi",
             first_name=student.first_name,
             last_name=student.last_name,
             age=student.age,
@@ -699,8 +832,9 @@ def teacher_student_delete(request, id):
             time_slot_id=student.time_slot.id if student.time_slot else None
         )
         student.delete()
+        messages.success(request, f"O'quvchi arxivga o'tkazildi.")
         return redirect('teacher_dashboard')
-    return render(request, 'teacher_student_delete.html', {'student': student})
+    return redirect('teacher_dashboard')
 
 
 # ─────────────────────────────────────────────
@@ -712,3 +846,4 @@ def parent_view(request):
         'time_slots__students__attendances'
     ).select_related('teacher')
     return render(request, 'parent_view.html', {'groups': groups})
+

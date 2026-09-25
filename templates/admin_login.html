@@ -1,67 +1,92 @@
 {% extends 'base.html' %}
 {% load static %}
 
-{% block title %}Admin Paneliga Kirish - HUMO{% endblock %}
+{% block title %}Admin Kirish - HUMO O'quv Markazi{% endblock %}
 
 {% block content %}
-<div class="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-    <div class="max-w-md w-full space-y-8 bg-white p-10 rounded-xl shadow-xl">
-        <div>
-            <h2 class="mt-6 text-center text-3xl font-extrabold text-gray-900">
-                Admin Paneliga Kirish
-            </h2>
-            <p class="mt-2 text-center text-sm text-gray-600">
-                HUMO O'quv Markazi
-            </p>
+<div class="auth-wrapper">
+    <!-- Floating Background Glass Orbs -->
+    <div class="auth-bg-blob auth-blob-1"></div>
+    <div class="auth-bg-blob auth-blob-2"></div>
+    <div class="auth-bg-blob auth-blob-3"></div>
+
+    <div class="glass-auth-card text-center">
+        <!-- Admin Badge Icon -->
+        <div class="auth-icon-badge auth-icon-admin">
+            <i class="bi bi-shield-lock-fill"></i>
         </div>
-        <form class="mt-8 space-y-6" action="{% url 'admin_login' %}" method="POST">
+
+        <h2 class="auth-title">Admin Boshqaruvi</h2>
+        <p class="auth-subtitle">HUMO markazi tizimiga kirish uchun ma'lumotlarni kiriting</p>
+
+        {% if error %}
+        <div class="alert alert-danger d-flex align-items-center gap-2 text-start mb-4 rounded-4 shadow-sm border-0"
+             style="background: rgba(254, 226, 226, 0.9); color: #991b1b; backdrop-filter: blur(8px);">
+            <i class="bi bi-exclamation-octagon-fill fs-5 flex-shrink-0"></i>
+            <div class="small fw-semibold">{{ error }}</div>
+        </div>
+        {% endif %}
+
+        <form action="{% url 'admin_login' %}" method="POST" autocomplete="off">
             {% csrf_token %}
-            
-            {% if error %}
-            <div class="rounded-md bg-red-50 p-4 mb-4">
-                <div class="flex">
-                    <div class="flex-shrink-0">
-                        <svg class="h-5 w-5 text-red-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
-                        </svg>
-                    </div>
-                    <div class="ml-3">
-                        <h3 class="text-sm font-medium text-red-800">
-                            Xatolik
-                        </h3>
-                        <div class="mt-2 text-sm text-red-700">
-                            <p>{{ error }}</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            {% endif %}
 
-            <div class="rounded-md shadow-sm -space-y-px">
-                <div>
-                    <label for="login" class="sr-only">Login</label>
-                    <input id="login" name="login" type="text" required class="appearance-none rounded-none relative block w-full px-3 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm" placeholder="Login">
-                </div>
-                <div>
-                    <label for="password" class="sr-only">Parol</label>
-                    <input id="password" name="password" type="password" required class="appearance-none rounded-none relative block w-full px-3 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm" placeholder="Parol">
+            <div class="auth-input-group">
+                <label for="admin_login_input">Admin Login</label>
+                <div class="auth-input-wrapper">
+                    <i class="bi bi-person-badge-fill auth-input-icon"></i>
+                    <input type="text" id="admin_login_input" name="login" class="auth-input" 
+                           placeholder="teacher" required autofocus>
                 </div>
             </div>
 
-            <div>
-                <button type="submit" class="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition duration-150 ease-in-out">
-                    <span class="absolute left-0 inset-y-0 flex items-center pl-3">
-                        <svg class="h-5 w-5 text-blue-500 group-hover:text-blue-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                            <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd" />
-                        </svg>
-                    </span>
-                    Kirish
-                </button>
+            <div class="auth-input-group">
+                <label for="admin_pwd_input">Parol</label>
+                <div class="auth-input-wrapper">
+                    <i class="bi bi-key-fill auth-input-icon"></i>
+                    <input type="password" id="admin_pwd_input" name="password" class="auth-input" 
+                           placeholder="••••••••" required>
+                    <button type="button" class="auth-toggle-pwd" onclick="togglePassword('admin_pwd_input', this)" title="Parolni ko'rsatish">
+                        <i class="bi bi-eye-fill"></i>
+                    </button>
+                </div>
             </div>
+
+            <button type="submit" class="auth-submit-btn auth-btn-admin">
+                <i class="bi bi-box-arrow-in-right fs-5"></i>
+                <span>Tizimga Kirish</span>
+            </button>
         </form>
-        <div class="text-center mt-4">
-            <a href="{% url 'home' %}" class="text-sm font-medium text-blue-600 hover:text-blue-500">Asosiy sahifaga qaytish</a>
+
+        <div class="auth-footer-divider">
+            <span>yoki</span>
+        </div>
+
+        <div class="d-flex flex-column gap-2">
+            <a href="{% url 'teacher_login' %}" class="auth-link-btn">
+                <i class="bi bi-person-workspace text-success"></i>
+                <span>O'qituvchi sifatida kirish</span>
+            </a>
+            <a href="{% url 'home' %}" class="auth-link-btn">
+                <i class="bi bi-house-door-fill text-primary"></i>
+                <span>Asosiy sahifaga qaytish</span>
+            </a>
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function togglePassword(inputId, btn) {
+    const input = document.getElementById(inputId);
+    const icon = btn.querySelector('i');
+    if (input.type === 'password') {
+        input.type = 'text';
+        icon.className = 'bi bi-eye-slash-fill';
+    } else {
+        input.type = 'password';
+        icon.className = 'bi bi-eye-fill';
+    }
+}
+</script>
 {% endblock %}

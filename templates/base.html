@@ -18,60 +18,105 @@
 </head>
 <body>
 
-<!-- ═══════════════════════ NAVBAR ═══════════════════════ -->
-<nav class="navbar navbar-dark glass-nav fixed-top">
-    <div class="container-fluid px-2 px-sm-3 px-md-4 d-flex align-items-center gap-2 gap-sm-3">
+<!-- ═══════════════════════ NAVBAR & QUICK NAVIGATION ═══════════════════════ -->
+<nav class="navbar navbar-dark glass-nav fixed-top py-2">
+    <div class="container-fluid px-2 px-sm-3 px-md-4 d-flex flex-wrap align-items-center justify-content-between gap-2">
 
-        <!-- Back button (hidden on root pages) -->
-        {% if request.path != '/' and request.path != '/admin-login/' and request.path != '/teacher/login/' and request.path != '/parent/view/' %}
-        <button onclick="history.back()"
-                class="btn btn-sm rounded-pill px-2 px-sm-3 d-flex align-items-center gap-1 flex-shrink-0"
-                style="background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.35);color:#fff;font-weight:600;font-size:.82rem;backdrop-filter:blur(6px);">
-            <i class="bi bi-arrow-left"></i> <span class="d-none d-sm-inline">Ortga</span>
-        </button>
-        {% endif %}
+        <!-- Left: Brand Logo -->
+        <div class="d-flex align-items-center gap-2">
+            {% if request.path != '/' and request.path != '/admin-login/' and request.path != '/teacher/login/' %}
+            <button onclick="history.back()"
+                    class="btn btn-sm rounded-pill px-2 px-sm-3 d-flex align-items-center gap-1 flex-shrink-0"
+                    style="background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.25);color:#fff;font-weight:600;font-size:.8rem;backdrop-filter:blur(6px);">
+                <i class="bi bi-arrow-left"></i> <span class="d-none d-sm-inline">Ortga</span>
+            </button>
+            {% endif %}
 
-        <!-- Logo + Brand -->
-        <a class="navbar-brand d-flex align-items-center gap-2 me-auto" href="{% url 'home' %}"
-           style="letter-spacing:-.3px;">
-            <img src="{% static 'img/humo_logo.jpg' %}" alt="HUMO"
-                 style="height:34px;width:auto;border-radius:8px;object-fit:cover;box-shadow:0 2px 6px rgba(0,0,0,0.2);">
-            <span class="fw-bold" style="font-size:0.95rem;">HUMO <span class="d-none d-sm-inline">O'quv markazi</span></span>
-        </a>
+            <a class="navbar-brand d-flex align-items-center gap-2 me-2" href="{% url 'home' %}">
+                <img src="{% static 'img/humo_logo.jpg' %}" alt="HUMO"
+                     style="height:34px;width:auto;border-radius:8px;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.3);">
+                <span class="fw-bold fs-6">HUMO <span class="d-none d-md-inline opacity-75">O'quv Markazi</span></span>
+            </a>
+        </div>
 
-        <!-- Admin Auth Status -->
-        {% if request.session.admin_authenticated %}
-        <span class="user-chip d-none d-sm-flex align-items-center gap-2">
-            <i class="bi bi-shield-lock-fill text-warning"></i>
-            <span>Admin</span>
-        </span>
-        <a href="{% url 'admin_logout' %}"
-           class="btn btn-sm rounded-pill px-3 flex-shrink-0"
-           style="background:rgba(239,68,68,0.3);border:1px solid rgba(239,68,68,0.6);color:#fff;font-weight:600;font-size:.82rem;">
-            <i class="bi bi-box-arrow-right me-1"></i><span class="d-none d-sm-inline">Chiqish</span>
-        </a>
-        <!-- User info + logout for Teacher/other roles -->
-        {% elif user.is_authenticated %}
-        <span class="user-chip d-none d-md-flex align-items-center gap-2">
-            <i class="bi bi-person-circle"></i>
-            {{ user.get_full_name|default:user.username }}
-            <span class="badge ms-1 py-1 px-2"
-                  style="background:rgba(255,255,255,.25);font-size:.7rem;border-radius:20px;">
-                {{ user.role }}
+        <!-- Center: Quick Navigation Links (Tezkor o'tish tugmalari) -->
+        <div class="quick-nav-pills d-flex align-items-center gap-1 mx-auto my-1 my-md-0">
+            <a href="{% url 'home' %}" class="quick-nav-link {% if request.path == '/' %}active{% endif %}">
+                <i class="bi bi-house-door-fill"></i><span>Asosiy</span>
+            </a>
+
+            <a href="{% url 'admin_dashboard' %}" class="quick-nav-link {% if '/admin/' in request.path and '/temp-students' not in request.path and '/deleted-students' not in request.path %}active{% endif %}">
+                <i class="bi bi-grid-1x2-fill"></i><span>Admin Panel</span>
+            </a>
+
+            <a href="{% url 'teacher_dashboard' %}" class="quick-nav-link {% if '/teacher/' in request.path %}active{% endif %}">
+                <i class="bi bi-person-workspace"></i><span>O'qituvchi</span>
+            </a>
+
+            <a href="{% url 'admin_temp_students' %}" class="quick-nav-link {% if 'temp-students' in request.path %}active{% endif %}">
+                <i class="bi bi-hourglass-split"></i><span>Vaqtinchalik</span>
+            </a>
+
+            <a href="{% url 'admin_deleted_students' %}" class="quick-nav-link {% if 'deleted-students' in request.path %}active{% endif %}">
+                <i class="bi bi-archive-fill"></i><span>Arxiv</span>
+            </a>
+
+            <a href="{% url 'parent_view' %}" class="quick-nav-link {% if '/parent/' in request.path %}active{% endif %}">
+                <i class="bi bi-eye-fill"></i><span>Ota-ona</span>
+            </a>
+        </div>
+
+        <!-- Right: Auth Status & Logout -->
+        <div class="d-flex align-items-center gap-2">
+            {% if request.session.admin_authenticated %}
+            <span class="user-chip d-none d-sm-flex align-items-center gap-1 py-1 px-3">
+                <i class="bi bi-shield-lock-fill text-warning"></i>
+                <span style="font-size:0.82rem;">Admin</span>
             </span>
-        </span>
-        <a href="{% url 'logout' %}"
-           class="btn btn-sm rounded-pill px-3 flex-shrink-0"
-           style="background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);color:#fff;font-weight:600;font-size:.82rem;">
-            <i class="bi bi-box-arrow-right me-1"></i><span class="d-none d-sm-inline">Chiqish</span>
-        </a>
-        {% endif %}
+            <a href="{% url 'admin_logout' %}"
+               class="btn btn-sm rounded-pill px-3"
+               style="background:rgba(239,68,68,0.25);border:1px solid rgba(239,68,68,0.5);color:#fff;font-weight:600;font-size:.8rem;">
+                <i class="bi bi-box-arrow-right me-1"></i>Chiqish
+            </a>
+            {% elif user.is_authenticated %}
+            <span class="user-chip d-none d-sm-flex align-items-center gap-1 py-1 px-3">
+                <i class="bi bi-person-circle text-info"></i>
+                <span style="font-size:0.82rem;">{{ user.username }}</span>
+            </span>
+            <a href="{% url 'logout' %}"
+               class="btn btn-sm rounded-pill px-3"
+               style="background:rgba(239,68,68,0.25);border:1px solid rgba(239,68,68,0.5);color:#fff;font-weight:600;font-size:.8rem;">
+                <i class="bi bi-box-arrow-right me-1"></i>Chiqish
+            </a>
+            {% else %}
+            <a href="{% url 'admin_login' %}" class="btn btn-sm rounded-pill px-3 text-white fw-semibold"
+               style="background:rgba(99,102,241,0.35); border:1px solid rgba(99,102,241,0.6); font-size:0.8rem;">
+                <i class="bi bi-lock-fill me-1"></i>Kirish
+            </a>
+            {% endif %}
+        </div>
 
     </div>
 </nav>
 <!-- ═══════════════════════════════════════════════════════ -->
 
-<div class="container-fluid px-2 px-sm-3 px-md-4" style="padding-top:80px;padding-bottom:60px;">
+<div class="container-fluid px-2 px-sm-3 px-md-4" style="padding-top:88px;padding-bottom:60px;">
+    <!-- Django Messages Alert -->
+    {% if messages %}
+    <div class="row justify-content-center mb-3">
+        <div class="col-12 col-lg-8">
+            {% for message in messages %}
+            <div class="alert alert-{% if message.tags == 'error' %}danger{% else %}{{ message.tags }}{% endif %} alert-dismissible fade show rounded-4 shadow-sm border-0 d-flex align-items-center gap-2" role="alert"
+                 style="backdrop-filter: blur(10px); background: {% if message.tags == 'error' %}rgba(254, 226, 226, 0.95){% else %}rgba(220, 252, 231, 0.95){% endif %};">
+                <i class="bi {% if message.tags == 'error' %}bi-exclamation-triangle-fill text-danger{% else %}bi-check-circle-fill text-success{% endif %} fs-5 flex-shrink-0"></i>
+                <div class="flex-grow-1 text-dark fw-semibold small">{{ message }}</div>
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Yopish"></button>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
     {% block content %}{% endblock %}
 </div>
 

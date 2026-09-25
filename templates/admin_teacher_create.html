@@ -13,14 +13,17 @@
             </div>
             <form method="post">
                 {% csrf_token %}
+                <div class="alert alert-info py-2 px-3 small rounded-3 mb-3" style="background:rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.25); color:#065f46;">
+                    <i class="bi bi-info-circle-fill me-1"></i> Iltimos, ism va familiyani faqat <b>Lotin alifbosida</b> kiriting.
+                </div>
                 <div class="row mb-3">
                     <div class="col-6">
-                        <label class="form-label fw-semibold small text-dark">Ism</label>
-                        <input type="text" name="first_name" class="form-control" placeholder="Aziz" required>
+                        <label class="form-label fw-semibold small text-dark">Ism (Lotin) *</label>
+                        <input type="text" name="first_name" class="form-control" placeholder="Masalan: Aziz" value="{{ first_name_val|default:'' }}" required>
                     </div>
                     <div class="col-6">
-                        <label class="form-label fw-semibold small text-dark">Familiya</label>
-                        <input type="text" name="last_name" class="form-control" placeholder="Rahimov" required>
+                        <label class="form-label fw-semibold small text-dark">Familiya (Lotin) *</label>
+                        <input type="text" name="last_name" class="form-control" placeholder="Masalan: Rahimov" value="{{ last_name_val|default:'' }}" required>
                     </div>
                 </div>
                 <div class="mb-4">
@@ -29,7 +32,7 @@
                         <span class="input-group-text bg-white" style="border:1.5px solid #e5e7eb;border-right:none;border-radius:10px 0 0 10px;">
                             <i class="bi bi-telephone text-muted"></i>
                         </span>
-                        <input type="text" name="phone" class="form-control" placeholder="+998 90 123 45 67"
+                        <input type="text" name="phone" class="form-control" placeholder="+998 90 123 45 67" value="{{ phone_val|default:'' }}"
                                style="border:1.5px solid #e5e7eb;border-left:none;border-radius:0 10px 10px 0;">
                     </div>
                 </div>

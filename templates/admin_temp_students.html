@@ -49,8 +49,15 @@
             </div>
         </div>
         {% if form.errors %}
-        <div class="alert alert-danger mt-3 mb-0 rounded-3 small" style="border:none; background:rgba(239,68,68,0.1); color:#dc2626;">
-            <i class="bi bi-exclamation-circle me-1"></i>Iltimos, barcha majburiy maydonlarni to'ldiring.
+        <div class="alert alert-danger mt-3 mb-0 rounded-4 small p-3" style="border:none; background:rgba(254,226,226,0.95); color:#991b1b; backdrop-filter:blur(8px);">
+            <div class="fw-bold mb-1"><i class="bi bi-exclamation-triangle-fill me-1"></i> Formada xatolik mavjud:</div>
+            <ul class="mb-0 ps-3">
+                {% for field, errors in form.errors.items %}
+                    {% for error in errors %}
+                        <li><b>{{ field|title }}:</b> {{ error }}</li>
+                    {% endfor %}
+                {% endfor %}
+            </ul>
         </div>
         {% endif %}
         <div class="mt-3">

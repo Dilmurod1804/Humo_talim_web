@@ -13,12 +13,15 @@
             </div>
             <form method="post">
                 {% csrf_token %}
+                <div class="alert alert-info py-2 px-3 small rounded-3 mb-3" style="background:rgba(99,102,241,0.12); border:1px solid rgba(99,102,241,0.25); color:#4338ca;">
+                    <i class="bi bi-info-circle-fill me-1"></i> Iltimos, guruh nomini faqat <b>Lotin alifbosida</b> kiriting.
+                </div>
                 <div class="mb-3">
-                    <label class="form-label fw-semibold small text-dark">Fan / Guruh Nomi</label>
-                    <input type="text" name="name" class="form-control" placeholder="Masalan: Ingliz tili (Beginner)" required>
+                    <label class="form-label fw-semibold small text-dark">Fan / Guruh Nomi (Lotin) *</label>
+                    <input type="text" name="name" class="form-control" placeholder="Masalan: Ingliz tili (Beginner)" value="{{ name_val|default:'' }}" required>
                 </div>
                 <div class="mb-4">
-                    <label class="form-label fw-semibold small text-dark">O'qituvchini Tanlang</label>
+                    <label class="form-label fw-semibold small text-dark">O'qituvchini Tanlang *</label>
                     <select name="teacher_id" class="form-select" required>
                         <option value="" disabled selected>Tanlang...</option>
                         {% for t in teachers %}
@@ -26,7 +29,7 @@
                         {% endfor %}
                     </select>
                 </div>
-                <button type="submit" class="btn btn-primary w-100 py-2 fw-bold" style="border-radius:10px;">
+                <button type="submit" class="btn btn-primary w-100 py-2 fw-bold" style="border-radius:12px; background:linear-gradient(135deg,#6366f1,#8b5cf6); border:none;">
                     <i class="bi bi-check-circle-fill me-2"></i>Saqlash
                 </button>
             </form>

@@ -88,8 +88,11 @@
             <thead>
                 <tr>
                     <th class="student-name">F.I.O. (Tarif)</th>
-                    {% for d in days_range %}
-                    <th>{{ d }}</th>
+                    {% for d in days_data %}
+                    <th class="att-header-cell {% if d.is_today %}today-col{% elif d.is_weekend %}weekend-col{% endif %}" title="{{ d.date_str }} ({{ d.weekday }})">
+                        <div class="att-date-num">{{ d.display_date }}</div>
+                        <div class="att-weekday">{{ d.weekday }}</div>
+                    </th>
                     {% endfor %}
                     <th>To'lov</th>
                     <th>Amal</th>
@@ -104,11 +107,17 @@
                         <div class="small text-muted">{{ student.payment_rate }} so'm</div>
                     </td>
                     
-                    {% for st in student.attendance_matrix %}
-                    <td class="cell-att {% if st == 'present' %}present{% elif st == 'absent' %}absent{% endif %}"
-                        data-sid="{{ student.id }}" data-day="{{ forloop.counter }}" title="Davomat: bosing">
-                        {% if st == 'present' %}+{% elif st == 'absent' %}-{% else %}&nbsp;{% endif %}
-                    </td>
+                    {% for item in student.attendance_matrix %}
+                        {% if item.is_lesson %}
+                        <td class="cell-att {% if item.status == 'present' %}present{% elif item.status == 'absent' %}absent{% endif %}"
+                            data-sid="{{ student.id }}" data-day="{{ item.day }}" title="{{ item.date_str }} - Davomat belgilash">
+                            {% if item.status == 'present' %}+{% elif item.status == 'absent' %}-{% else %}&nbsp;{% endif %}
+                        </td>
+                        {% else %}
+                        <td class="cell-not-lesson" title="{{ item.date_str }} - Dars kuni emas">
+                            <span class="no-lesson-dot">—</span>
+                        </td>
+                        {% endif %}
                     {% endfor %}
 
                     <td class="cell-pay {% if student.paid_amount > 0 %}paid{% else %}unpaid{% endif %}"
@@ -245,7 +254,7 @@
         cell.addEventListener('click', function() {
             const sid = this.dataset.sid;
             const day = this.dataset.day;
-            const dayStr = day.padStart(2, '0');
+            const dayStr = day.toString().padStart(2, '0');
             const dateStr = currentMonth + '-' + dayStr;
 
             let currentStatus = '';
@@ -263,30 +272,37 @@
                 status: nextStatus
             });
 
+            // Mikro-animatsiya
+            this.style.transform = 'scale(1.25)';
+            setTimeout(() => { this.style.transform = 'none'; }, 150);
+
             fetch("{% url 'admin_attendance_mark' %}", {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',
                     'X-CSRFToken': '{{ csrf_token }}'
                 },
-                body
+                body: body
             })
             .then(r => r.json())
             .then(data => {
                 if(data.status === 'success'){
                     this.classList.remove('present', 'absent');
                     this.innerHTML = '&nbsp;';
-                    if (nextStatus === 'present') {
+                    if (data.attendance === 'present') {
                         this.classList.add('present');
                         this.innerText = '+';
-                    } else if (nextStatus === 'absent') {
+                    } else if (data.attendance === 'absent') {
                         this.classList.add('absent');
                         this.innerText = '-';
                     }
                 } else {
-                    alert("Xatolik: " + data.msg);
+                    alert("Xatolik: " + (data.msg || "Davomatni saqlab bo'lmadi"));
                 }
-            }).catch(e => console.error(e));
+            }).catch(e => {
+                console.error(e);
+                alert("Server bilan bog'lanishda xatolik yuz berdi.");
+            });
         });
     });
 
@@ -315,7 +331,7 @@
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'X-CSRFToken': '{{ csrf_token }}'
             },
-            body
+            body: body
         })
         .then(r => r.json())
         .then(data => {
@@ -330,8 +346,11 @@
                     activePayCell.innerHTML = '<i class="bi bi-x-lg"></i>';
                 }
             } else {
-                alert("Xatolik: " + data.msg);
+                alert("Xatolik: " + (data.msg || "To'lovni saqlab bo'lmadi"));
             }
+        }).catch(e => {
+            console.error(e);
+            alert("To'lovni saqlashda server xatoligi!");
         });
     }
 </script>
