@@ -385,18 +385,55 @@ body {
 .att-header-cell.weekend-col .att-weekday { color: #ef4444; }
 
 /* ── Sticky student-name column ──────────────────── */
+/* ── Sticky student-name column (Optimized compact 2-line layout) ── */
 .journal-table .student-name {
     text-align: left;
-    width: 220px;
-    min-width: 220px;
-    max-width: 260px;
+    width: 180px;
+    min-width: 180px;
+    max-width: 215px;
     position: sticky;
     left: 0;
     background: #ffffff !important;
     z-index: 12;
     border-right: 2px solid #cbd5e1 !important;
     box-shadow: 4px 0 10px rgba(0, 0, 0, 0.06);
-    padding: 8px 12px !important;
+    padding: 8px 10px !important;
+}
+
+.student-name-col {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    line-height: 1.15;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.student-last-name {
+    font-size: 0.92rem;
+    font-weight: 700;
+    color: #0f172a;
+    letter-spacing: -0.2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.student-first-name {
+    font-size: 0.81rem;
+    font-weight: 600;
+    color: #475569;
+    letter-spacing: -0.1px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.student-rate {
+    font-size: 0.72rem;
+    color: #64748b;
+    font-weight: 500;
+    margin-top: 1px;
 }
 
 /* Top-left intersection header cell */
@@ -1102,11 +1139,25 @@ body {
         border-radius: 12px;
     }
     .journal-table .student-name {
-        width: 160px !important;
-        min-width: 160px !important;
-        max-width: 180px !important;
+        width: 150px !important;
+        min-width: 150px !important;
+        max-width: 170px !important;
         font-size: 0.82rem;
-        padding: 6px 8px !important;
+        padding: 6px 6px !important;
+    }
+    .student-avatar-thumb {
+        width: 28px !important;
+        height: 28px !important;
+        min-width: 28px !important;
+    }
+    .student-last-name {
+        font-size: 0.84rem !important;
+    }
+    .student-first-name {
+        font-size: 0.74rem !important;
+    }
+    .student-rate {
+        font-size: 0.67rem !important;
     }
 
     /* Tighter date cells on mobile */

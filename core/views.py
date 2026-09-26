@@ -23,6 +23,7 @@ from .models import (
     TemporaryStudent, TimeSlot, MonthlyPayment
 )
 from .forms import TemporaryStudentForm
+from .services import optimize_student_photo
 from django.db.models import Q
 import calendar
 import openpyxl
@@ -423,7 +424,8 @@ def admin_student_create(request, timeslot_id):
             if age.isdigit():
                 student.age = int(age)
             if photo:
-                student.photo = photo
+                opt_photo, err = optimize_student_photo(photo)
+                student.photo = opt_photo if opt_photo else photo
             student.save()
 
             messages.success(request, f"O'quvchi '{first_name} {last_name}' muvaffaqiyatli qo'shildi.")
@@ -623,15 +625,12 @@ def payment_mark(request):
     amount = request.POST.get('amount')
     
     student = get_object_or_404(Student, id=student_id)
-    try:
-        amount_int = int(amount)
-        if amount_int < 0: amount_int = 0
-    except:
-        return JsonResponse({'status': 'error', 'msg': 'Summa noto\'g\'ri'}, status=400)
-
+    
+    amount = str(amount or '').strip()
+    
     mp, _ = MonthlyPayment.objects.update_or_create(
         student=student, month=month,
-        defaults={'amount_paid': amount_int}
+        defaults={'amount_paid': amount}
     )
     return JsonResponse({'status': 'success', 'amount': mp.amount_paid})
 
@@ -807,7 +806,8 @@ def teacher_student_create(request, timeslot_id):
             if age.isdigit():
                 student.age = int(age)
             if photo:
-                student.photo = photo
+                opt_photo, err = optimize_student_photo(photo)
+                student.photo = opt_photo if opt_photo else photo
             student.save()
 
             messages.success(request, f"O'quvchi '{first_name} {last_name}' muvaffaqiyatli qo'shildi.")
@@ -824,20 +824,27 @@ def teacher_student_delete(request, id):
     
     # Ensure student belongs to teacher
     if not (student.time_slot and student.time_slot.group and student.time_slot.group.teacher and student.time_slot.group.teacher.user == request.user):
+        messages.error(request, "Bu o'quvchi sizning guruhingizga biriktirilmagan.")
         return redirect('teacher_dashboard')
         
     if request.method == 'POST':
         reason = request.POST.get('reason', '').strip()
+        if not reason:
+            messages.error(request, "O'quvchini o'chirish uchun sabab kiritish majburiy!")
+            return redirect('teacher_dashboard')
+            
         if contains_cyrillic(reason):
-            messages.error(request, "O'chirish sababida faqat lotin harflaridan foydalaning!")
-            reason = "O'qituvchi tomonidan chiqarildi"
+            messages.error(request, "O'chirish sababida faqat lotin alifbosidagi harflardan foydalaning (Kirill taqiqlangan)!")
+            return redirect('teacher_dashboard')
             
         group_name = student.time_slot.group.name if (student.time_slot and student.time_slot.group) else "Noma'lum"
+        st_full_name = f"{student.first_name} {student.last_name}"
+        
         DeletedStudent.objects.create(
-            student_name=f"{student.first_name} {student.last_name}",
+            student_name=st_full_name,
             phones=f"{student.phone_1}, {student.phone_2 or ''}".rstrip(', '),
             group_name=group_name,
-            reason=reason or "O'qituvchi tomonidan chiqarildi",
+            reason=reason,
             first_name=student.first_name,
             last_name=student.last_name,
             age=student.age,
@@ -846,7 +853,7 @@ def teacher_student_delete(request, id):
             time_slot_id=student.time_slot.id if student.time_slot else None
         )
         student.delete()
-        messages.success(request, f"O'quvchi arxivga o'tkazildi.")
+        messages.success(request, f"O'quvchi '{st_full_name}' arxivga muvaffaqiyatli o'tkazildi.")
         return redirect('teacher_dashboard')
     return redirect('teacher_dashboard')
 
@@ -983,40 +990,44 @@ def teacher_student_edit(request, id):
 # ─────────────────────────────────────────────
 
 def student_photo_upload(request, id):
-    """O'quvchiga rasm yuklash. Admin yoki ruxsat berilgan o'qituvchi."""
-    is_admin = request.session.get('admin_authenticated')
-    is_teacher = request.user.is_authenticated and request.user.role == 'teacher'
+    """O'quvchiga rasm yuklash / yangilash. Admin yoki ruxsat berilgan o'qituvchi."""
+    is_admin = bool(request.session.get('admin_authenticated'))
+    is_teacher = request.user.is_authenticated and getattr(request.user, 'role', '') == 'teacher'
 
     if not is_admin and not is_teacher:
-        return JsonResponse({'status': 'error', 'msg': 'Ruxsat yo\'q'}, status=403)
+        return JsonResponse({'status': 'error', 'msg': 'Ruxsat berilmagan'}, status=403)
 
     student = get_object_or_404(Student, id=id)
 
     # O'qituvchi faqat o'z guruhidagi o'quvchini o'zgartira oladi
     if is_teacher and not is_admin:
-        teacher = request.user.teacher_profile
         if not (student.time_slot and student.time_slot.group and
                 student.time_slot.group.teacher and
                 student.time_slot.group.teacher.user == request.user):
-            return JsonResponse({'status': 'error', 'msg': 'Ruxsat yo\'q'}, status=403)
+            return JsonResponse({'status': 'error', 'msg': 'Bu o\'quvchi sizning guruhingizda emas'}, status=403)
 
     if request.method == 'POST':
         photo = request.FILES.get('photo')
-        if photo:
-            # Eski rasmni o'chirish
-            if student.photo:
-                try:
-                    import os
-                    if os.path.exists(student.photo.path):
-                        os.remove(student.photo.path)
-                except Exception:
-                    pass
-            student.photo = photo
-            student.save()
-            return JsonResponse({'status': 'success', 'photo_url': student.photo.url})
-        return JsonResponse({'status': 'error', 'msg': 'Rasm tanlanmadi'}, status=400)
+        if not photo:
+            return JsonResponse({'status': 'error', 'msg': 'Rasm fayli tanlanmadi'}, status=400)
 
-    return JsonResponse({'status': 'error', 'msg': 'Noto\'g\'ri so\'rov'}, status=400)
+        # Mobil qurilmalardan (iOS/Android) olingan rasmni optimallashtirish va aylantirish
+        opt_photo, err = optimize_student_photo(photo)
+        if not opt_photo:
+            return JsonResponse({'status': 'error', 'msg': f"Rasm formatini qayta ishlab bo'lmadi: {err or 'Noma\'lum xatolik'}"}, status=400)
+
+        # Eski rasmni diskdan tozalash
+        if student.photo:
+            try:
+                if os.path.exists(student.photo.path):
+                    os.remove(student.photo.path)
+            except Exception:
+                pass
+
+        student.photo.save(opt_photo.name, opt_photo, save=True)
+        return JsonResponse({'status': 'success', 'photo_url': student.photo.url})
+
+    return JsonResponse({'status': 'error', 'msg': 'Noto\'g\'ri so\'rov usuli'}, status=405)
 
 
 from .models import Message

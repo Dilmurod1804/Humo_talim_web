@@ -71,11 +71,16 @@
                         <!-- Header: F.I.Sh. & Status -->
                         <div class="d-flex align-items-start justify-content-between gap-2 mb-2">
                             <div class="d-flex align-items-center gap-3">
+                                {% if st.photo %}
+                                <img src="{{ st.photo.url }}" alt="Rasm" style="width: 44px; height: 44px; border-radius: 12px; object-fit: cover; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+                                {% else %}
                                 <div style="background: linear-gradient(135deg, #6366f1, #a855f7); width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 1.1rem; flex-shrink: 0; box-shadow: 0 4px 12px rgba(99,102,241,0.3);">
-                                    {{ st.first_name|slice:":1" }}{{ st.last_name|slice:":1" }}
+                                    {{ st.last_name|slice:":1" }}{{ st.first_name|slice:":1" }}
                                 </div>
+                                {% endif %}
                                 <div>
-                                    <h6 class="fw-black text-dark mb-0 fs-6">{{ st.first_name }} {{ st.last_name }}</h6>
+                                    <div class="fw-bold fs-6" style="color: #0f172a; line-height: 1.15;">{{ st.last_name }}</div>
+                                    <div class="fw-semibold small" style="color: #475569;">{{ st.first_name }}</div>
                                     <small class="text-muted"><i class="bi bi-calendar-check me-1"></i>Yoshi: <b>{{ st.age }} yosh</b></small>
                                 </div>
                             </div>
@@ -144,15 +149,18 @@
                         </div>
                     </div>
 
-                    <!-- Amallar: Guruhga o'tish va O'chirish -->
-                    <div class="d-flex align-items-center justify-content-between pt-2 mt-2 border-top gap-2">
-                        {% if st.time_slot and st.time_slot.group %}
-                        <a href="{% url 'admin_group_detail' st.time_slot.group.id %}" class="btn btn-sm btn-outline-primary rounded-pill px-3">
-                            <i class="bi bi-box-arrow-in-right me-1"></i> Guruh jurnaliga o'tish
-                        </a>
-                        {% else %}
-                        <span></span>
-                        {% endif %}
+                    <!-- Amallar: Guruhga o'tish, Rasmni almashtirish va O'chirish -->
+                    <div class="d-flex flex-wrap align-items-center justify-content-between pt-2 mt-2 border-top gap-2">
+                        <div class="d-flex align-items-center gap-2">
+                            {% if st.time_slot and st.time_slot.group %}
+                            <a href="{% url 'admin_group_detail' st.time_slot.group.id %}" class="btn btn-sm btn-outline-primary rounded-pill px-3">
+                                <i class="bi bi-box-arrow-in-right me-1"></i> Jurnal
+                            </a>
+                            {% endif %}
+                            <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3" onclick="triggerPhotoUpload({{ st.id }})" title="Rasmni almashtirish">
+                                <i class="bi bi-camera-fill me-1 text-primary"></i> Rasm
+                            </button>
+                        </div>
 
                         <button type="button" class="btn btn-sm btn-outline-danger rounded-pill px-3" 
                                 data-bs-toggle="modal" data-bs-target="#deleteStudentModal{{ st.id }}">

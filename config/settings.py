@@ -100,6 +100,11 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
+# Mobil qurilmalardan yuqori sifatli fotosuratlar yuklash uchun limitlar (25MB)
+DATA_UPLOAD_MAX_MEMORY_SIZE = 25 * 1024 * 1024
+FILE_UPLOAD_MAX_MEMORY_SIZE = 25 * 1024 * 1024
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 2000
+
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # ── Email ─────────────────────────────────────────────────────────────────────

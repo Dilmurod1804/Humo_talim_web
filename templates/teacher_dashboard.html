@@ -78,18 +78,32 @@
                                     {% else %}
                                     <div class="student-avatar-thumb no-photo"><i class="bi bi-person"></i></div>
                                     {% endif %}
-                                    <div>
+                                    <div class="student-name-col">
                                         {% if request.user.teacher_profile.can_edit_students %}
-                                        <div class="fw-bold text-dark inline-edit-trigger"
+                                        <div class="inline-edit-trigger"
                                              onclick="openInlineEdit({{ student.id }},'{{ student.first_name }}','{{ student.last_name }}','{{ student.age|default:'' }}','{{ student.phone_1 }}','{{ student.phone_2|default:'' }}')"
-                                             title="Bosib tahrirlash">
-                                            {{ student.first_name }} {{ student.last_name }}
-                                            <i class="bi bi-pencil-fill ms-1" style="font-size:0.65rem;opacity:0.4;"></i>
+                                             title="Bosib tahrirlash" style="cursor:pointer; min-width:0;">
+                                            <div class="student-last-name fw-bold" style="color: #0f172a; font-size: 0.92rem; line-height: 1.15; letter-spacing: -0.2px;">
+                                                {{ student.last_name }}
+                                                <i class="bi bi-pencil-fill ms-1 opacity-25" style="font-size:0.6rem;"></i>
+                                            </div>
+                                            <div class="student-first-name fw-semibold" style="color: #475569; font-size: 0.82rem; line-height: 1.2;">
+                                                {{ student.first_name }}
+                                            </div>
                                         </div>
                                         {% else %}
-                                        <div class="fw-bold text-dark">{{ student.first_name }} {{ student.last_name }}</div>
+                                        <div style="min-width:0;">
+                                            <div class="student-last-name fw-bold" style="color: #0f172a; font-size: 0.92rem; line-height: 1.15; letter-spacing: -0.2px;">
+                                                {{ student.last_name }}
+                                            </div>
+                                            <div class="student-first-name fw-semibold" style="color: #475569; font-size: 0.82rem; line-height: 1.2;">
+                                                {{ student.first_name }}
+                                            </div>
+                                        </div>
                                         {% endif %}
-                                        <div class="small text-muted">{{ student.payment_rate }} so'm</div>
+                                        <div class="student-rate" style="font-size: 0.72rem; color: #64748b; font-weight: 500; line-height: 1.2;">
+                                            {{ student.payment_rate }} so'm
+                                        </div>
                                     </div>
                                 </div>
                                 <div class="dropdown">
@@ -105,11 +119,10 @@
                                         {% else %}
                                         <li><a class="dropdown-item small disabled" href="#"><i class="bi bi-pencil-square me-2 text-muted"></i>Tahrirlash</a></li>
                                         {% endif %}
-                                        {% if not student.photo %}
-                                        <li><a class="dropdown-item small" href="#" onclick="triggerPhotoUpload({{ student.id }});return false;"><i class="bi bi-image me-2 text-success"></i>Rasm yuklash</a></li>
-                                        {% else %}
-                                        <li><a class="dropdown-item small" href="#" onclick="openImgPreview('{{ student.photo.url }}','{{ student.first_name }} {{ student.last_name }}');return false;"><i class="bi bi-zoom-in me-2 text-info"></i>Rasmni ko'rish</a></li>
-                                        <li><a class="dropdown-item small" href="#" onclick="triggerPhotoUpload({{ student.id }});return false;"><i class="bi bi-image me-2 text-warning"></i>Rasmni yangilash</a></li>
+                                        <li><hr class="dropdown-divider my-1"></li>
+                                        <li><a class="dropdown-item small fw-semibold text-primary" href="#" onclick="triggerPhotoUpload({{ student.id }});return false;"><i class="bi bi-camera-fill me-2 text-primary"></i>Rasmni almashtirish</a></li>
+                                        {% if student.photo %}
+                                        <li><a class="dropdown-item small text-secondary" href="#" onclick="openImgPreview('{{ student.photo.url }}','{{ student.first_name }} {{ student.last_name }}');return false;"><i class="bi bi-zoom-in me-2 text-info"></i>Rasmni ko'rish</a></li>
                                         {% endif %}
                                     </ul>
                                 </div>
@@ -129,10 +142,10 @@
                             {% endif %}
                         {% endfor %}
 
-                        <td class="cell-pay {% if student.paid_amount > 0 %}paid{% else %}unpaid{% endif %}"
+                        <td class="cell-pay {% if student.paid_amount and student.paid_amount != '0' and student.paid_amount != 0 %}paid{% else %}unpaid{% endif %}"
                             data-sid="{{ student.id }}" data-paid="{{ student.paid_amount }}"
                             onclick="openPaymentModal(this)">
-                            {% if student.paid_amount > 0 %}
+                            {% if student.paid_amount and student.paid_amount != '0' and student.paid_amount != 0 %}
                                 {{ student.paid_amount }}
                             {% else %}
                                 <i class="bi bi-x-lg"></i>
@@ -140,9 +153,9 @@
                         </td>
                         
                         <td>
-                            <button type="button" class="btn btn-sm btn-outline-danger border-0"
-                                    data-bs-toggle="modal" data-bs-target="#del{{ student.id }}"
-                                    title="O'chirish">
+                            <button type="button" class="btn btn-sm btn-outline-danger border-0 action-delete-btn"
+                                    onclick="openTeacherDeleteModal({{ student.id }}, '{{ student.first_name }} {{ student.last_name|escapejs }}')"
+                                    title="O'quvchini guruhdan chiqarish">
                                 <i class="bi bi-trash-fill"></i>
                             </button>
                         </td>
@@ -154,38 +167,7 @@
             </table>
         </div>
 
-        <!-- ═══ O'CHIRISH MODALLARI (jadvaldan tashqarida!) ═══ -->
-        {% for student in ts.students.all %}
-        {% if student.is_active %}
-        <div class="modal fade" id="del{{ student.id }}" tabindex="-1" aria-hidden="true">
-          <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content border-0 rounded-4 shadow-lg">
-              <form method="post" action="{% url 'teacher_student_delete' student.id %}">
-                {% csrf_token %}
-                <div class="modal-header border-0 pb-0">
-                    <h5 class="modal-title fw-bold text-danger">
-                        <i class="bi bi-person-x-fill me-2"></i>O'quvchini chiqarish
-                    </h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="alert" style="background:#fff3cd; border:1px solid #fde68a; border-radius:10px; color:#713f12; font-size:0.9rem;">
-                        <i class="bi bi-exclamation-triangle me-2"></i>
-                        <b>{{ student.first_name }} {{ student.last_name }}</b> o'quvchi tizimdan o'chiriladi va admin arxiviga o'tkaziladi.
-                    </div>
-                    <label class="form-label fw-semibold small">O'chirish sababi <span class="text-danger">*</span></label>
-                    <textarea name="reason" class="form-control" rows="3" required placeholder="Masalan: Darsga 3 marta kelmadi..."></textarea>
-                </div>
-                <div class="modal-footer border-0 pt-0">
-                    <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Bekor</button>
-                    <button type="submit" class="btn btn-danger rounded-pill px-4 fw-bold">Tasdiqlash</button>
-                </div>
-              </form>
-            </div>
-          </div>
-        </div>
-        {% endif %}
-        {% endfor %}
+
     </div>
     {% if not forloop.last %}<hr class="m-0">{% endif %}
     {% endfor %}
@@ -208,7 +190,7 @@
       <div class="modal-body">
         <input type="hidden" id="pay_student_id">
         <label class="form-label small">Summa</label>
-        <input type="number" class="form-control" id="pay_amount" placeholder="Masalan: 300000">
+        <input type="text" class="form-control" id="pay_amount" placeholder="Masalan: 300 000 yoki Mahalla">
       </div>
       <div class="modal-footer border-0 pt-0">
         <button type="button" class="btn btn-primary btn-sm w-100 rounded-pill" onclick="savePayment()">Saqlash</button>
@@ -279,12 +261,92 @@
 </div>
 {% endif %}
 
+<!-- ═══ YAGONA O'CHIRISH MODALI (Konteynerlardan to'liq tashqarida) ═══ -->
+<div class="modal fade" id="teacherDeleteModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered" style="max-width:480px;">
+    <div class="modal-content border-0 rounded-4 shadow-lg overflow-hidden" style="background:#ffffff;">
+      <form id="teacherDeleteForm" method="post" action="">
+        {% csrf_token %}
+        <div class="modal-header border-0 pb-0 pt-4 px-4">
+            <h5 class="modal-title fw-bold text-danger d-flex align-items-center gap-2">
+                <i class="bi bi-person-x-fill fs-4"></i>O'quvchini guruhdan chiqarish
+            </h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Yopish"></button>
+        </div>
+        <div class="modal-body p-4">
+            <div class="alert mb-3" style="background:#fffbeb; border:1px solid #fef3c7; border-radius:12px; color:#92400e; font-size:0.9rem;">
+                <div class="d-flex align-items-start gap-2">
+                    <i class="bi bi-exclamation-triangle-fill text-warning fs-5 flex-shrink-0"></i>
+                    <div>
+                        <b><span id="delStudentNameModal">—</span></b> o'quvchi guruhdan chiqariladi va admin arxiviga o'tkaziladi.
+                    </div>
+                </div>
+            </div>
+            <div class="mb-3">
+                <label class="form-label fw-bold small text-dark">O'chirish sababi <span class="text-danger">*</span></label>
+                <textarea id="teacherDeleteReason" name="reason" class="form-control" rows="3" required
+                          placeholder="Chiqarish sababini yozing (faqat lotin harflarida, masalan: Darslarga sababsiz qatnashmadi)..."
+                          style="border-radius:12px; border:1.5px solid #cbd5e1; font-size:0.9rem; padding:10px 14px;"></textarea>
+                <div id="teacherDeleteError" class="text-danger small mt-2 fw-semibold" style="display:none;"></div>
+            </div>
+        </div>
+        <div class="modal-footer border-0 pt-0 pb-4 px-4 d-flex justify-content-end gap-2">
+            <button type="button" class="btn btn-light rounded-pill px-4 fw-semibold" data-bs-dismiss="modal">Bekor qilish</button>
+            <button type="submit" class="btn btn-danger rounded-pill px-4 fw-bold shadow-sm d-flex align-items-center gap-2">
+                <i class="bi bi-trash-fill"></i> O'chirishni tasdiqlash
+            </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 {% endblock %}
 
 {% block extra_js %}
 <script>
     const currentMonth = "{{ current_month }}"; // YYYY-MM
     let activePayCell = null;
+
+    // ── O'QITUVCHI: O'QUVCHINI O'CHIRISH MODALI ─────────────
+    function openTeacherDeleteModal(studentId, studentName) {
+        const modalEl = document.getElementById('teacherDeleteModal');
+        const formEl = document.getElementById('teacherDeleteForm');
+        const nameEl = document.getElementById('delStudentNameModal');
+        const reasonEl = document.getElementById('teacherDeleteReason');
+        const errEl = document.getElementById('teacherDeleteError');
+
+        formEl.action = '/teacher/student/' + studentId + '/delete/';
+        nameEl.textContent = studentName;
+        reasonEl.value = '';
+        errEl.style.display = 'none';
+
+        const bsModal = bootstrap.Modal.getOrCreateInstance(modalEl);
+        bsModal.show();
+    }
+
+    const deleteFormEl = document.getElementById('teacherDeleteForm');
+    if (deleteFormEl) {
+        deleteFormEl.addEventListener('submit', function(e) {
+            const reason = document.getElementById('teacherDeleteReason').value.trim();
+            const errEl = document.getElementById('teacherDeleteError');
+            const cyrillicRegex = /[\u0400-\u04FF]/;
+
+            if (!reason || reason.length < 3) {
+                e.preventDefault();
+                errEl.textContent = "Iltimos, o'chirish sababini to'liqroq yozing (kamida 3 ta belgi).";
+                errEl.style.display = 'block';
+                return;
+            }
+
+            if (cyrillicRegex.test(reason)) {
+                e.preventDefault();
+                errEl.textContent = "Kirill harflari taqiqlangan! Faqat lotin alifbosidagi harflardan foydalaning.";
+                errEl.style.display = 'block';
+                return;
+            }
+        });
+    }
 
     // ── IMAGE PREVIEW ──────────────────────────────────────
     function openImgPreview(url, name) {
@@ -369,7 +431,7 @@
     function openPaymentModal(cell) {
         activePayCell = cell;
         document.getElementById('pay_student_id').value = cell.dataset.sid;
-        document.getElementById('pay_amount').value = cell.dataset.paid > 0 ? cell.dataset.paid : '';
+        document.getElementById('pay_amount').value = (cell.dataset.paid && cell.dataset.paid !== '0' && cell.dataset.paid !== 'None') ? cell.dataset.paid : '';
         payModal.show();
     }
 
@@ -396,7 +458,7 @@
             if(data.status === 'success'){
                 payModal.hide();
                 activePayCell.dataset.paid = data.amount;
-                if(data.amount > 0) {
+                if(data.amount && data.amount !== '0' && data.amount !== 0) {
                     activePayCell.className = "cell-pay paid";
                     activePayCell.innerText = data.amount;
                 } else {

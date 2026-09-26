@@ -122,7 +122,7 @@ class MonthlyPayment(models.Model):
     """O'quvchining ma'lum bir oy uchun to'lov ma'lumoti"""
     student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name='monthly_payments')
     month = models.CharField(max_length=7, help_text="Yil va Oy. Masalan: 2026-09")
-    amount_paid = models.IntegerField(default=0)
+    amount_paid = models.CharField(max_length=100, default='', help_text="To'lov summasi yoki izoh")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

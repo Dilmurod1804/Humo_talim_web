@@ -150,73 +150,179 @@
     <input type="hidden" id="photoStudentId" name="student_id">
 </form>
 
+<!-- Global Photo Upload Loading Overlay -->
+<div id="photoUploadOverlay" style="display:none; position:fixed; inset:0; background:rgba(15, 23, 42, 0.7); backdrop-filter:blur(6px); z-index:99999; align-items:center; justify-content:center; flex-direction:column; color:#ffffff;">
+    <div class="spinner-border text-primary mb-3" style="width: 3.5rem; height: 3.5rem; border-width: 4px;" role="status"></div>
+    <h5 class="fw-bold mb-1">Rasm yuklanmoqda...</h5>
+    <p class="text-white-50 small mb-0">Rasm optimallashtirilmoqda, iltimos kuting</p>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-    function triggerPhotoUpload(studentId) {
-        document.getElementById('photoStudentId').value = studentId;
-        document.getElementById('photoInput').click();
+    function getCsrfToken() {
+        const inp = document.querySelector('[name=csrfmiddlewaretoken]');
+        if (inp && inp.value) return inp.value;
+        const cookieValue = document.cookie
+            .split('; ')
+            .find(row => row.startsWith('csrftoken='))
+            ?.split('=')[1];
+        return cookieValue || '';
     }
 
-    document.getElementById('photoInput').addEventListener('change', function(e) {
-        if (!this.files.length) return;
-        
-        const studentId = document.getElementById('photoStudentId').value;
-        const formData = new FormData(document.getElementById('photoUploadForm'));
-        
-        // Determine URL based on current path
-        let uploadUrl = '';
-        if (window.location.pathname.includes('/teacher/')) {
-            uploadUrl = `/teacher/student/${studentId}/photo/`;
-        } else {
-            uploadUrl = `/admin/student/${studentId}/photo/`;
+    function triggerPhotoUpload(studentId) {
+        const idInput = document.getElementById('photoStudentId');
+        const fileInput = document.getElementById('photoInput');
+        if (idInput && fileInput) {
+            idInput.value = studentId;
+            fileInput.value = ''; // Har gal toza ochilishi uchun
+            fileInput.click();
         }
-        
-        fetch(uploadUrl, {
-            method: 'POST',
-            body: formData,
-            headers: {
-                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
-            }
-        })
-        .then(res => res.json())
-        .then(data => {
-            if (data.status === 'success') {
-                window.location.reload();
-            } else {
-                alert(data.msg || 'Xatolik yuz berdi');
-            }
-        })
-        .catch(err => {
-            console.error(err);
-            alert('Xatolik yuz berdi');
-        });
-    });
+    }
 
-    // Fix for dropdowns inside table-responsive
-    // We use Bootstrap's shown.bs.dropdown event (after it's fully visible) for correct sizing
+    // Mobil qurilmalardan rasmni optimal hajmga keltirish (Client-side Resize Helper)
+    function compressImageIfNeeded(file) {
+        return new Promise((resolve) => {
+            // Agar HEIC bo'lsa yoki canvas o'qiy olmasa to'g'ridan-to'g'ri backendga jo'natish
+            if (file.name.toLowerCase().endsWith('.heic') || file.name.toLowerCase().endsWith('.heif')) {
+                resolve(file);
+                return;
+            }
+
+            const img = new Image();
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                img.onload = function() {
+                    const maxDim = 1280;
+                    let width = img.width;
+                    let height = img.height;
+
+                    if (width > maxDim || height > maxDim) {
+                        if (width > height) {
+                            height = Math.round((height * maxDim) / width);
+                            width = maxDim;
+                        } else {
+                            width = Math.round((width * maxDim) / height);
+                            height = maxDim;
+                        }
+                    }
+
+                    const canvas = document.createElement('canvas');
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, width, height);
+
+                    canvas.toBlob((blob) => {
+                        if (blob && blob.size < file.size) {
+                            const newFile = new File([blob], file.name.replace(/\.[^/.]+$/, ".jpg"), {
+                                type: 'image/jpeg',
+                                lastModified: Date.now()
+                            });
+                            resolve(newFile);
+                        } else {
+                            resolve(file);
+                        }
+                    }, 'image/jpeg', 0.88);
+                };
+                img.onerror = function() {
+                    resolve(file);
+                };
+                img.src = e.target.result;
+            };
+            reader.onerror = function() {
+                resolve(file);
+            };
+            reader.readAsDataURL(file);
+        });
+    }
+
+    const photoInputEl = document.getElementById('photoInput');
+    if (photoInputEl) {
+        photoInputEl.addEventListener('change', async function(e) {
+            if (!this.files || !this.files.length) return;
+
+            const studentId = document.getElementById('photoStudentId').value;
+            if (!studentId) return;
+
+            const overlay = document.getElementById('photoUploadOverlay');
+            if (overlay) overlay.style.display = 'flex';
+
+            try {
+                const originalFile = this.files[0];
+                const optimizedFile = await compressImageIfNeeded(originalFile);
+
+                const formData = new FormData();
+                formData.append('photo', optimizedFile);
+                formData.append('student_id', studentId);
+
+                let uploadUrl = '';
+                if (window.location.pathname.includes('/teacher/')) {
+                    uploadUrl = `/teacher/student/${studentId}/photo/`;
+                } else {
+                    uploadUrl = `/admin/student/${studentId}/photo/`;
+                }
+
+                const response = await fetch(uploadUrl, {
+                    method: 'POST',
+                    body: formData,
+                    headers: {
+                        'X-CSRFToken': getCsrfToken()
+                    }
+                });
+
+                const data = await response.json();
+                if (response.ok && data.status === 'success') {
+                    window.location.reload();
+                } else {
+                    if (overlay) overlay.style.display = 'none';
+                    alert(data.msg || 'Rasm yuklashda xatolik yuz berdi.');
+                }
+            } catch (err) {
+                console.error(err);
+                if (overlay) overlay.style.display = 'none';
+                alert('Aloqa xatoligi yoki server bilan bog\'lanishda muammo yuz berdi.');
+            } finally {
+                photoInputEl.value = '';
+            }
+        });
+    }
+
+    // Mobil qurilmalarga moslashtirilgan dropdown joylashuvi
     document.addEventListener('show.bs.dropdown', function(e) {
-        const toggle = e.target;
-        if (!toggle.classList.contains('action-dot-btn')) return;
+        const toggle = e.target.closest('.action-dot-btn');
+        if (!toggle) return;
         const menu = toggle.nextElementSibling;
         if (!menu) return;
-        // Move to body to escape overflow:hidden parents
+
         document.body.appendChild(menu);
         menu.style.position = 'fixed';
-        menu.style.zIndex = '9999';
+        menu.style.zIndex = '99999';
         menu.style.display = 'block';
+
         const rect = toggle.getBoundingClientRect();
-        // Position below-right of button; shift left if too close to right edge
-        let left = rect.right - 180;
-        if (left < 8) left = 8;
-        menu.style.top  = (rect.bottom + 4) + 'px';
+        const menuWidth = menu.offsetWidth || 190;
+        const menuHeight = menu.offsetHeight || 150;
+
+        let left = rect.right - menuWidth;
+        if (left < 10) left = 10;
+        if (left + menuWidth > window.innerWidth - 10) {
+            left = window.innerWidth - menuWidth - 10;
+        }
+
+        let top = rect.bottom + 6;
+        if (top + menuHeight > window.innerHeight - 10) {
+            top = Math.max(10, rect.top - menuHeight - 6);
+        }
+
+        menu.style.top  = top + 'px';
         menu.style.left = left + 'px';
         toggle._movedMenu = menu;
         toggle._menuParent = toggle.parentElement;
     });
 
     document.addEventListener('hide.bs.dropdown', function(e) {
-        const toggle = e.target;
-        if (toggle._movedMenu && toggle._menuParent) {
+        const toggle = e.target.closest('.action-dot-btn');
+        if (toggle && toggle._movedMenu && toggle._menuParent) {
             toggle._menuParent.appendChild(toggle._movedMenu);
             toggle._movedMenu.style.position = '';
             toggle._movedMenu.style.zIndex   = '';
@@ -228,5 +334,31 @@
     });
 </script>
 {% block extra_js %}{% endblock %}
+
+<!-- ════ HIMOYA: Kod ko'rishni bloklash ════ -->
+<script>
+(function() {
+    // 1. O'ng tugmani bloklash
+    document.addEventListener('contextmenu', function(e) {
+        e.preventDefault();
+    });
+
+    // 2. Klaviatura yorliqlarini bloklash
+    document.addEventListener('keydown', function(e) {
+        // F12
+        if (e.key === 'F12') { e.preventDefault(); return; }
+        // Ctrl+Shift+I (Inspect)
+        if (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'i')) { e.preventDefault(); return; }
+        // Ctrl+Shift+J (Console)
+        if (e.ctrlKey && e.shiftKey && (e.key === 'J' || e.key === 'j')) { e.preventDefault(); return; }
+        // Ctrl+Shift+C (Inspect element)
+        if (e.ctrlKey && e.shiftKey && (e.key === 'C' || e.key === 'c')) { e.preventDefault(); return; }
+        // Ctrl+U (View Source)
+        if (e.ctrlKey && (e.key === 'U' || e.key === 'u') && !e.shiftKey) { e.preventDefault(); return; }
+        // Ctrl+S (Save page)
+        if (e.ctrlKey && (e.key === 'S' || e.key === 's') && !e.shiftKey) { e.preventDefault(); return; }
+    });
+})();
+</script>
 </body>
 </html>

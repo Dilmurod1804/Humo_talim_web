@@ -113,14 +113,19 @@
                                 {% else %}
                                 <div class="student-avatar-thumb no-photo"><i class="bi bi-person"></i></div>
                                 {% endif %}
-                                <div>
-                                    <div class="fw-bold text-dark inline-edit-trigger"
-                                         onclick="openInlineEdit({{ student.id }},'{{ student.first_name }}','{{ student.last_name }}','{{ student.age|default:'' }}','{{ student.phone_1 }}','{{ student.phone_2|default:'' }}')"
-                                         title="Bosib tahrirlash">
-                                        {{ student.first_name }} {{ student.last_name }}
-                                        <i class="bi bi-pencil-fill ms-1" style="font-size:0.65rem;opacity:0.4;"></i>
+                                <div class="student-name-col inline-edit-trigger"
+                                     onclick="openInlineEdit({{ student.id }},'{{ student.first_name }}','{{ student.last_name }}','{{ student.age|default:'' }}','{{ student.phone_1 }}','{{ student.phone_2|default:'' }}')"
+                                     title="Bosib tahrirlash" style="cursor:pointer; min-width:0;">
+                                    <div class="student-last-name fw-bold" style="color: #0f172a; font-size: 0.92rem; line-height: 1.15; letter-spacing: -0.2px;">
+                                        {{ student.last_name }}
+                                        <i class="bi bi-pencil-fill ms-1 opacity-25" style="font-size:0.6rem;"></i>
                                     </div>
-                                    <div class="small text-muted">{{ student.payment_rate }} so'm</div>
+                                    <div class="student-first-name fw-semibold" style="color: #475569; font-size: 0.82rem; line-height: 1.2;">
+                                        {{ student.first_name }}
+                                    </div>
+                                    <div class="student-rate" style="font-size: 0.72rem; color: #64748b; font-weight: 500; line-height: 1.2;">
+                                        {{ student.payment_rate }} so'm
+                                    </div>
                                 </div>
                             </div>
                             <div class="dropdown">
@@ -129,14 +134,13 @@
                                         style="width:28px;height:28px;padding:0;line-height:1;">
                                     <i class="bi bi-three-dots-vertical"></i>
                                 </button>
-                                <ul class="dropdown-menu dropdown-menu-end shadow-sm" style="border:none;border-radius:12px;min-width:180px;">
+                                <ul class="dropdown-menu dropdown-menu-end shadow-sm" style="border:none;border-radius:12px;min-width:185px;">
                                     <li><a class="dropdown-item small" href="{% url 'admin_student_edit' student.id %}?next={{ request.path|urlencode }}"><i class="bi bi-pencil-square me-2 text-primary"></i>Tahrirlash</a></li>
                                     <li><a class="dropdown-item small" href="#" onclick="openInlineEdit({{ student.id }},'{{ student.first_name }}','{{ student.last_name }}','{{ student.age|default:'' }}','{{ student.phone_1 }}','{{ student.phone_2|default:'' }}');return false;"><i class="bi bi-lightning-charge-fill me-2 text-warning"></i>Tez tahrirlash</a></li>
-                                    {% if not student.photo %}
-                                    <li><a class="dropdown-item small" href="#" onclick="triggerPhotoUpload({{ student.id }});return false;"><i class="bi bi-image me-2 text-success"></i>Rasm yuklash</a></li>
-                                    {% else %}
-                                    <li><a class="dropdown-item small" href="#" onclick="openImgPreview('{{ student.photo.url }}','{{ student.first_name }} {{ student.last_name }}');return false;"><i class="bi bi-zoom-in me-2 text-info"></i>Rasmni ko'rish</a></li>
-                                    <li><a class="dropdown-item small" href="#" onclick="triggerPhotoUpload({{ student.id }});return false;"><i class="bi bi-image me-2 text-warning"></i>Rasmni yangilash</a></li>
+                                    <li><hr class="dropdown-divider my-1"></li>
+                                    <li><a class="dropdown-item small fw-semibold text-primary" href="#" onclick="triggerPhotoUpload({{ student.id }});return false;"><i class="bi bi-camera-fill me-2 text-primary"></i>Rasmni almashtirish</a></li>
+                                    {% if student.photo %}
+                                    <li><a class="dropdown-item small text-secondary" href="#" onclick="openImgPreview('{{ student.photo.url }}','{{ student.first_name }} {{ student.last_name }}');return false;"><i class="bi bi-zoom-in me-2 text-info"></i>Rasmni ko'rish</a></li>
                                     {% endif %}
                                 </ul>
                             </div>
@@ -156,10 +160,10 @@
                         {% endif %}
                     {% endfor %}
 
-                    <td class="cell-pay {% if student.paid_amount > 0 %}paid{% else %}unpaid{% endif %}"
+                    <td class="cell-pay {% if student.paid_amount and student.paid_amount != '0' and student.paid_amount != 0 %}paid{% else %}unpaid{% endif %}"
                         data-sid="{{ student.id }}" data-paid="{{ student.paid_amount }}"
                         onclick="openPaymentModal(this)" title="To'lov kiritish: bosing">
-                        {% if student.paid_amount > 0 %}
+                        {% if student.paid_amount and student.paid_amount != '0' and student.paid_amount != 0 %}
                             {{ student.paid_amount }}
                         {% else %}
                             <i class="bi bi-x-lg"></i>
@@ -269,7 +273,7 @@
       <div class="modal-body">
         <input type="hidden" id="pay_student_id">
         <label class="form-label small fw-semibold">Summa (so'm)</label>
-        <input type="number" class="form-control" id="pay_amount" placeholder="Masalan: 300000">
+        <input type="text" class="form-control" id="pay_amount" placeholder="Masalan: 300 000 yoki Mahalla">
       </div>
       <div class="modal-footer border-0 pt-0">
         <button type="button" class="btn btn-primary btn-sm w-100 rounded-pill" onclick="savePayment()">Saqlash</button>
@@ -425,7 +429,7 @@
     function openPaymentModal(cell) {
         activePayCell = cell;
         document.getElementById('pay_student_id').value = cell.dataset.sid;
-        document.getElementById('pay_amount').value = cell.dataset.paid > 0 ? cell.dataset.paid : '';
+        document.getElementById('pay_amount').value = (cell.dataset.paid && cell.dataset.paid !== '0' && cell.dataset.paid !== 'None') ? cell.dataset.paid : '';
         payModal.show();
     }
 
@@ -452,7 +456,7 @@
             if(data.status === 'success'){
                 payModal.hide();
                 activePayCell.dataset.paid = data.amount;
-                if(data.amount > 0) {
+                if(data.amount && data.amount !== '0' && data.amount !== 0) {
                     activePayCell.className = "cell-pay paid";
                     activePayCell.innerText = data.amount;
                 } else {
