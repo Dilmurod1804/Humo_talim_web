@@ -872,11 +872,10 @@ def admin_teacher_toggle_edit(request, id):
     if not _admin_only(request):
         return redirect('home')
     teacher = get_object_or_404(Teacher, id=id)
-    if request.method == 'POST':
-        teacher.can_edit_students = not teacher.can_edit_students
-        teacher.save()
-        status_text = "yoqildi ✅" if teacher.can_edit_students else "o'chirildi ❌"
-        messages.success(request, f"{teacher.first_name} {teacher.last_name} uchun tahrirlash ruxsati {status_text}")
+    teacher.can_edit_students = not bool(teacher.can_edit_students)
+    teacher.save(update_fields=['can_edit_students'])
+    status_text = "yoqildi ✅" if teacher.can_edit_students else "o'chirildi ❌"
+    messages.success(request, f"{teacher.first_name} {teacher.last_name} uchun tahrirlash ruxsati {status_text}")
     return redirect('admin_dashboard')
 
 

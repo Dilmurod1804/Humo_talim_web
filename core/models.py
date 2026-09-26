@@ -23,6 +23,14 @@ class Teacher(models.Model):
     generated_password = models.CharField(max_length=50)
     can_edit_students = models.BooleanField(default=False, help_text="O'qituvchiga o'quvchilarni tahrirlash ruxsati")
 
+    @property
+    def can_edit(self):
+        return bool(self.can_edit_students)
+
+    @can_edit.setter
+    def can_edit(self, value):
+        self.can_edit_students = bool(value)
+
     def __str__(self):
         return f"{self.first_name} {self.last_name}"
 

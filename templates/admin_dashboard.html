@@ -251,15 +251,15 @@
 
             <div class="p-3">
                 {% for teacher in teachers %}
-                <div class="p-3 mb-3 rounded-3 bg-light" style="border:1px solid rgba(0,0,0,0.05);">
+                <div class="teacher-card p-3 mb-3 rounded-3" style="background: rgba(255, 255, 255, 0.85); border: 1px solid rgba(226, 232, 240, 0.8); box-shadow: 0 4px 14px rgba(15, 23, 42, 0.04); transition: all 0.25s ease;">
                     <div class="d-flex align-items-center justify-content-between mb-2">
                         <div class="d-flex align-items-center gap-2">
-                            <div style="background: linear-gradient(135deg, #11998e, #38ef7d); border-radius:10px; width:40px; height:40px; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                            <div style="background: linear-gradient(135deg, #10b981, #059669); border-radius:10px; width:42px; height:42px; display:flex; align-items:center; justify-content:center; flex-shrink:0; box-shadow:0 4px 10px rgba(16,185,129,0.25);">
                                 <i class="bi bi-person-fill text-white fs-5"></i>
                             </div>
                             <div>
-                                <div class="fw-bold text-dark small">{{ teacher.first_name }} {{ teacher.last_name }}</div>
-                                <small class="text-muted"><i class="bi bi-telephone-fill me-1"></i>{{ teacher.phone|default:"Telefon kiritilmagan" }}</small>
+                                <div class="fw-bold text-dark fs-6 lh-sm">{{ teacher.first_name }} {{ teacher.last_name }}</div>
+                                <small class="text-muted"><i class="bi bi-telephone-fill me-1 text-success"></i>{{ teacher.phone|default:"Telefon kiritilmagan" }}</small>
                             </div>
                         </div>
 
@@ -270,22 +270,41 @@
                         </button>
                     </div>
 
-                    <div class="credential-box">
+                    <div class="credential-box mb-2">
                         <div class="d-flex justify-content-between mb-1">
-                            <span class="text-muted">Login:</span>
-                            <strong class="text-primary">{{ teacher.generated_login }}</strong>
+                            <span class="text-muted small">Login:</span>
+                            <strong class="text-primary font-monospace">{{ teacher.generated_login }}</strong>
                         </div>
-                        <div class="d-flex justify-content-between mb-2">
-                            <span class="text-muted">Parol:</span>
-                            <strong class="text-danger">{{ teacher.generated_password }}</strong>
+                        <div class="d-flex justify-content-between">
+                            <span class="text-muted small">Parol:</span>
+                            <strong class="text-danger font-monospace">{{ teacher.generated_password }}</strong>
                         </div>
-                        <div class="d-flex justify-content-between align-items-center pt-2 border-top">
-                            <span class="text-muted small">Tahrirlash ruxsati:</span>
+                    </div>
+
+                    <!-- Tahrirlash ruxsati boshqaruvi va statusi -->
+                    <div class="pt-2 border-top" style="border-color: rgba(226, 232, 240, 0.9) !important;">
+                        <div class="d-flex justify-content-between align-items-center p-2 rounded-2 {% if teacher.can_edit_students or teacher.can_edit %}bg-success bg-opacity-10 border border-success border-opacity-25{% else %}bg-secondary bg-opacity-10 border border-secondary border-opacity-20{% endif %}" style="transition: all 0.2s ease;">
+                            <div class="d-flex align-items-center gap-1">
+                                {% if teacher.can_edit_students or teacher.can_edit %}
+                                <i class="bi bi-check-circle-fill text-success fs-6"></i>
+                                <span class="small fw-bold text-success">Tahrirlash: Yoqilgan</span>
+                                {% else %}
+                                <i class="bi bi-x-circle-fill text-muted fs-6"></i>
+                                <span class="small fw-semibold text-secondary">Tahrirlash: O'chirilgan</span>
+                                {% endif %}
+                            </div>
+
                             <form action="{% url 'admin_teacher_toggle_edit' teacher.id %}" method="post" class="m-0 p-0">
                                 {% csrf_token %}
-                                <button type="submit" class="btn btn-sm {% if teacher.can_edit_students %}btn-success{% else %}btn-outline-secondary{% endif %} rounded-pill px-2 py-0" style="font-size:0.75rem;">
-                                    {% if teacher.can_edit_students %}Yoqilgan{% else %}O'chirilgan{% endif %}
+                                {% if teacher.can_edit_students or teacher.can_edit %}
+                                <button type="submit" class="btn btn-sm btn-success rounded-pill px-3 py-1 shadow-sm d-flex align-items-center gap-1" style="font-size:0.75rem; font-weight:700;" title="Ruxsatni o'chirish">
+                                    <i class="bi bi-toggle2-on fs-6"></i> Yoqilgan
                                 </button>
+                                {% else %}
+                                <button type="submit" class="btn btn-sm btn-outline-secondary rounded-pill px-3 py-1 d-flex align-items-center gap-1" style="font-size:0.75rem; font-weight:600; background:#ffffff;" title="Ruxsat berish">
+                                    <i class="bi bi-toggle2-off fs-6"></i> O'chirilgan
+                                </button>
+                                {% endif %}
                             </form>
                         </div>
                     </div>
