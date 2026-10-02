@@ -36,7 +36,12 @@ class Teacher(models.Model):
 
 class Group(models.Model):
     name = models.CharField(max_length=100, validators=[validate_latin_only]) # e.g., Ingliz tili
+    subject = models.CharField(max_length=100, blank=True, default='', validators=[validate_latin_only], help_text="Fan nomi")
     teacher = models.ForeignKey(Teacher, on_delete=models.SET_NULL, null=True, related_name='groups')
+
+    @property
+    def subject_name(self):
+        return self.subject.strip() if self.subject and self.subject.strip() else self.name
 
     def __str__(self):
         return self.name
@@ -60,6 +65,7 @@ class Student(models.Model):
     time_slot = models.ForeignKey(TimeSlot, on_delete=models.SET_NULL, null=True, related_name='students')
     joined_date = models.DateField(auto_now_add=True)
     is_active = models.BooleanField(default=True)
+    is_local = models.BooleanField(default=False, verbose_name="Mahalladan keladigan o'quvchi")
     photo = models.ImageField(upload_to='students/photos/', blank=True, null=True, help_text="O'quvchi rasmi (ixtiyoriy)")
 
     def __str__(self):
@@ -120,10 +126,19 @@ class TemporaryStudent(models.Model):
 
 class MonthlyPayment(models.Model):
     """O'quvchining ma'lum bir oy uchun to'lov ma'lumoti"""
+    STATUS_CHOICES = (
+        ('paid', "To'langan"),
+        ('partial', "Qisman to'langan"),
+        ('unpaid', "To'lanmagan"),
+    )
     student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name='monthly_payments')
     month = models.CharField(max_length=7, help_text="Yil va Oy. Masalan: 2026-09")
     amount_paid = models.CharField(max_length=100, default='', help_text="To'lov summasi yoki izoh")
+    payment_date = models.DateField(null=True, blank=True, help_text="To'lov qilingan sana")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='paid')
+    notes = models.CharField(max_length=255, blank=True, default='', help_text="Izoh yoki to'lov turi")
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         unique_together = ('student', 'month')

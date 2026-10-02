@@ -192,9 +192,14 @@
                     <i class="bi bi-collection-fill text-primary"></i> Guruhlar 
                     <span class="badge bg-primary bg-opacity-10 text-primary rounded-pill px-2 fs-6">{{ groups|length }}</span>
                 </h4>
-                <a href="{% url 'admin_group_create' %}" class="btn btn-primary fw-semibold px-3 py-2 d-flex align-items-center gap-1 shadow-sm">
-                    <i class="bi bi-plus-circle-fill"></i> Yangi Guruh
-                </a>
+                <div class="d-flex align-items-center gap-2">
+                    <a href="{% url 'admin_payments_all' %}" class="btn btn-success fw-semibold px-3 py-2 d-flex align-items-center gap-1 shadow-sm" style="background:linear-gradient(135deg, #10b981, #059669); border:none; border-radius:10px;">
+                        <i class="bi bi-wallet2"></i> Umumiy to'lovlar
+                    </a>
+                    <a href="{% url 'admin_group_create' %}" class="btn btn-primary fw-semibold px-3 py-2 d-flex align-items-center gap-1 shadow-sm" style="border-radius:10px;">
+                        <i class="bi bi-plus-circle-fill"></i> Yangi Guruh
+                    </a>
+                </div>
             </div>
 
             <div class="p-3">
@@ -212,6 +217,11 @@
                     </a>
 
                     <div class="d-flex align-items-center gap-2">
+                        <!-- Guruh to'lovlari tugmasi -->
+                        <a href="{% url 'admin_group_payments' group.id %}" class="btn btn-sm btn-outline-success rounded-pill px-3 py-1 d-flex align-items-center gap-1 shadow-sm fw-semibold" title="Guruh to'lovlari">
+                            <i class="bi bi-wallet2"></i> <span class="d-none d-sm-inline">Guruh to'lovlari</span>
+                        </a>
+
                         <a href="{% url 'admin_group_detail' group.id %}" class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 rounded-pill px-3 py-2 fw-semibold text-decoration-none d-none d-sm-inline-block">
                             {{ group.time_slots.count }} soat
                         </a>
@@ -247,13 +257,48 @@
                     <i class="bi bi-people-fill text-success"></i> O'qituvchilar
                     <span class="badge bg-success bg-opacity-10 text-success rounded-pill px-2 fs-6">{{ teachers|length }}</span>
                 </h4>
-                <div class="d-flex gap-2">
+                <div class="d-flex gap-2 flex-wrap">
                     <a href="{% url 'admin_chat_list' %}" class="btn btn-outline-primary fw-semibold px-3 py-2 d-flex align-items-center gap-1 shadow-sm">
                         <i class="bi bi-chat-dots-fill"></i> Chat
                     </a>
                     <a href="{% url 'admin_teacher_create' %}" class="btn btn-success fw-semibold px-3 py-2 d-flex align-items-center gap-1 shadow-sm">
                         <i class="bi bi-person-plus-fill"></i> Qo'shish
                     </a>
+                </div>
+            </div>
+
+            <!-- ─── GLOBAL TAHRIRLASH SWITCH ─── -->
+            <div class="px-3 py-2" style="background: linear-gradient(135deg, rgba(99,102,241,0.07), rgba(139,92,246,0.07)); border-bottom: 1px solid rgba(0,0,0,0.06);">
+                <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap">
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="bi bi-toggles fs-5 text-primary"></i>
+                        <div>
+                            <div class="fw-bold text-dark small">Barcha o'qituvchilar — Global Ruxsat</div>
+                            <div class="text-muted" style="font-size:0.75rem;">Barcha o'qituvchilar uchun tahrirlash huquqini bir yo'la yoqish yoki o'chirish</div>
+                        </div>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <form action="{% url 'admin_teacher_toggle_all_edit' %}" method="post" class="m-0">
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="on">
+                            <button type="submit" class="btn btn-success btn-sm rounded-pill px-3 py-1 fw-bold d-flex align-items-center gap-1 shadow-sm"
+                                    style="font-size:0.78rem;"
+                                    onclick="return confirm('Barcha o\'qituvchilar uchun tahrirlash ruxsatini YOQMOQCHIMISIZ?')"
+                                    title="Barcha o'qituvchilar uchun tahrirlashni yoqish">
+                                <i class="bi bi-toggle2-on fs-6"></i> Barchasini Yoq
+                            </button>
+                        </form>
+                        <form action="{% url 'admin_teacher_toggle_all_edit' %}" method="post" class="m-0">
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="off">
+                            <button type="submit" class="btn btn-outline-danger btn-sm rounded-pill px-3 py-1 fw-bold d-flex align-items-center gap-1"
+                                    style="font-size:0.78rem; background:#fff;"
+                                    onclick="return confirm('Barcha o\'qituvchilar uchun tahrirlash ruxsatini O\'CHIRMOQCHIMISIZ?')"
+                                    title="Barcha o'qituvchilar uchun tahrirlashni o'chirish">
+                                <i class="bi bi-toggle2-off fs-6"></i> Barchasini O'chir
+                            </button>
+                        </form>
+                    </div>
                 </div>
             </div>
 

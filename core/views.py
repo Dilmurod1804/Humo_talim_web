@@ -9,7 +9,7 @@ import random
 import string
 import requests
 
-from datetime import date
+from datetime import date, datetime
 
 from django.conf import settings
 from django.contrib.auth import login, logout, authenticate, update_session_auth_hash
@@ -152,7 +152,8 @@ def admin_group_create(request):
             return render(request, 'admin_group_create.html', {'teachers': teachers, 'name_val': name})
             
         teacher = get_object_or_404(Teacher, id=teacher_id) if teacher_id else None
-        Group.objects.create(name=name, teacher=teacher)
+        subject = request.POST.get('subject', '').strip() or name
+        Group.objects.create(name=name, subject=subject, teacher=teacher)
         messages.success(request, f"'{name}' guruhi muvaffaqiyatli yaratildi.")
         return redirect('admin_dashboard')
     teachers = Teacher.objects.all()
@@ -281,13 +282,6 @@ def admin_group_detail(request, id):
         for a in attendances:
             attendance_map[a.student_id][a.date.day] = a.status
 
-    # To'lovlar xaritasi
-    payment_map = {}
-    if student_ids:
-        payments = MonthlyPayment.objects.filter(student_id__in=student_ids, month=req_month)
-        for p in payments:
-            payment_map[p.student_id] = p.amount_paid
-
     # Annotate students with smart schedule attendance matrix
     from .schedule_helper import parse_schedule_weekdays
     for ts in timeslots:
@@ -305,7 +299,6 @@ def admin_group_detail(request, id):
                     'status': st,
                 })
             s.attendance_matrix = matrix
-            s.paid_amount = payment_map.get(s.id, 0)
 
     return render(request, 'admin_group_detail.html', {
         'group': group,
@@ -414,12 +407,14 @@ def admin_student_create(request, timeslot_id):
             })
 
         if first_name and last_name and phone_1:
+            is_local_val = (request.POST.get('is_local') in ('1', 'on', 'true', True))
             student = Student(
                 first_name=first_name,
                 last_name=last_name,
                 phone_1=phone_1,
                 phone_2=phone_2,
-                time_slot=timeslot
+                time_slot=timeslot,
+                is_local=is_local_val
             )
             if age.isdigit():
                 student.age = int(age)
@@ -614,25 +609,483 @@ def admin_attendance_mark(request):
         Attendance.objects.filter(student=student, date=req_date).delete()
         return JsonResponse({'status': 'success', 'attendance': ''})
 
+# ─────────────────────────────────────────────
+# ADMIN PAYMENTS (To'lovlar boshqaruvi)
+# ─────────────────────────────────────────────
+
+def _build_payments_data(students_qs, req_month, status_filter='all'):
+    """
+    O'quvchilar va ularning to'lovlari bo'yicha ma'lumotlar ro'yxatini shakllantiradi.
+    status_filter: 'all', 'paid', 'unpaid', 'overdue', 'local'
+    Avtomatik to'lov muddati (due date) va kechikkan kunlar hisob-kitobini o'z ichiga oladi.
+    """
+    today = date.today()
+    try:
+        req_year, req_mon = map(int, req_month.split('-'))
+    except Exception:
+        req_year, req_mon = today.year, today.month
+        req_month = f"{req_year:04d}-{req_mon:02d}"
+
+    max_day_in_month = calendar.monthrange(req_year, req_mon)[1]
+
+    students_list = list(students_qs.order_by('first_name', 'last_name'))
+    student_ids = [s.id for s in students_list]
+
+    # Tanlangan oy to'lovlari
+    payments = MonthlyPayment.objects.filter(student_id__in=student_ids, month=req_month)
+    payment_map = {p.student_id: p for p in payments}
+
+    # Kunlik tushum (Bugun kassa/bankka tushgan barcha pullar yig'indisi)
+    daily_payments = MonthlyPayment.objects.filter(student_id__in=student_ids, payment_date=today)
+    daily_collected = 0
+    for dp in daily_payments:
+        cl_dp = str(dp.amount_paid or '').replace(' ', '').replace("'", '').replace(',', '').strip()
+        if cl_dp.isdigit():
+            daily_collected += int(cl_dp)
+
+    rows = []
+    total_rate = 0
+    total_paid = 0
+    paid_count = 0
+    unpaid_count = 0
+    local_count = 0
+
+    for idx, s in enumerate(students_list, start=1):
+        is_loc = getattr(s, 'is_local', False)
+        if is_loc:
+            local_count += 1
+
+        grp = s.time_slot.group if s.time_slot else None
+        subject_name = grp.subject_name if grp else "-"
+        teacher_name = str(grp.teacher) if (grp and grp.teacher) else "-"
+        pay = payment_map.get(s.id)
+
+        raw_paid = str(pay.amount_paid if pay else '').strip()
+        num_paid = 0
+        cleaned_paid = raw_paid.replace(' ', '').replace("'", "").replace(',', '')
+        if cleaned_paid.isdigit():
+            num_paid = int(cleaned_paid)
+
+        rate_val = s.payment_rate or 0
+        total_rate += rate_val
+
+        # 1. Status aniqlash (Faqat To'lagan yoki Qarzdor)
+        if num_paid > 0:
+            st_code = 'paid'
+        else:
+            st_code = 'unpaid'
+
+        # 2. To'lov muddati (Kelgan sanasidan kelib chiqib avtomatik hisoblangan sana)
+        joined_d = s.joined_date or today
+        due_day = min(joined_d.day, max_day_in_month)
+        due_date = date(req_year, req_mon, due_day)
+        due_date_str = due_date.strftime('%d.%m.%Y')
+
+        # 3. Kechikish hisobi (faqat to'liq to'lanmagan bo'lsa va bugungi sana muddatidan o'tgan bo'lsa)
+        is_overdue = False
+        delay_days = 0
+        debt_val = 0 if st_code == 'paid' else rate_val
+
+        is_overdue = False
+        delay_days = 0
+
+        if st_code == 'paid':
+            paid_count += 1
+            total_paid += rate_val  # To'lagan bo'lsa, to'liq to'lagan deb hisoblanadi
+        else:
+            unpaid_count += 1
+
+        status_display = "To'langan" if st_code == 'paid' else "To'lanmagan"
+
+        pay_date_str = ""
+        pay_date_iso = ""
+        if pay and pay.payment_date:
+            pay_date_str = pay.payment_date.strftime('%d.%m.%Y')
+            pay_date_iso = pay.payment_date.strftime('%Y-%m-%d')
+        elif pay and pay.created_at:
+            pay_date_str = pay.created_at.strftime('%d.%m.%Y')
+            pay_date_iso = pay.created_at.strftime('%Y-%m-%d')
+
+        joined_str = s.joined_date.strftime('%d.%m.%Y') if s.joined_date else "-"
+        phone_str = f"{s.phone_1} {s.phone_2 or ''}".strip()
+
+        row_item = {
+            'index': idx,
+            'student': s,
+            'student_id': s.id,
+            'student_name': f"{s.first_name} {s.last_name}",
+            'is_local': is_loc,
+            'group': grp,
+            'group_name': grp.name if grp else "-",
+            'group_id': grp.id if grp else None,
+            'subject_name': subject_name,
+            'teacher_name': teacher_name,
+            'joined_date': joined_str,
+            # Belgilangan to'lov muddati va kechikish:
+            'due_date': due_date,
+            'due_date_str': due_date_str,
+            'is_overdue': is_overdue,
+            'delay_days': delay_days,
+            'delay_text': f"{delay_days} kun kechikdi" if is_overdue else "",
+            # To'lov qilingan sana va miqdorlar:
+            'payment_date': pay_date_str,
+            'payment_date_iso': pay_date_iso,
+            'payment_rate': rate_val,
+            'payment_rate_formatted': f"{rate_val:,}".replace(',', ' '),
+            'amount_paid': raw_paid,
+            'amount_paid_formatted': f"{num_paid:,}".replace(',', ' ') if num_paid > 0 else (raw_paid if raw_paid else "-"),
+            'num_paid': num_paid,
+            'status_code': st_code,
+            'status_display': status_display,
+            'phone': phone_str,
+            'notes': pay.notes if pay else "",
+            'payment_id': pay.id if pay else None,
+            # Qarz hisobi: to'lov tarifi - to'langan miqdor
+            'debt': debt_val,
+            'debt_formatted': f"{debt_val:,}".replace(',', ' '),
+        }
+
+        # Holat filtri:
+        # 'paid' -> Faqat to'laganlar (Yashil)
+        if status_filter == 'paid' and st_code != 'paid':
+            continue
+        # 'unpaid' -> Faqat qarzdorlar (0 so'm to'laganlar)
+        if status_filter == 'unpaid' and st_code != 'unpaid':
+            continue
+
+        # 'local' -> Mahalladan keladiganlar
+        if status_filter == 'local' and not is_loc:
+            continue
+
+        rows.append(row_item)
+
+    # Indekslarni yangilash
+    for i, r in enumerate(rows, start=1):
+        r['index'] = i
+
+    stats = {
+        'total_students': len(students_list),
+        'paid_count': paid_count,
+        'unpaid_count': unpaid_count,
+        'local_count': local_count,
+        'total_rate': total_rate,
+        'total_rate_formatted': f"{total_rate:,}".replace(',', ' '),
+        'total_paid': total_paid,
+        'total_paid_formatted': f"{total_paid:,}".replace(',', ' '),
+        'debt_sum': max(0, total_rate - total_paid),
+        'debt_sum_formatted': f"{max(0, total_rate - total_paid):,}".replace(',', ' '),
+        # Kunlik tushum:
+        'daily_collected': daily_collected,
+        'daily_collected_formatted': f"{daily_collected:,}".replace(',', ' '),
+        'req_year': req_year,
+    }
+
+    return rows, stats
+
+
+@admin_required
+def admin_payments_all(request):
+    """Barcha guruhlar bo'yicha umumiy to'lovlar sahifasi."""
+    if not _admin_only(request):
+        return redirect('home')
+
+    req_month = request.GET.get('month', date.today().strftime('%Y-%m'))
+    group_id = request.GET.get('group_id', '')
+    status_filter = request.GET.get('status', 'all')
+    search_q = request.GET.get('q', '').strip()
+
+    groups = Group.objects.select_related('teacher').order_by('name')
+
+    students_qs = Student.objects.filter(is_active=True).select_related(
+        'time_slot__group__teacher', 'time_slot__group'
+    )
+
+    if group_id and group_id.isdigit():
+        students_qs = students_qs.filter(time_slot__group_id=int(group_id))
+
+    if search_q:
+        words = search_q.split()
+        q_filter = Q()
+        for w in words:
+            q_filter |= Q(first_name__icontains=w) | Q(last_name__icontains=w) | Q(phone_1__icontains=w) | Q(phone_2__icontains=w)
+        students_qs = students_qs.filter(q_filter)
+
+    rows, stats = _build_payments_data(students_qs, req_month, status_filter)
+
+    return render(request, 'admin_payments_all.html', {
+        'rows': rows,
+        'groups': groups,
+        'current_month': req_month,
+        'selected_group_id': int(group_id) if group_id.isdigit() else '',
+        'selected_status': status_filter,
+        'search_query': search_q,
+        'stats': stats,
+    })
+
+
+@admin_required
+def admin_group_payments(request, group_id):
+    """Alohida bir guruh uchun to'lovlar sahifasi."""
+    if not _admin_only(request):
+        return redirect('home')
+
+    group = get_object_or_404(Group.objects.select_related('teacher'), id=group_id)
+    req_month = request.GET.get('month', date.today().strftime('%Y-%m'))
+    status_filter = request.GET.get('status', 'all')
+    search_q = request.GET.get('q', '').strip()
+
+    students_qs = Student.objects.filter(time_slot__group=group, is_active=True).select_related('time_slot')
+
+    if search_q:
+        words = search_q.split()
+        q_filter = Q()
+        for w in words:
+            q_filter |= Q(first_name__icontains=w) | Q(last_name__icontains=w) | Q(phone_1__icontains=w) | Q(phone_2__icontains=w)
+        students_qs = students_qs.filter(q_filter)
+
+    rows, stats = _build_payments_data(students_qs, req_month, status_filter)
+
+    return render(request, 'admin_group_payments.html', {
+        'group': group,
+        'rows': rows,
+        'current_month': req_month,
+        'selected_status': status_filter,
+        'search_query': search_q,
+        'stats': stats,
+    })
+
+
+@admin_required
+def admin_payment_save(request):
+    """Admin tomonidan o'quvchi to'lovini to'g'ridan-to'g'ri (inline) yoki modal orqali saqlash / yangilash."""
+    if not _admin_only(request):
+        if request.headers.get('x-requested-with') == 'XMLHttpRequest' or request.POST.get('ajax') == '1':
+            return JsonResponse({'status': 'error', 'msg': 'Ruxsat berilmagan'}, status=403)
+        messages.error(request, "Ruxsat berilmagan!")
+        return redirect('home')
+
+    if request.method != 'POST':
+        if request.headers.get('x-requested-with') == 'XMLHttpRequest' or request.POST.get('ajax') == '1':
+            return JsonResponse({'status': 'error', 'msg': "Noto'g'ri so'rov"}, status=400)
+        return redirect('admin_payments_all')
+
+    student_id = request.POST.get('student_id')
+    month = request.POST.get('month', '').strip()
+    amount_raw = request.POST.get('amount') or request.POST.get('amount_paid') or '0'
+    payment_date_str = request.POST.get('payment_date', '').strip()
+    status_val = request.POST.get('status', '').strip()
+    notes = request.POST.get('notes', '').strip()
+
+    # Oyni aniqlash (agar yuborilmagan bo'lsa to'lov sanasidan yoki joriy oydan olinadi)
+    if not month:
+        if payment_date_str and len(payment_date_str) >= 7:
+            month = payment_date_str[:7]
+        else:
+            month = date.today().strftime('%Y-%m')
+
+    if not student_id:
+        if request.headers.get('x-requested-with') == 'XMLHttpRequest' or request.POST.get('ajax') == '1':
+            return JsonResponse({'status': 'error', 'msg': "O'quvchi ko'rsatilmadi"}, status=400)
+        messages.error(request, "O'quvchi tanlanmadi!")
+        return redirect('admin_payments_all')
+
+    student = get_object_or_404(Student, id=student_id)
+
+    # Miqdorni raqamga aylantirish (bo'sh joy, vergul, apostroflarni tozalash)
+    amount_cleaned = str(amount_raw).replace(' ', '').replace("'", '').replace(',', '').strip()
+    amount_num = int(amount_cleaned) if amount_cleaned.isdigit() else 0
+    amount_to_save = str(amount_num)
+
+    # Sana aniqlash
+    p_date = None
+    if payment_date_str:
+        try:
+            p_date = datetime.strptime(payment_date_str, '%Y-%m-%d').date()
+        except ValueError:
+            p_date = date.today()
+    else:
+        p_date = date.today()
+
+    rate = student.payment_rate or 0
+
+    if rate > 0 and amount_num > 0:
+        # To'lovni taqsimlash (FIFO - eng eski qarzdan boshlab yopish)
+        start_date = student.joined_date or date.today()
+        current_iter = start_date.replace(day=1)
+        remaining = amount_num
+        
+        for _ in range(36):  # Maksimal 3 yil
+            if remaining <= 0:
+                break
+                
+            iter_month = current_iter.strftime('%Y-%m')
+            mp_exists = MonthlyPayment.objects.filter(student=student, month=iter_month).first()
+            is_paid = False
+            
+            if mp_exists:
+                cl_paid = str(mp_exists.amount_paid).replace(' ', '').replace("'", '').replace(',', '').strip()
+                if cl_paid.isdigit() and int(cl_paid) > 0:
+                    is_paid = True
+                    
+            if not is_paid:
+                # Qarzni yopamiz yoki oldindan to'lovni yozamiz
+                MonthlyPayment.objects.update_or_create(
+                    student=student,
+                    month=iter_month,
+                    defaults={
+                        'amount_paid': str(rate),
+                        'payment_date': p_date,
+                        'status': 'paid',
+                        'notes': notes if iter_month == month else f"{month} da to'langan",
+                    }
+                )
+                remaining -= rate
+                
+            # Keyingi oyga o'tish
+            y, m = current_iter.year, current_iter.month
+            m += 1
+            if m > 12:
+                m = 1
+                y += 1
+            current_iter = date(y, m, 1)
+    else:
+        # Agar 0 kiritilsa (qarzga o'tkazish yoki o'chirish)
+        MonthlyPayment.objects.update_or_create(
+            student=student,
+            month=month,
+            defaults={
+                'amount_paid': '0',
+                'payment_date': p_date,
+                'status': 'unpaid',
+                'notes': notes,
+            }
+        )
+
+    # UI da so'ralgan oyni qaytarish uchun
+    mp, _ = MonthlyPayment.objects.get_or_create(
+        student=student,
+        month=month,
+        defaults={'amount_paid': '0', 'status': 'unpaid'}
+    )
+
+    if request.headers.get('x-requested-with') == 'XMLHttpRequest' or request.POST.get('ajax') == '1':
+        saved_num = int(mp.amount_paid) if str(mp.amount_paid).isdigit() else 0
+        rate_val = student.payment_rate or 0
+        return JsonResponse({
+            'status': 'success',
+            'payment_id': mp.id,
+            'amount_paid': mp.amount_paid,
+            'amount_paid_num': saved_num,
+            'amount_paid_formatted': f"{saved_num:,}".replace(',', ' ') if saved_num > 0 else '0',
+            'payment_date': mp.payment_date.strftime('%d.%m.%Y') if mp.payment_date else '',
+            'payment_date_iso': mp.payment_date.strftime('%Y-%m-%d') if mp.payment_date else '',
+            'status_code': mp.status,
+            'status_display': "To'langan" if saved_num > 0 else "To'lanmagan",
+            'notes': mp.notes,
+            'rate': rate_val,
+            'debt': 0 if saved_num > 0 else rate_val,
+            'debt_formatted': "0" if saved_num > 0 else f"{rate_val:,}".replace(',', ' '),
+        })
+
+    formatted_amount = f"{amount_num:,}".replace(',', ' ')
+    messages.success(request, f"💾 {student.first_name} {student.last_name}: {formatted_amount} so'm taqsimlandi (O'tgan/Kelasi oylarga)!")
+    next_url = request.POST.get('next') or request.META.get('HTTP_REFERER') or 'admin_payments_all'
+    return redirect(next_url)
+
+
+@admin_required
+def admin_payment_delete(request, id):
+    """To'lov yozuvini bekor qilish/o'chirish."""
+    if not _admin_only(request):
+        if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+            return JsonResponse({'status': 'error', 'msg': 'Ruxsat berilmagan'}, status=403)
+        messages.error(request, "Ruxsat berilmagan!")
+        return redirect('home')
+
+    mp = get_object_or_404(MonthlyPayment, id=id)
+    student_name = f"{mp.student.first_name} {mp.student.last_name}"
+    mp.delete()
+    if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+        return JsonResponse({'status': 'success'})
+    messages.success(request, f"{student_name} to'lov ma'lumoti bekor qilindi.")
+    next_url = request.GET.get('next') or request.POST.get('next') or request.META.get('HTTP_REFERER') or 'admin_payments_all'
+    return redirect(next_url)
+
+
+@admin_required
+def export_payments_excel(request):
+    """To'lovlar jadvalini professional Excel fayl (.xlsx) shaklida eksport qilish."""
+    if not _admin_only(request):
+        return redirect('home')
+
+    from .payment_excel import generate_payments_excel
+
+    req_month = request.GET.get('month', date.today().strftime('%Y-%m'))
+    group_id = request.GET.get('group_id', '')
+    status_filter = request.GET.get('status', 'all')
+    is_local_param = request.GET.get('is_local', '')
+
+    if is_local_param in ('1', 'true', 'True') or status_filter == 'local':
+        status_filter = 'local'
+
+    group = None
+    if group_id and group_id.isdigit():
+        group = get_object_or_404(Group.objects.select_related('teacher'), id=int(group_id))
+        students_qs = Student.objects.filter(time_slot__group=group, is_active=True).select_related('time_slot')
+        base_title = f"Guruh To'lovlari — {group.name}"
+        safe_name = "".join(c for c in group.name if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
+        base_filename = f"Toluvlar_{safe_name}"
+        group_info = f"Fan: {group.subject_name} | O'qituvchi: {group.teacher or '—'}"
+    else:
+        students_qs = Student.objects.filter(is_active=True).select_related('time_slot__group__teacher', 'time_slot__group')
+        base_title = "Barcha Guruhlar Umumiy To'lovlar Jadvali"
+        base_filename = "Humo_Umumiy_Toluvlar"
+        group_info = "Barcha guruhlar"
+
+    # Statusga mos sarlavha va fayl nomi
+    if status_filter == 'paid':
+        type_label = "To'liq To'laganlar"
+        filename = f"{base_filename}_Tolaganlar_{req_month}.xlsx"
+    elif status_filter == 'overdue':
+        type_label = "Kechikkanlar (Muddati O'tganlar)"
+        filename = f"{base_filename}_Kechikkanlar_{req_month}.xlsx"
+    elif status_filter == 'unpaid':
+        type_label = "Qarzdorlar (Umuman to'lamaganlar)"
+        filename = f"{base_filename}_Qarzdorlar_{req_month}.xlsx"
+    elif status_filter == 'partial':
+        type_label = "Qisman To'laganlar"
+        filename = f"{base_filename}_Qisman_Tolaganlar_{req_month}.xlsx"
+    elif status_filter == 'local':
+        type_label = "Mahalladan Kelganlar"
+        filename = f"{base_filename}_Mahalladan_{req_month}.xlsx"
+    elif status_filter == 'yearly':
+        type_label = f"Yillik Moliyaviy Hisobot ({req_month[:4]})"
+        filename = f"{base_filename}_Yillik_{req_month[:4]}.xlsx"
+    else:
+        type_label = "Barcha O'quvchilar"
+        filename = f"{base_filename}_{req_month}.xlsx"
+
+    title = f"{base_title} ({type_label})"
+    subtitle = f"{group_info} | Holat: {type_label} | Davr: {req_month} | Yuklangan: {date.today().strftime('%d.%m.%Y')}"
+
+    # Agar yillik tanlangan bo'lsa barcha o'quvchilar ro'yxati olinadi
+    filter_for_data = 'all' if status_filter == 'yearly' else status_filter
+    rows, stats = _build_payments_data(students_qs, req_month, status_filter=filter_for_data)
+
+    excel_file = generate_payments_excel(rows, title=title, subtitle=subtitle, stats=stats)
+
+    response = HttpResponse(
+        excel_file.getvalue(),
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    return response
+
+
 @admin_required
 def payment_mark(request):
-    """Admin yoki Teacher tomonidan to'lovni belgilash (AJAX)."""
-    if request.method != 'POST':
-        return JsonResponse({'status': 'error', 'msg': 'Noto\'g\'ri so\'rov'}, status=400)
-    
-    student_id = request.POST.get('student_id')
-    month = request.POST.get('month')
-    amount = request.POST.get('amount')
-    
-    student = get_object_or_404(Student, id=student_id)
-    
-    amount = str(amount or '').strip()
-    
-    mp, _ = MonthlyPayment.objects.update_or_create(
-        student=student, month=month,
-        defaults={'amount_paid': amount}
-    )
-    return JsonResponse({'status': 'success', 'amount': mp.amount_paid})
+    """Eski payment_mark endpointi bilan moslik (backward compatibility)."""
+    return admin_payment_save(request)
 
 
 # ─────────────────────────────────────────────
@@ -702,12 +1155,6 @@ def teacher_dashboard(request):
         for a in attendances:
             attendance_map[a.student_id][a.date.day] = a.status
 
-    payment_map = {}
-    if student_ids:
-        payments = MonthlyPayment.objects.filter(student_id__in=student_ids, month=req_month)
-        for p in payments:
-            payment_map[p.student_id] = p.amount_paid
-
     # Annotate students with smart schedule attendance matrix
     from .schedule_helper import parse_schedule_weekdays
     for g in groups:
@@ -726,7 +1173,6 @@ def teacher_dashboard(request):
                         'status': st,
                     })
                 s.attendance_matrix = matrix
-                s.paid_amount = payment_map.get(s.id, 0)
 
     return render(request, 'teacher_dashboard.html', {
         'teacher': teacher,
@@ -796,12 +1242,14 @@ def teacher_student_create(request, timeslot_id):
             })
 
         if first_name and last_name and phone_1:
+            is_local_val = (request.POST.get('is_local') in ('1', 'on', 'true', True))
             student = Student(
                 first_name=first_name,
                 last_name=last_name,
                 phone_1=phone_1,
                 phone_2=phone_2,
-                time_slot=timeslot
+                time_slot=timeslot,
+                is_local=is_local_val
             )
             if age.isdigit():
                 student.age = int(age)
@@ -886,6 +1334,23 @@ def admin_teacher_toggle_edit(request, id):
     return redirect('admin_dashboard')
 
 
+@admin_required
+def admin_teacher_toggle_all_edit(request):
+    """Barcha o'qituvchilar uchun tahrirlash ruxsatini bir yo'la yoqish/o'chirish (GLOBAL TOGGLE)."""
+    if not _admin_only(request):
+        return redirect('home')
+    if request.method != 'POST':
+        return redirect('admin_dashboard')
+    action = request.POST.get('action', 'off')  # 'on' yoki 'off'
+    new_val = (action == 'on')
+    count = Teacher.objects.update(can_edit_students=new_val)
+    if new_val:
+        messages.success(request, f"Barcha {count} ta o'qituvchi uchun tahrirlash ruxsati YOQILDI ✅")
+    else:
+        messages.success(request, f"Barcha {count} ta o'qituvchi uchun tahrirlash ruxsati O'CHIRILDI ❌")
+    return redirect('admin_dashboard')
+
+
 # ─────────────────────────────────────────────
 # ADMIN: Student Edit
 # ─────────────────────────────────────────────
@@ -921,6 +1386,7 @@ def admin_student_edit(request, id):
             student.phone_2 = phone_2
             if payment_rate_raw.isdigit():
                 student.payment_rate = int(payment_rate_raw)
+            student.is_local = (request.POST.get('is_local') in ('1', 'on', 'true', True))
             student.save()
             messages.success(request, f"O'quvchi ma'lumotlari yangilandi.")
             if next_url:
@@ -974,6 +1440,8 @@ def teacher_student_edit(request, id):
             student.age = int(age_raw) if age_raw.isdigit() else student.age
             student.phone_1 = phone_1 or student.phone_1
             student.phone_2 = phone_2
+            if 'is_local' in request.POST:
+                student.is_local = (request.POST.get('is_local') in ('1', 'on', 'true', True))
             student.save()
             messages.success(request, f"O'quvchi ma'lumotlari yangilandi.")
             return redirect('teacher_dashboard')

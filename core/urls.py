@@ -16,6 +16,7 @@ urlpatterns = [
     path('admin/teacher/create/',    views.admin_teacher_create,   name='admin_teacher_create'),
     path('admin/teacher/<int:id>/delete/', views.admin_teacher_delete, name='admin_teacher_delete'),
     path('admin/teacher/<int:id>/toggle-edit/', views.admin_teacher_toggle_edit, name='admin_teacher_toggle_edit'),
+    path('admin/teachers/toggle-all-edit/', views.admin_teacher_toggle_all_edit, name='admin_teacher_toggle_all_edit'),
     path('admin/deleted-students/',  views.admin_deleted_students, name='admin_deleted_students'),
     path('admin/deleted-students/<int:id>/restore/', views.admin_deleted_student_restore, name='admin_deleted_student_restore'),
     path('admin/deleted-students/<int:id>/delete/', views.admin_deleted_student_delete_permanent, name='admin_deleted_student_delete_permanent'),
@@ -30,6 +31,13 @@ urlpatterns = [
     path('admin/temp-students/<int:id>/delete/',     views.admin_temp_student_delete, name='admin_temp_student_delete'),
     path('admin/attendance/',                        views.admin_attendance_mark,     name='admin_attendance_mark'),
     path('admin/payment/',                           views.payment_mark,              name='payment_mark'),
+
+    # ── Admin Payments ───────────────────────────────────────────────────────
+    path('admin/payments/',                          views.admin_payments_all,        name='admin_payments_all'),
+    path('admin/group/<int:group_id>/payments/',     views.admin_group_payments,      name='admin_group_payments'),
+    path('admin/payment/save/',                      views.admin_payment_save,        name='admin_payment_save'),
+    path('admin/payment/<int:id>/delete/',           views.admin_payment_delete,      name='admin_payment_delete'),
+    path('admin/payments/export/',                   views.export_payments_excel,     name='export_payments_excel'),
 
     # ── Teacher ──────────────────────────────────────────────────────────────
     path('teacher/login/',              views.teacher_login,           name='teacher_login'),

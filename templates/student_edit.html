@@ -54,6 +54,16 @@
                     <label class="form-label fw-semibold text-muted small">Telefon 2 (Ixtiyoriy)</label>
                     <input type="text" name="phone_2" class="form-control" placeholder="+998901234567" value="{{ student.phone_2|default:'' }}">
                 </div>
+
+                <div class="col-12 mt-3">
+                    <div class="form-check form-switch p-3 rounded-3 border bg-light d-flex align-items-center gap-3">
+                        <input class="form-check-input ms-0 mt-0" type="checkbox" name="is_local" value="1" id="isLocalCheck" {% if student.is_local %}checked{% endif %} style="width:2.5em; height:1.4em; cursor:pointer;">
+                        <label class="form-check-label fw-bold text-dark mb-0" for="isLocalCheck" style="cursor:pointer;">
+                            <i class="bi bi-geo-alt-fill text-info me-1"></i> Mahalladan keladigan o'quvchi
+                            <small class="text-muted fw-normal d-block">Ushbu o'quvchi mahalla yoshlari yoki maxsus toifaga kiradi</small>
+                        </label>
+                    </div>
+                </div>
                 
                 <div class="col-12 mt-4">
                     <button type="submit" class="btn w-100 py-2 fw-bold text-white shadow-sm" style="background:linear-gradient(135deg, {% if role == 'admin' %}#6366f1, #8b5cf6{% else %}#10b981, #059669{% endif %}); border:none; border-radius:12px;">

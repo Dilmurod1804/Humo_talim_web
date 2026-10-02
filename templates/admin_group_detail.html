@@ -15,6 +15,10 @@
     </div>
     
     <div class="d-flex align-items-center gap-2 flex-wrap">
+        <a href="{% url 'admin_group_payments' group.id %}?month={{ current_month }}" class="btn btn-success btn-sm rounded-pill px-3 shadow-sm d-flex align-items-center gap-1" style="background:linear-gradient(135deg,#10b981,#059669); border:none;">
+            <i class="bi bi-wallet2"></i> Guruh to'lovlari
+        </a>
+
         <form method="get" class="d-flex align-items-center gap-2">
             <label class="text-white fw-bold mb-0 small">Oy:</label>
             <input type="month" name="month" class="form-control border-0 shadow-sm"
@@ -94,7 +98,6 @@
                         <div class="att-weekday">{{ d.weekday }}</div>
                     </th>
                     {% endfor %}
-                    <th>To'lov</th>
                     <th>Amal</th>
                 </tr>
             </thead>
@@ -118,6 +121,9 @@
                                      title="Bosib tahrirlash" style="cursor:pointer; min-width:0;">
                                     <div class="student-last-name fw-bold" style="color: #0f172a; font-size: 0.92rem; line-height: 1.15; letter-spacing: -0.2px;">
                                         {{ student.last_name }}
+                                        {% if student.is_local %}
+                                        <span class="badge rounded-pill px-1 py-0 ms-1" style="background:rgba(14,165,233,0.15);color:#0284c7;font-size:0.68rem;" title="Mahalladan kelgan o'quvchi"><i class="bi bi-geo-alt-fill"></i> Mahalla</span>
+                                        {% endif %}
                                         <i class="bi bi-pencil-fill ms-1 opacity-25" style="font-size:0.6rem;"></i>
                                     </div>
                                     <div class="student-first-name fw-semibold" style="color: #475569; font-size: 0.82rem; line-height: 1.2;">
@@ -159,16 +165,6 @@
                         </td>
                         {% endif %}
                     {% endfor %}
-
-                    <td class="cell-pay {% if student.paid_amount and student.paid_amount != '0' and student.paid_amount != 0 %}paid{% else %}unpaid{% endif %}"
-                        data-sid="{{ student.id }}" data-paid="{{ student.paid_amount }}"
-                        onclick="openPaymentModal(this)" title="To'lov kiritish: bosing">
-                        {% if student.paid_amount and student.paid_amount != '0' and student.paid_amount != 0 %}
-                            {{ student.paid_amount }}
-                        {% else %}
-                            <i class="bi bi-x-lg"></i>
-                        {% endif %}
-                    </td>
                     
                     <td>
                         <button type="button" class="btn btn-sm btn-outline-danger btn-icon-circle"
@@ -262,27 +258,7 @@
     {% endfor %}
 {% endfor %}
 
-<!-- 3. Payment Modal -->
-<div class="modal fade" id="paymentModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-sm modal-dialog-centered">
-    <div class="modal-content border-0 rounded-4 shadow">
-      <div class="modal-header border-0 pb-0">
-        <h6 class="modal-title fw-bold">To'lov kiritish</h6>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Yopish"></button>
-      </div>
-      <div class="modal-body">
-        <input type="hidden" id="pay_student_id">
-        <label class="form-label small fw-semibold">Summa (so'm)</label>
-        <input type="text" class="form-control" id="pay_amount" placeholder="Masalan: 300 000 yoki Mahalla">
-      </div>
-      <div class="modal-footer border-0 pt-0">
-        <button type="button" class="btn btn-primary btn-sm w-100 rounded-pill" onclick="savePayment()">Saqlash</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- 4. IMAGE PREVIEW MODAL -->
+<!-- 3. IMAGE PREVIEW MODAL -->
 <div class="modal fade" id="imgPreviewModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered" style="max-width:420px;">
     <div class="modal-content border-0 rounded-4 shadow-lg" style="background:rgba(15,23,42,0.95);backdrop-filter:blur(20px);">
@@ -423,53 +399,5 @@
             });
         });
     });
-
-    const payModal = new bootstrap.Modal(document.getElementById('paymentModal'));
-    
-    function openPaymentModal(cell) {
-        activePayCell = cell;
-        document.getElementById('pay_student_id').value = cell.dataset.sid;
-        document.getElementById('pay_amount').value = (cell.dataset.paid && cell.dataset.paid !== '0' && cell.dataset.paid !== 'None') ? cell.dataset.paid : '';
-        payModal.show();
-    }
-
-    function savePayment() {
-        const sid = document.getElementById('pay_student_id').value;
-        const amount = document.getElementById('pay_amount').value;
-        
-        const body = new URLSearchParams({
-            student_id: sid,
-            month: currentMonth,
-            amount: amount || 0
-        });
-
-        fetch("{% url 'payment_mark' %}", {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'X-CSRFToken': '{{ csrf_token }}'
-            },
-            body: body
-        })
-        .then(r => r.json())
-        .then(data => {
-            if(data.status === 'success'){
-                payModal.hide();
-                activePayCell.dataset.paid = data.amount;
-                if(data.amount && data.amount !== '0' && data.amount !== 0) {
-                    activePayCell.className = "cell-pay paid";
-                    activePayCell.innerText = data.amount;
-                } else {
-                    activePayCell.className = "cell-pay unpaid";
-                    activePayCell.innerHTML = '<i class="bi bi-x-lg"></i>';
-                }
-            } else {
-                alert("Xatolik: " + (data.msg || "To'lovni saqlab bo'lmadi"));
-            }
-        }).catch(e => {
-            console.error(e);
-            alert("To'lovni saqlashda server xatoligi!");
-        });
-    }
 </script>
 {% endblock %}

@@ -67,12 +67,13 @@
                     <i class="bi bi-house-door-fill me-1"></i><span>Asosiy</span>
                 </a>
 
-                <a href="{% url 'admin_dashboard' %}" class="quick-nav-link {% if '/admin/' in request.path and '/temp-students' not in request.path and '/deleted-students' not in request.path %}active{% endif %}">
+                {% if request.session.admin_authenticated %}
+                <a href="{% url 'admin_dashboard' %}" class="quick-nav-link {% if '/admin/' in request.path and '/temp-students' not in request.path and '/deleted-students' not in request.path and '/payments' not in request.path %}active{% endif %}">
                     <i class="bi bi-grid-1x2-fill me-1"></i><span>Admin Panel</span>
                 </a>
 
-                <a href="{% url 'teacher_dashboard' %}" class="quick-nav-link {% if '/teacher/' in request.path %}active{% endif %}">
-                    <i class="bi bi-person-workspace me-1"></i><span>O'qituvchi</span>
+                <a href="{% url 'admin_payments_all' %}" class="quick-nav-link {% if 'payments' in request.path %}active{% endif %}">
+                    <i class="bi bi-wallet2 me-1"></i><span>To'lovlar</span>
                 </a>
 
                 <a href="{% url 'admin_temp_students' %}" class="quick-nav-link {% if 'temp-students' in request.path %}active{% endif %}">
@@ -82,6 +83,17 @@
                 <a href="{% url 'admin_deleted_students' %}" class="quick-nav-link {% if 'deleted-students' in request.path %}active{% endif %}">
                     <i class="bi bi-archive-fill me-1"></i><span>Arxiv</span>
                 </a>
+                {% endif %}
+
+                {% if user.is_authenticated and user.role == 'teacher' %}
+                <a href="{% url 'teacher_dashboard' %}" class="quick-nav-link {% if '/teacher/' in request.path %}active{% endif %}">
+                    <i class="bi bi-person-workspace me-1"></i><span>O'qituvchi Kabineti</span>
+                </a>
+                {% elif request.session.admin_authenticated %}
+                <a href="{% url 'teacher_dashboard' %}" class="quick-nav-link {% if '/teacher/' in request.path %}active{% endif %}">
+                    <i class="bi bi-person-workspace me-1"></i><span>O'qituvchilar</span>
+                </a>
+                {% endif %}
 
                 <a href="{% url 'parent_view' %}" class="quick-nav-link {% if '/parent/' in request.path %}active{% endif %}">
                     <i class="bi bi-eye-fill me-1"></i><span>Ota-ona</span>
