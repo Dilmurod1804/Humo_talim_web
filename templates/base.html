@@ -23,25 +23,25 @@
     <div class="container-fluid px-2 px-sm-3 px-md-4">
         
         <!-- Left: Back Button & Brand Logo -->
-        <div class="d-flex align-items-center gap-2">
+        <div class="d-flex align-items-center gap-1 gap-sm-2 flex-nowrap">
             {% if request.path != '/' and request.path != '/admin-login/' and request.path != '/teacher/login/' %}
             <button onclick="history.back()"
                     class="btn btn-sm rounded-pill px-2 px-sm-3 d-flex align-items-center gap-1 flex-shrink-0 text-white"
-                    style="background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.25);font-weight:600;font-size:.8rem;backdrop-filter:blur(6px);"
+                    style="background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.25);font-weight:600;font-size:.78rem;backdrop-filter:blur(6px);padding-top:4px;padding-bottom:4px;"
                     title="Ortga">
                 <i class="bi bi-arrow-left"></i> <span class="d-none d-sm-inline">Ortga</span>
             </button>
             {% endif %}
 
-            <a class="navbar-brand d-flex align-items-center gap-2 m-0" href="{% url 'home' %}">
+            <a class="navbar-brand d-flex align-items-center gap-2 m-0 flex-nowrap" href="{% url 'home' %}">
                 <img src="{% static 'img/humo_logo.jpg' %}" alt="HUMO"
-                     style="height:32px;width:auto;border-radius:8px;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.3);">
+                     style="height:30px;width:auto;border-radius:8px;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.3);">
                 <span class="fw-bold fs-6 text-white">HUMO <span class="d-none d-md-inline opacity-75">O'quv Markazi</span></span>
             </a>
         </div>
 
         <!-- Right Mobile Toggle (Burger Button & Mobile User Badge) -->
-        <div class="d-flex align-items-center gap-2 d-lg-none ms-auto">
+        <div class="d-flex align-items-center gap-1 gap-sm-2 d-lg-none ms-auto flex-nowrap">
             {% if request.session.admin_authenticated %}
             <span class="badge bg-warning bg-opacity-20 text-warning border border-warning border-opacity-30 rounded-pill px-2 py-1 small">
                 <i class="bi bi-shield-lock-fill me-1"></i>Admin

@@ -12,6 +12,7 @@ urlpatterns = [
     path('admin/dashboard/',         views.admin_dashboard,        name='admin_dashboard'),
     path('admin/group/create/',      views.admin_group_create,     name='admin_group_create'),
     path('admin/group/<int:id>/',    views.admin_group_detail,     name='admin_group_detail'),
+    path('admin/group/<int:group_id>/export/', views.admin_group_export_excel, name='admin_group_export_excel'),
     path('admin/group/<int:id>/delete/', views.admin_group_delete,  name='admin_group_delete'),
     path('admin/teacher/create/',    views.admin_teacher_create,   name='admin_teacher_create'),
     path('admin/teacher/<int:id>/delete/', views.admin_teacher_delete, name='admin_teacher_delete'),
@@ -42,6 +43,7 @@ urlpatterns = [
     # ── Teacher ──────────────────────────────────────────────────────────────
     path('teacher/login/',              views.teacher_login,           name='teacher_login'),
     path('teacher/dashboard/',          views.teacher_dashboard,       name='teacher_dashboard'),
+    path('teacher/export/',             views.teacher_export_excel,    name='teacher_export_excel'),
     path('teacher/attendance/',         views.teacher_attendance_mark, name='teacher_attendance_mark'),
     path('teacher/timeslot/<int:timeslot_id>/student/create/', views.teacher_student_create, name='teacher_student_create'),
     path('teacher/student/<int:id>/delete/', views.teacher_student_delete, name='teacher_student_delete'),

@@ -1193,3 +1193,72 @@ body {
     h4, .fs-5 { font-size: 1.1rem !important; }
     .btn { padding: 0.38rem 0.75rem; font-size: 0.83rem; }
 }
+
+/* === HERO LOGO & MOBILE RESPONSIVE ENHANCEMENTS === */
+.humo-hero-logo {
+    width: min(320px, 90%);
+    border-radius: 20px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+    transition: transform 0.3s ease;
+}
+
+@media (max-width: 991.98px) {
+    .main-content-wrapper {
+        padding-top: 64px !important;
+        padding-bottom: 30px !important;
+    }
+    .home-hero-row {
+        min-height: auto !important;
+        align-items: flex-start !important;
+        padding-top: 8px !important;
+    }
+    .glass-nav {
+        padding-top: 6px !important;
+        padding-bottom: 6px !important;
+        min-height: 52px !important;
+    }
+    .navbar-brand img {
+        height: 28px !important;
+    }
+    .navbar-brand span {
+        font-size: 0.95rem !important;
+    }
+    .humo-hero-logo {
+        height: 48px !important;
+        width: auto !important;
+        max-width: 140px !important;
+        border-radius: 12px !important;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25) !important;
+        margin-bottom: 2px !important;
+        object-fit: cover !important;
+    }
+    .hero-role-card {
+        padding: 14px 12px !important;
+        border-radius: 18px !important;
+        margin-top: 4px !important;
+    }
+    .role-icon-box {
+        width: 44px !important;
+        height: 44px !important;
+        font-size: 1.25rem !important;
+        margin: 0 auto !important;
+    }
+    .role-label {
+        font-size: 0.8rem !important;
+        margin-top: 4px !important;
+    }
+    .header-actions-wrap {
+        display: flex !important;
+        flex-wrap: wrap !important;
+        gap: 6px !important;
+        width: 100% !important;
+    }
+    .header-actions-wrap .btn {
+        flex: 1 1 calc(50% - 6px);
+        font-size: 0.8rem !important;
+        padding: 7px 10px !important;
+        text-align: center;
+        white-space: nowrap;
+    }
+}
+

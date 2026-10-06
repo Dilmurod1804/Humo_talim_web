@@ -8,6 +8,7 @@ import os
 import random
 import string
 import requests
+import re
 
 from datetime import date, datetime
 
@@ -463,51 +464,149 @@ def admin_student_delete(request, id):
         return redirect('admin_dashboard')
     return redirect('admin_dashboard')
 
-@admin_required
-def admin_export_excel(request):
-    if not _admin_only(request):
-        return redirect('home')
+# ─────────────────────────────────────────────
+# TO'G'RIDAN-TO'G'RI EXCEL EKSPORT TIZIMI (DIRECT EXPORT)
+# ─────────────────────────────────────────────
 
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "O'quvchilar Ro'yxati"
-
+def _populate_excel_sheet(ws, students, payment_map):
+    """
+    Excel varag'iga (sheet) standart ustunlar va o'quvchilar ro'yxatini yozish.
+    Ustunlar tartibi:
+    № | F.I.O | Fan (Guruh) | O'qituvchi | Kelgan sana | To'lov tari | To'lov miq | Telefon raqami
+    Sanoq/tartib raqami chap tarafda bevosita o'quvchilardan boshlanadi (1, 2, 3...)
+    """
     headers = [
-        "F.I.O", "Fan (Guruh)", "O'qituvchi", "Kelgan sana", 
-        "To'lov tarifi", "To'lov miqdori (Joriy oy)", "Telefon raqami"
+        "№", "F.I.O", "Fan (Guruh)", "O'qituvchi", "Kelgan sana", 
+        "To'lov tari", "To'lov miq", "Telefon raqami"
     ]
     ws.append(headers)
 
-    # Style the header
-    for col in range(1, len(headers) + 1):
-        cell = ws.cell(row=1, column=col)
-        cell.font = openpyxl.styles.Font(bold=True)
+    # Sarlavha stillari (premium indigo fon, oq matn)
+    for col_idx in range(1, len(headers) + 1):
+        cell = ws.cell(row=1, column=col_idx)
+        cell.font = openpyxl.styles.Font(bold=True, color="FFFFFF", size=11)
+        cell.fill = openpyxl.styles.PatternFill(start_color="4F46E5", end_color="4F46E5", fill_type="solid")
+        cell.alignment = openpyxl.styles.Alignment(horizontal="center", vertical="center")
 
-    curr_month = date.today().strftime('%Y-%m')
-    students = Student.objects.select_related('time_slot__group__teacher').filter(is_active=True)
-    
-    # Pre-fetch payments for current month
-    payments = MonthlyPayment.objects.filter(month=curr_month)
-    payment_map = {p.student_id: p.amount_paid for p in payments}
-
-    for s in students:
-        group_name = s.time_slot.group.name if s.time_slot and s.time_slot.group else "-"
-        teacher_name = str(s.time_slot.group.teacher) if s.time_slot and s.time_slot.group and s.time_slot.group.teacher else "-"
-        amount = payment_map.get(s.id, 0)
+    for idx, s in enumerate(students, 1):
+        group_name = s.time_slot.group.name if (s.time_slot and s.time_slot.group) else "-"
+        teacher_name = str(s.time_slot.group.teacher) if (s.time_slot and s.time_slot.group and s.time_slot.group.teacher) else "-"
+        amount = payment_map.get(s.id, "")
         phone = f"{s.phone_1} {s.phone_2 or ''}".strip()
-        
+        joined_str = s.joined_date.strftime('%Y-%m-%d') if s.joined_date else ""
+
         ws.append([
+            idx,
             f"{s.first_name} {s.last_name}",
             group_name,
             teacher_name,
-            s.joined_date.strftime('%Y-%m-%d') if s.joined_date else "",
+            joined_str,
             s.payment_rate,
             amount,
             phone
         ])
 
+    # Ustun kengliklari
+    col_widths = {'A': 8, 'B': 28, 'C': 24, 'D': 22, 'E': 16, 'F': 16, 'G': 16, 'H': 20}
+    for col_letter, width in col_widths.items():
+        ws.column_dimensions[col_letter].width = width
+
+@admin_required
+def admin_export_excel(request):
+    """
+    Admin: Barcha o'qituvchilar va ularga biriktirilgan guruhlar/o'quvchilar ro'yxatini
+    to'g'ridan-to'g'ri Excel formatida kompyuter yoki telefonga yuklab berish.
+    """
+    if not _admin_only(request):
+        return redirect('home')
+
+    curr_month = date.today().strftime('%Y-%m')
+    payments = MonthlyPayment.objects.filter(month=curr_month)
+    payment_map = {p.student_id: p.amount_paid for p in payments}
+
+    wb = openpyxl.Workbook()
+    
+    # 1. Barcha o'quvchilar varag'i (O'qituvchi va guruh kesimida tartiblangan)
+    ws_all = wb.active
+    ws_all.title = "Barcha O'quvchilar"
+    all_students = Student.objects.select_related('time_slot__group__teacher').filter(is_active=True).order_by(
+        'time_slot__group__teacher__first_name',
+        'time_slot__group__teacher__last_name',
+        'time_slot__group__name',
+        'first_name',
+        'last_name'
+    )
+    _populate_excel_sheet(ws_all, all_students, payment_map)
+
+    # 2. Har bir o'qituvchi uchun alohida varaq (sheet)
+    teachers = Teacher.objects.all().order_by('first_name', 'last_name')
+    for t in teachers:
+        t_students = [s for s in all_students if s.time_slot and s.time_slot.group and s.time_slot.group.teacher_id == t.id]
+        if t_students:
+            sheet_title = f"{t.first_name} {t.last_name}"[:30]
+            ws_t = wb.create_sheet(title=sheet_title)
+            _populate_excel_sheet(ws_t, t_students, payment_map)
+
     response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-    response['Content-Disposition'] = 'attachment; filename="Oquvchilar.xlsx"'
+    response['Content-Disposition'] = f'attachment; filename="HUMO_Oquvchilar_{curr_month}.xlsx"'
+    wb.save(response)
+    return response
+
+@admin_required
+def admin_group_export_excel(request, group_id):
+    """
+    Guruh sahifasidan ma'lum bir guruh va o'qituvchi o'quvchilarini
+    to'g'ridan-to'g'ri Excel fayl qilib yuklab berish.
+    """
+    if not _admin_only(request):
+        return redirect('home')
+
+    group = get_object_or_404(Group, id=group_id)
+    curr_month = date.today().strftime('%Y-%m')
+    payments = MonthlyPayment.objects.filter(month=curr_month)
+    payment_map = {p.student_id: p.amount_paid for p in payments}
+
+    students = Student.objects.select_related('time_slot__group__teacher').filter(
+        time_slot__group=group, is_active=True
+    ).order_by('first_name', 'last_name')
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = f"{group.name[:28]}"
+    _populate_excel_sheet(ws, students, payment_map)
+
+    response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    response['Content-Disposition'] = f'attachment; filename="Guruh_{group.name}_{curr_month}.xlsx"'
+    wb.save(response)
+    return response
+
+@login_required(login_url='/teacher/login/')
+def teacher_export_excel(request):
+    """
+    O'qituvchining o'z kabinetidan o'ziga biriktirilgan barcha o'quvchilarni
+    guruhlar kesimida to'g'ridan-to'g'ri Excel fayl qilib yuklab berish.
+    """
+    teacher = getattr(request.user, 'teacher_profile', None)
+    if not teacher:
+        teacher = Teacher.objects.filter(user=request.user).first()
+    if not teacher:
+        return redirect('home')
+
+    curr_month = date.today().strftime('%Y-%m')
+    payments = MonthlyPayment.objects.filter(month=curr_month)
+    payment_map = {p.student_id: p.amount_paid for p in payments}
+
+    students = Student.objects.select_related('time_slot__group__teacher').filter(
+        time_slot__group__teacher=teacher, is_active=True
+    ).order_by('time_slot__group__name', 'first_name', 'last_name')
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = f"{teacher.first_name}_{teacher.last_name}"[:28]
+    _populate_excel_sheet(ws, students, payment_map)
+
+    response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    response['Content-Disposition'] = f'attachment; filename="Oqituvchi_{teacher.first_name}_{teacher.last_name}_{curr_month}.xlsx"'
     wb.save(response)
     return response
 
