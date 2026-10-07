@@ -996,9 +996,9 @@ def admin_payment_save(request):
     Admin tomonidan o'quvchi to'lovini to'g'ridan-to'g'ri (inline) saqlash / yangilash.
 
     Mantiq:
-      1. Tanlangan oy uchun to'lov miqdori va to'langan sanani bazaga yozadi.
-      2. Agar amount > 0 bo'lsa, status = 'paid'; aks holda 'unpaid'.
-      3. To'lov muddati = payment_date + 1 oy (due_date) — bu _build_payments_data da hisoblanadi.
+      1. Tanlangan oy uchun faqat to'lagan miqdorni bazaga yozadi.
+      2. To'langan sana — sana input olib tashlandi, doim bugungi sana (date.today()) saqlanadi.
+      3. Agar amount > 0 bo'lsa, status = 'paid'; aks holda 'unpaid'.
     """
     if not _admin_only(request):
         if request.headers.get('x-requested-with') == 'XMLHttpRequest' or request.POST.get('ajax') == '1':
@@ -1014,16 +1014,12 @@ def admin_payment_save(request):
     student_id = request.POST.get('student_id')
     month = request.POST.get('month', '').strip()
     amount_raw = request.POST.get('amount') or request.POST.get('amount_paid') or '0'
-    payment_date_str = request.POST.get('payment_date', '').strip()
     notes = request.POST.get('notes', '').strip()
 
     # ── Oyni aniqlash ───────────────────────────────────────────────────────
-    # Agar oy yuborilmagan bo'lsa, to'lov sanasidan yoki joriy oydan olinadi
+    # Agar oy yuborilmagan bo'lsa, joriy oydan olinadi
     if not month:
-        if payment_date_str and len(payment_date_str) >= 7:
-            month = payment_date_str[:7]
-        else:
-            month = date.today().strftime('%Y-%m')
+        month = date.today().strftime('%Y-%m')
 
     if not student_id:
         if request.headers.get('x-requested-with') == 'XMLHttpRequest' or request.POST.get('ajax') == '1':
@@ -1037,15 +1033,8 @@ def admin_payment_save(request):
     amount_cleaned = str(amount_raw).replace(' ', '').replace("'", '').replace(',', '').strip()
     amount_num = int(amount_cleaned) if amount_cleaned.isdigit() else 0
 
-    # ── To'langan sanani aniqlash ───────────────────────────────────────────
-    p_date = None
-    if payment_date_str:
-        try:
-            p_date = datetime.strptime(payment_date_str, '%Y-%m-%d').date()
-        except ValueError:
-            p_date = date.today()
-    else:
-        p_date = date.today()
+    # ── To'langan sana: doim bugungi sana (input olib tashlandi) ────────────
+    p_date = date.today()
 
     # ── To'lovni BAZAGA SAQLASH ─────────────────────────────────────────────
     # Faqat tanlangan oy uchun to'g'ridan-to'g'ri yozamiz.

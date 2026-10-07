@@ -261,16 +261,10 @@
                         <th class="text-center py-3" style="width: 45px;">T/r</th>
                         <th class="py-3">Ism familiyasi</th>
                         <th class="text-center py-3">Kelgan sana</th>
-                        <!-- 1. TO'LOV MUDDATI (AVTOMATIK BELGILANADI) -->
-                        <th class="text-center py-3" style="width: 140px;">To'lov muddati</th>
-                        <!-- 2. TO'LANGAN SANA (INLINE INPUT) -->
-                        <th class="text-center py-3" style="width: 145px;">To'langan sana</th>
                         <th class="text-end py-3">Oylik tarif</th>
-                        <!-- 3. TO'LAGAN MIQDOR (INLINE INPUT) -->
                         <th class="text-center py-3" style="width: 145px;">To'lagan miqdor</th>
                         <th class="text-center py-3">To'lov holati</th>
                         <th class="text-center py-3">Telefon</th>
-                        <!-- 4. ALOHIDA SAQLASH TUGMASI -->
                         <th class="text-center py-3" style="width: 105px;">Amal</th>
                     </tr>
                 </thead>
@@ -322,31 +316,6 @@
                         <!-- Kelgan sana -->
                         <td class="text-center text-muted small fw-medium">
                             {{ row.joined_date }}
-                        </td>
-
-                        <!-- 1. TO'LOV MUDDATI (Kelgan sanasidan avtomatik hisoblangan) + KECHIKKAN KUNLAR -->
-                        <td class="text-center">
-                            <div class="fw-bold text-dark small">{{ row.due_date_str }}</div>
-                            {% if row.status_code == 'paid' %}
-                            <span class="badge bg-success bg-opacity-10 text-success rounded-pill px-2 py-0 mt-1 d-inline-block" style="font-size: 0.7rem;">
-                                <i class="bi bi-check2"></i> To'langan
-                            </span>
-                            {% else %}
-                            <span class="badge bg-light text-muted border rounded-pill px-2 py-0 mt-1 d-inline-block" style="font-size: 0.7rem;">
-                                To'lanmagan
-                            </span>
-                            {% endif %}
-                        </td>
-
-                        <!-- 2. TO'LANGAN SANA (To'g'ridan-to'g'ri Jadval ichida Input) -->
-                        <td class="text-center">
-                            <input type="date"
-                                   form="pay-form-{{ row.student_id }}"
-                                   name="payment_date"
-                                   value="{{ row.payment_date_iso|default:'' }}"
-                                   class="form-control form-control-sm text-center fw-semibold shadow-none"
-                                   style="border-radius: 8px; border: 1.5px solid #cbd5e1; font-size: 0.85rem; padding: 4px 6px; width: 135px; margin: 0 auto;"
-                                   title="To'lov sanasini tanlang">
                         </td>
 
                         <!-- Oylik tarif -->
