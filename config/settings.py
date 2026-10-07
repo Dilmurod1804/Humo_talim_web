@@ -12,6 +12,30 @@ SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-humo-change-in-prod')
 DEBUG = os.getenv('DEBUG', 'True') == 'True'
 ALLOWED_HOSTS = ['*']
 
+# ── CSRF Sozlamalari ───────────────────────────────────────────────────────────
+# Barcha HTTP/HTTPS manzillar, mahalliy server va tarmoqdagi qurilmalarni
+# ishonchli manzillar ro'yxatiga qo'shish (403 Forbidden xatoligini oldini olish)
+CSRF_TRUSTED_ORIGINS = [
+    'http://localhost:8000',
+    'http://127.0.0.1:8000',
+    'http://0.0.0.0:8000',
+    # Tarmoqdagi haqiqiy IP manzillar (lokal tarmoqdan kiruvchilar uchun)
+    'http://192.168.1.65:8000',   # Asosiy Wi-Fi IP
+    'http://192.168.56.1:8000',   # VirtualBox Host-Only
+    'http://192.168.1.1:8000',
+    'http://10.0.0.1:8000',
+]
+
+# CSRF cookie - barcha so'rovlarda uzatiladigan qiling
+CSRF_COOKIE_HTTPONLY = False   # JS dan o'qish uchun False bo'lishi shart
+CSRF_COOKIE_SAMESITE = 'Lax'  # Cross-site POST uchun Lax eng muvozanatli
+CSRF_USE_SESSIONS = False      # Cookie asosida ishlash (standart)
+CSRF_COOKIE_AGE = 31449600     # 1 yil (sekund)
+
+# Session cookie sozlamalari
+SESSION_COOKIE_SAMESITE = 'Lax'
+SESSION_COOKIE_AGE = 86400 * 30  # 30 kun (sekund)
+
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',

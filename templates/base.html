@@ -171,14 +171,43 @@
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
+    /**
+     * CSRF TOKEN HELPER — Django CSRF middleware bilan ishlash uchun
+     * 1-usul: DOM dagi hidden input'dan o'qish (eng ishonchli)
+     * 2-usul: Cookie'dan o'qish (fetch/AJAX uchun)
+     * Cookie'dagi %XX URL-encoded belgilarni ham to'g'ri dekod qiladi.
+     */
     function getCsrfToken() {
+        // 1. DOM dagi csrfmiddlewaretoken input'dan olish (eng ishonchli)
         const inp = document.querySelector('[name=csrfmiddlewaretoken]');
         if (inp && inp.value) return inp.value;
-        const cookieValue = document.cookie
-            .split('; ')
-            .find(row => row.startsWith('csrftoken='))
-            ?.split('=')[1];
-        return cookieValue || '';
+
+        // 2. Cookie'dan o'qish (SameSite=Lax, CSRF_COOKIE_HTTPONLY=False bo'lishi shart)
+        const cookies = document.cookie.split(';');
+        for (let c of cookies) {
+            c = c.trim();
+            if (c.startsWith('csrftoken=')) {
+                return decodeURIComponent(c.substring('csrftoken='.length));
+            }
+        }
+        return '';
+    }
+
+    /**
+     * GLOBAL csrfFetch() — Barcha fetch POST so'rovlarda X-CSRFToken
+     * headerini avtomatik qo'shib yuboruvchi yordamchi funksiya.
+     * Ishlatish: csrfFetch(url, { method: 'POST', body: ... })
+     */
+    function csrfFetch(url, options = {}) {
+        options.headers = options.headers || {};
+        // Faqat POST/PUT/PATCH/DELETE uchun CSRF token qo'shish
+        const method = (options.method || 'GET').toUpperCase();
+        if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+            options.headers['X-CSRFToken'] = getCsrfToken();
+        }
+        // credentials: 'same-origin' — session cookie avtomatik yuboriladi
+        options.credentials = options.credentials || 'same-origin';
+        return fetch(url, options);
     }
 
     function triggerPhotoUpload(studentId) {

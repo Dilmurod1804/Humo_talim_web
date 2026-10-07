@@ -11,6 +11,10 @@ import requests
 import re
 
 from datetime import date, datetime
+try:
+    from dateutil.relativedelta import relativedelta
+except ImportError:
+    relativedelta = None
 
 from django.conf import settings
 from django.contrib.auth import login, logout, authenticate, update_session_auth_hash
@@ -716,7 +720,13 @@ def _build_payments_data(students_qs, req_month, status_filter='all'):
     """
     O'quvchilar va ularning to'lovlari bo'yicha ma'lumotlar ro'yxatini shakllantiradi.
     status_filter: 'all', 'paid', 'unpaid', 'overdue', 'local'
-    Avtomatik to'lov muddati (due date) va kechikkan kunlar hisob-kitobini o'z ichiga oladi.
+
+    To'lov muddati (due_date) mantiqi:
+      - O'quvchi to'lov qilgan bo'lsa: due_date = payment_date + 1 oy (o'sha kun)
+      - To'lov qilmagan bo'lsa: due_date = joined_date.day shu oyga nisbatan
+    Holat:
+      - To'langan (paid): due_date hali kelmagan yoki today <= due_date
+      - Qarzdor (unpaid): to'lov qilinmagan yoki due_date o'tib ketgan
     """
     today = date.today()
     try:
@@ -747,6 +757,7 @@ def _build_payments_data(students_qs, req_month, status_filter='all'):
     total_paid = 0
     paid_count = 0
     unpaid_count = 0
+    overdue_count = 0
     local_count = 0
 
     for idx, s in enumerate(students_list, start=1):
@@ -768,42 +779,68 @@ def _build_payments_data(students_qs, req_month, status_filter='all'):
         rate_val = s.payment_rate or 0
         total_rate += rate_val
 
-        # 1. Status aniqlash (Faqat To'lagan yoki Qarzdor)
-        if num_paid > 0:
+        # ── To'lov sanasi (to'langan sana) ──────────────────────────────────
+        pay_date_obj = None
+        if pay and pay.payment_date:
+            pay_date_obj = pay.payment_date
+        elif pay and pay.created_at:
+            pay_date_obj = pay.created_at.date()
+
+        pay_date_str = pay_date_obj.strftime('%d.%m.%Y') if pay_date_obj else ""
+        pay_date_iso = pay_date_obj.strftime('%Y-%m-%d') if pay_date_obj else ""
+
+        # ── To'lov muddati (due_date) hisoblash ─────────────────────────────
+        # Agar o'quvchi to'lov qilgan bo'lsa:
+        #   due_date = payment_date + 1 oy (o'sha kun)
+        # Agar to'lov qilinmagan bo'lsa:
+        #   due_date = joriy oy + joined_date.day
+        if pay_date_obj and num_paid > 0:
+            # To'lov qilingan sana + 1 oy
+            if relativedelta:
+                due_date = pay_date_obj + relativedelta(months=1)
+            else:
+                # relativedelta yo'q bo'lsa, timedelta bilan taxminiy hisoblash
+                import calendar as _cal
+                yr, mn = pay_date_obj.year, pay_date_obj.month
+                mn += 1
+                if mn > 12:
+                    mn = 1
+                    yr += 1
+                max_next = _cal.monthrange(yr, mn)[1]
+                due_date = date(yr, mn, min(pay_date_obj.day, max_next))
+        else:
+            # To'lov qilinmagan — joined_date kuniga asoslanadi
+            joined_d = s.joined_date or today
+            due_day = min(joined_d.day, max_day_in_month)
+            due_date = date(req_year, req_mon, due_day)
+
+        due_date_str = due_date.strftime('%d.%m.%Y')
+
+        # ── Holat aniqlash ───────────────────────────────────────────────────
+        # To'langan (paid): to'lov qilingan VA due_date hali o'tmagan (today <= due_date)
+        # Qarzdor (unpaid): to'lov qilinmagan YOKI due_date o'tib ketgan
+        if num_paid > 0 and today <= due_date:
             st_code = 'paid'
         else:
             st_code = 'unpaid'
 
-        # 2. To'lov muddati (Kelgan sanasidan kelib chiqib avtomatik hisoblangan sana)
-        joined_d = s.joined_date or today
-        due_day = min(joined_d.day, max_day_in_month)
-        due_date = date(req_year, req_mon, due_day)
-        due_date_str = due_date.strftime('%d.%m.%Y')
-
-        # 3. Kechikish hisobi (faqat to'liq to'lanmagan bo'lsa va bugungi sana muddatidan o'tgan bo'lsa)
+        # ── Kechikish hisobi ─────────────────────────────────────────────────
         is_overdue = False
         delay_days = 0
+        if st_code == 'unpaid' and today > due_date:
+            is_overdue = True
+            delay_days = (today - due_date).days
+            overdue_count += 1
+
         debt_val = 0 if st_code == 'paid' else rate_val
-
-        is_overdue = False
-        delay_days = 0
 
         if st_code == 'paid':
             paid_count += 1
-            total_paid += rate_val  # To'lagan bo'lsa, to'liq to'lagan deb hisoblanadi
+            total_paid += rate_val
         else:
             unpaid_count += 1
 
-        status_display = "To'langan" if st_code == 'paid' else "To'lanmagan"
-
-        pay_date_str = ""
-        pay_date_iso = ""
-        if pay and pay.payment_date:
-            pay_date_str = pay.payment_date.strftime('%d.%m.%Y')
-            pay_date_iso = pay.payment_date.strftime('%Y-%m-%d')
-        elif pay and pay.created_at:
-            pay_date_str = pay.created_at.strftime('%d.%m.%Y')
-            pay_date_iso = pay.created_at.strftime('%Y-%m-%d')
+        status_display = "To'langan" if st_code == 'paid' else ("Muddati o'tgan" if is_overdue else "To'lanmagan")
 
         joined_str = s.joined_date.strftime('%d.%m.%Y') if s.joined_date else "-"
         phone_str = f"{s.phone_1} {s.phone_2 or ''}".strip()
@@ -820,7 +857,7 @@ def _build_payments_data(students_qs, req_month, status_filter='all'):
             'subject_name': subject_name,
             'teacher_name': teacher_name,
             'joined_date': joined_str,
-            # Belgilangan to'lov muddati va kechikish:
+            # To'lov muddati va kechikish:
             'due_date': due_date,
             'due_date_str': due_date_str,
             'is_overdue': is_overdue,
@@ -845,14 +882,12 @@ def _build_payments_data(students_qs, req_month, status_filter='all'):
         }
 
         # Holat filtri:
-        # 'paid' -> Faqat to'laganlar (Yashil)
         if status_filter == 'paid' and st_code != 'paid':
             continue
-        # 'unpaid' -> Faqat qarzdorlar (0 so'm to'laganlar)
         if status_filter == 'unpaid' and st_code != 'unpaid':
             continue
-
-        # 'local' -> Mahalladan keladiganlar
+        if status_filter == 'overdue' and not is_overdue:
+            continue
         if status_filter == 'local' and not is_loc:
             continue
 
@@ -866,6 +901,7 @@ def _build_payments_data(students_qs, req_month, status_filter='all'):
         'total_students': len(students_list),
         'paid_count': paid_count,
         'unpaid_count': unpaid_count,
+        'overdue_count': overdue_count,
         'local_count': local_count,
         'total_rate': total_rate,
         'total_rate_formatted': f"{total_rate:,}".replace(',', ' '),
@@ -956,7 +992,14 @@ def admin_group_payments(request, group_id):
 
 @admin_required
 def admin_payment_save(request):
-    """Admin tomonidan o'quvchi to'lovini to'g'ridan-to'g'ri (inline) yoki modal orqali saqlash / yangilash."""
+    """
+    Admin tomonidan o'quvchi to'lovini to'g'ridan-to'g'ri (inline) saqlash / yangilash.
+
+    Mantiq:
+      1. Tanlangan oy uchun to'lov miqdori va to'langan sanani bazaga yozadi.
+      2. Agar amount > 0 bo'lsa, status = 'paid'; aks holda 'unpaid'.
+      3. To'lov muddati = payment_date + 1 oy (due_date) — bu _build_payments_data da hisoblanadi.
+    """
     if not _admin_only(request):
         if request.headers.get('x-requested-with') == 'XMLHttpRequest' or request.POST.get('ajax') == '1':
             return JsonResponse({'status': 'error', 'msg': 'Ruxsat berilmagan'}, status=403)
@@ -972,10 +1015,10 @@ def admin_payment_save(request):
     month = request.POST.get('month', '').strip()
     amount_raw = request.POST.get('amount') or request.POST.get('amount_paid') or '0'
     payment_date_str = request.POST.get('payment_date', '').strip()
-    status_val = request.POST.get('status', '').strip()
     notes = request.POST.get('notes', '').strip()
 
-    # Oyni aniqlash (agar yuborilmagan bo'lsa to'lov sanasidan yoki joriy oydan olinadi)
+    # ── Oyni aniqlash ───────────────────────────────────────────────────────
+    # Agar oy yuborilmagan bo'lsa, to'lov sanasidan yoki joriy oydan olinadi
     if not month:
         if payment_date_str and len(payment_date_str) >= 7:
             month = payment_date_str[:7]
@@ -990,12 +1033,11 @@ def admin_payment_save(request):
 
     student = get_object_or_404(Student, id=student_id)
 
-    # Miqdorni raqamga aylantirish (bo'sh joy, vergul, apostroflarni tozalash)
+    # ── Miqdorni raqamga aylantirish ────────────────────────────────────────
     amount_cleaned = str(amount_raw).replace(' ', '').replace("'", '').replace(',', '').strip()
     amount_num = int(amount_cleaned) if amount_cleaned.isdigit() else 0
-    amount_to_save = str(amount_num)
 
-    # Sana aniqlash
+    # ── To'langan sanani aniqlash ───────────────────────────────────────────
     p_date = None
     if payment_date_str:
         try:
@@ -1005,71 +1047,48 @@ def admin_payment_save(request):
     else:
         p_date = date.today()
 
-    rate = student.payment_rate or 0
+    # ── To'lovni BAZAGA SAQLASH ─────────────────────────────────────────────
+    # Faqat tanlangan oy uchun to'g'ridan-to'g'ri yozamiz.
+    # Status: amount > 0 => 'paid', aks holda 'unpaid'
+    new_status = 'paid' if amount_num > 0 else 'unpaid'
 
-    if rate > 0 and amount_num > 0:
-        # To'lovni taqsimlash (FIFO - eng eski qarzdan boshlab yopish)
-        start_date = student.joined_date or date.today()
-        current_iter = start_date.replace(day=1)
-        remaining = amount_num
-        
-        for _ in range(36):  # Maksimal 3 yil
-            if remaining <= 0:
-                break
-                
-            iter_month = current_iter.strftime('%Y-%m')
-            mp_exists = MonthlyPayment.objects.filter(student=student, month=iter_month).first()
-            is_paid = False
-            
-            if mp_exists:
-                cl_paid = str(mp_exists.amount_paid).replace(' ', '').replace("'", '').replace(',', '').strip()
-                if cl_paid.isdigit() and int(cl_paid) > 0:
-                    is_paid = True
-                    
-            if not is_paid:
-                # Qarzni yopamiz yoki oldindan to'lovni yozamiz
-                MonthlyPayment.objects.update_or_create(
-                    student=student,
-                    month=iter_month,
-                    defaults={
-                        'amount_paid': str(rate),
-                        'payment_date': p_date,
-                        'status': 'paid',
-                        'notes': notes if iter_month == month else f"{month} da to'langan",
-                    }
-                )
-                remaining -= rate
-                
-            # Keyingi oyga o'tish
-            y, m = current_iter.year, current_iter.month
-            m += 1
-            if m > 12:
-                m = 1
-                y += 1
-            current_iter = date(y, m, 1)
-    else:
-        # Agar 0 kiritilsa (qarzga o'tkazish yoki o'chirish)
-        MonthlyPayment.objects.update_or_create(
-            student=student,
-            month=month,
-            defaults={
-                'amount_paid': '0',
-                'payment_date': p_date,
-                'status': 'unpaid',
-                'notes': notes,
-            }
-        )
-
-    # UI da so'ralgan oyni qaytarish uchun
-    mp, _ = MonthlyPayment.objects.get_or_create(
+    mp, created = MonthlyPayment.objects.update_or_create(
         student=student,
         month=month,
-        defaults={'amount_paid': '0', 'status': 'unpaid'}
+        defaults={
+            'amount_paid': str(amount_num),
+            'payment_date': p_date,
+            'status': new_status,
+            'notes': notes,
+        }
     )
 
+    # ── AJAX javobi ─────────────────────────────────────────────────────────
     if request.headers.get('x-requested-with') == 'XMLHttpRequest' or request.POST.get('ajax') == '1':
         saved_num = int(mp.amount_paid) if str(mp.amount_paid).isdigit() else 0
         rate_val = student.payment_rate or 0
+
+        # due_date hisoblash — to'lov qilingan bo'lsa: p_date + 1 oy
+        if saved_num > 0 and mp.payment_date:
+            if relativedelta:
+                due_date_obj = mp.payment_date + relativedelta(months=1)
+            else:
+                yr, mn = mp.payment_date.year, mp.payment_date.month
+                mn += 1
+                if mn > 12:
+                    mn = 1
+                    yr += 1
+                import calendar as _cal
+                max_next = _cal.monthrange(yr, mn)[1]
+                due_date_obj = date(yr, mn, min(mp.payment_date.day, max_next))
+            due_date_str = due_date_obj.strftime('%d.%m.%Y')
+        else:
+            due_date_str = ''
+
+        today = date.today()
+        is_paid_status = (saved_num > 0 and mp.payment_date and today <= (due_date_obj if saved_num > 0 and mp.payment_date else today))
+        status_display = "To'langan" if is_paid_status else "Qarzdor"
+
         return JsonResponse({
             'status': 'success',
             'payment_id': mp.id,
@@ -1078,16 +1097,28 @@ def admin_payment_save(request):
             'amount_paid_formatted': f"{saved_num:,}".replace(',', ' ') if saved_num > 0 else '0',
             'payment_date': mp.payment_date.strftime('%d.%m.%Y') if mp.payment_date else '',
             'payment_date_iso': mp.payment_date.strftime('%Y-%m-%d') if mp.payment_date else '',
+            'due_date': due_date_str,
             'status_code': mp.status,
-            'status_display': "To'langan" if saved_num > 0 else "To'lanmagan",
+            'status_display': status_display,
             'notes': mp.notes,
             'rate': rate_val,
-            'debt': 0 if saved_num > 0 else rate_val,
-            'debt_formatted': "0" if saved_num > 0 else f"{rate_val:,}".replace(',', ' '),
+            'debt': 0 if is_paid_status else rate_val,
+            'debt_formatted': "0" if is_paid_status else f"{rate_val:,}".replace(',', ' '),
         })
 
+    # ── Oddiy redirect javob ─────────────────────────────────────────────────
     formatted_amount = f"{amount_num:,}".replace(',', ' ')
-    messages.success(request, f"💾 {student.first_name} {student.last_name}: {formatted_amount} so'm taqsimlandi (O'tgan/Kelasi oylarga)!")
+    if amount_num > 0:
+        messages.success(
+            request,
+            f"✅ {student.first_name} {student.last_name}: {formatted_amount} so'm "
+            f"({month}) uchun muvaffaqiyatli saqlandi!"
+        )
+    else:
+        messages.warning(
+            request,
+            f"⚠️ {student.first_name} {student.last_name}: {month} uchun to'lov bekor qilindi (0 so'm)."
+        )
     next_url = request.POST.get('next') or request.META.get('HTTP_REFERER') or 'admin_payments_all'
     return redirect(next_url)
 
