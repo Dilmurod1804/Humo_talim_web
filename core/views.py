@@ -785,9 +785,9 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
     payments = MonthlyPayment.objects.filter(student_id__in=student_ids, month=req_month)
     payment_map = {p.student_id: p for p in payments}
 
-    # Kunlik tushum (Faqat bugun tushgan barcha to'lovlar)
+    # Daily income (only payments made today within the selected month)
     daily_collected = 0
-    daily_payments = MonthlyPayment.objects.filter(payment_date=today)
+    daily_payments = MonthlyPayment.objects.filter(payment_date=today, month=req_month)
     for dp in daily_payments:
         cl_dp = str(dp.amount_paid or '').replace(' ', '').replace("'", '').replace(',', '').strip()
         if cl_dp.isdigit():
