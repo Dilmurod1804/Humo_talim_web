@@ -749,16 +749,25 @@ def admin_attendance_mark(request):
 # ADMIN PAYMENTS (To'lovlar boshqaruvi)
 # ─────────────────────────────────────────────
 
+def _clean_amount(val) -> int:
+    """To'lov qiymatidan sof raqamni ajratib oladi. Matn ('mahalla', 'm', va h.k.) bo'lsa 0 qaytaradi."""
+    if not val:
+        return 0
+    s = str(val).replace(' ', '').replace("'", '').replace(',', '').strip()
+    return int(s) if s.isdigit() else 0
+
+
 def _build_payments_data(students_qs, req_month, status_filter='all', is_group_specific=False):
     """
     O'quvchilar va ularning to'lovlari bo'yicha ma'lumotlar ro'yxatini shakllantiradi.
     status_filter: 'all', 'paid', 'unpaid', 'overdue', 'local'
 
     Mantiq:
-      1. ARXIV: Tanlangan oy (req_month) da guruhda bo'lgan o'quvchilar chiqadi.
-         left_date va joined_date asosida filtr qilinadi.
-      2. BUGUNGI TUSHUM: Faqat bugun (today) payment_date bo'lgan to'lovlar summasi.
-      3. OYLIK TUSHUM: Tanlangan oy uchun haqiqiy to'langan (num_paid) summalar yig'indisi.
+      1. ARXIV: Tanlangan oy (req_month) da guruhda bo'lgan yoki shu oy uchun to'lov yozilgan
+         barcha o'quvchilar ro'yxatga olinadi (left_date va joined_date hamda mavjud to'lovlar asosida).
+      2. OYLIK TUSHUM (total_paid): Tanlangan oy uchun yig'ilgan BARCHA to'lovlar summasi.
+      3. BUGUNGI TUSHUM (daily_collected): Tanlangan oy uchun aynan BUGUN (today) to'langan
+         to'lovlar summasi (boshqa oylar yoki boshqa guruhlar bu summaga aralashmaydi).
     """
     today = date.today()
     try:
@@ -768,15 +777,28 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
         req_month = f"{req_year:04d}-{req_mon:02d}"
 
     max_day_in_month = calendar.monthrange(req_year, req_mon)[1]
+    month_start = date(req_year, req_mon, 1)
     month_end = date(req_year, req_mon, max_day_in_month)
 
-    # Tanlangan oyda mavjud bo'lgan o'quvchilarni olish (oylik arxiv mantig'i):
-    students_in_month = students_qs.filter(
-        Q(joined_date__lte=month_end) | Q(joined_date__isnull=True)
-    ).filter(
-        Q(left_date__isnull=True, is_active=True) |
-        Q(left_date__gt=month_end)
+    # 1. Tanlangan oyda to'lov yozilgan o'quvchilar IDlari:
+    paid_student_ids = set(
+        MonthlyPayment.objects.filter(student__in=students_qs, month=req_month)
+        .values_list('student_id', flat=True)
     )
+
+    # 2. Tanlangan oyda mavjud bo'lgan o'quvchilarni olish (oylik arxiv mantig'i):
+    # - Shu oy uchun to'lovi borlar
+    # - YOKI shu oy davomida guruhda o'qiganlar (joined_date <= month_end va (left_date yo'q yoki left_date >= month_start))
+    students_in_month = students_qs.filter(
+        Q(id__in=paid_student_ids) |
+        (
+            (Q(joined_date__lte=month_end) | Q(joined_date__isnull=True)) &
+            (
+                Q(left_date__isnull=True, is_active=True) |
+                Q(left_date__gte=month_start)
+            )
+        )
+    ).distinct()
 
     students_list = list(students_in_month.order_by('first_name', 'last_name'))
     student_ids = [s.id for s in students_list]
@@ -785,22 +807,17 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
     payments = MonthlyPayment.objects.filter(student_id__in=student_ids, month=req_month)
     payment_map = {p.student_id: p for p in payments}
 
-    # Daily income (only payments made today within the selected month)
-    daily_collected = 0
-    daily_payments = MonthlyPayment.objects.filter(payment_date=today, month=req_month)
-    for dp in daily_payments:
-        cl_dp = str(dp.amount_paid or '').replace(' ', '').replace("'", '').replace(',', '').strip()
-        if cl_dp.isdigit():
-            daily_collected += int(cl_dp)
-
     rows = []
     total_rate = 0
     total_paid = 0
+    daily_collected = 0
     total_debt = 0
     paid_count = 0
     unpaid_count = 0
     overdue_count = 0
     local_count = 0
+
+    curr_month_str = today.strftime('%Y-%m')
 
     for idx, s in enumerate(students_list, start=1):
         is_loc = getattr(s, 'is_local', False)
@@ -813,10 +830,7 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
         pay = payment_map.get(s.id)
 
         raw_paid = str(pay.amount_paid if pay else '').strip()
-        num_paid = 0
-        cleaned_paid = raw_paid.replace(' ', '').replace("'", "").replace(',', '')
-        if cleaned_paid.isdigit():
-            num_paid = int(cleaned_paid)
+        num_paid = _clean_amount(raw_paid)
 
         rate_val = s.payment_rate or 0
         total_rate += rate_val
@@ -831,17 +845,21 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
         pay_date_str = pay_date_obj.strftime('%d.%m.%Y') if pay_date_obj else ""
         pay_date_iso = pay_date_obj.strftime('%Y-%m-%d') if pay_date_obj else ""
 
+        # ── Bugungi tushum (Aynan bugun to'langan to'lovlar) ────────────────
+        if pay_date_obj == today and num_paid > 0:
+            daily_collected += num_paid
+
+        # ── Oylik tushum (Tanlangan oy uchun barcha haqiqiy to'lovlar) ───────
+        total_paid += num_paid
+
         # ── To'lov muddati (due_date) hisoblash ─────────────────────────────
-        # Agar o'quvchi to'lov qilgan bo'lsa:
-        #   due_date = payment_date + 1 oy (o'sha kun)
-        # Agar to'lov qilinmagan bo'lsa:
-        #   due_date = joriy oy + joined_date.day
-        if pay_date_obj and num_paid > 0:
-            # To'lov qilingan sana + 1 oy
+        is_text_local = raw_paid.lower() in ('mahalla', 'm', 'tekin')
+        has_paid_val = (num_paid > 0) or is_text_local or is_loc
+
+        if pay_date_obj and has_paid_val:
             if relativedelta:
                 due_date = pay_date_obj + relativedelta(months=1)
             else:
-                # relativedelta yo'q bo'lsa, timedelta bilan taxminiy hisoblash
                 import calendar as _cal
                 yr, mn = pay_date_obj.year, pay_date_obj.month
                 mn += 1
@@ -851,7 +869,6 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
                 max_next = _cal.monthrange(yr, mn)[1]
                 due_date = date(yr, mn, min(pay_date_obj.day, max_next))
         else:
-            # To'lov qilinmagan — joined_date kuniga asoslanadi
             joined_d = s.joined_date or today
             due_day = min(joined_d.day, max_day_in_month)
             due_date = date(req_year, req_mon, due_day)
@@ -859,9 +876,8 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
         due_date_str = due_date.strftime('%d.%m.%Y')
 
         # ── Holat aniqlash ───────────────────────────────────────────────────
-        # To'langan (paid): to'lov qilingan VA due_date hali o'tmagan (today <= due_date)
-        # Qarzdor (unpaid): to'lov qilinmagan YOKI due_date o'tib ketgan
-        if num_paid > 0 and today <= due_date:
+        # Tanlangan oy bo'yicha to'lov qilingan bo'lsa 'paid', aks holda 'unpaid'
+        if has_paid_val:
             st_code = 'paid'
         else:
             st_code = 'unpaid'
@@ -869,16 +885,22 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
         # ── Kechikish hisobi ─────────────────────────────────────────────────
         is_overdue = False
         delay_days = 0
-        if st_code == 'unpaid' and today > due_date:
-            is_overdue = True
-            delay_days = (today - due_date).days
-            overdue_count += 1
+        if st_code == 'unpaid':
+            if req_month < curr_month_str:
+                is_overdue = True
+                delay_days = max(1, (today - due_date).days)
+                overdue_count += 1
+            elif today > due_date:
+                is_overdue = True
+                delay_days = (today - due_date).days
+                overdue_count += 1
 
-        # Qarz hisobi: tarif - haqiqiy to'langan miqdor
-        debt_val = max(0, rate_val - num_paid)
+        # Qarz hisobi: mahalla bo'lsa 0, aks holda tarif - to'langan
+        if is_loc or is_text_local:
+            debt_val = 0
+        else:
+            debt_val = max(0, rate_val - num_paid)
 
-        # Oylik tushumga aynan to'langan haqiqiy summa qo'shiladi:
-        total_paid += num_paid
         total_debt += debt_val
 
         if st_code == 'paid':
@@ -934,7 +956,7 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
             continue
         if status_filter == 'overdue' and not is_overdue:
             continue
-        if status_filter == 'local' and not is_loc:
+        if status_filter == 'local' and not (is_loc or is_text_local):
             continue
 
         rows.append(row_item)
@@ -1078,23 +1100,27 @@ def admin_payment_save(request):
 
     student = get_object_or_404(Student, id=student_id)
 
-    # ── Miqdorni raqamga aylantirish ────────────────────────────────────────
-    amount_cleaned = str(amount_raw).replace(' ', '').replace("'", '').replace(',', '').strip()
-    amount_num = int(amount_cleaned) if amount_cleaned.isdigit() else 0
+    # ── Miqdorni aniqlash ───────────────────────────────────────────────────
+    amount_raw_str = str(amount_raw).strip()
+    clean_digits = amount_raw_str.replace(' ', '').replace("'", '').replace(',', '')
+    if clean_digits.isdigit():
+        amount_num = int(clean_digits)
+        amount_to_save = str(amount_num)
+        new_status = 'paid' if amount_num > 0 else 'unpaid'
+    else:
+        amount_num = 0
+        amount_to_save = amount_raw_str
+        new_status = 'paid' if amount_to_save else 'unpaid'
 
     # ── To'langan sana: doim bugungi sana (input olib tashlandi) ────────────
     p_date = date.today()
 
     # ── To'lovni BAZAGA SAQLASH ─────────────────────────────────────────────
-    # Faqat tanlangan oy uchun to'g'ridan-to'g'ri yozamiz.
-    # Status: amount > 0 => 'paid', aks holda 'unpaid'
-    new_status = 'paid' if amount_num > 0 else 'unpaid'
-
     mp, created = MonthlyPayment.objects.update_or_create(
         student=student,
         month=month,
         defaults={
-            'amount_paid': str(amount_num),
+            'amount_paid': amount_to_save,
             'payment_date': p_date,
             'status': new_status,
             'notes': notes,
@@ -1150,6 +1176,12 @@ def admin_payment_save(request):
         messages.success(
             request,
             f"✅ {student.first_name} {student.last_name}: {formatted_amount} so'm "
+            f"({month}) uchun muvaffaqiyatli saqlandi!"
+        )
+    elif amount_to_save and amount_to_save not in ('0', ''):
+        messages.success(
+            request,
+            f"✅ {student.first_name} {student.last_name}: '{amount_to_save}' "
             f"({month}) uchun muvaffaqiyatli saqlandi!"
         )
     else:

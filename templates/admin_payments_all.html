@@ -292,16 +292,16 @@
                 <tbody>
                     {% for row in rows %}
                     <tr id="row-student-{{ row.student_id }}">
-                        <!-- Har bir o'quvchi uchun alohida inline forma -->
-                        <form id="pay-form-{{ row.student_id }}" method="POST" action="{% url 'admin_payment_save' %}">
-                            {% csrf_token %}
-                            <input type="hidden" name="student_id" value="{{ row.student_id }}">
-                            <input type="hidden" name="month" value="{{ current_month }}">
-                            <input type="hidden" name="next" value="{{ request.get_full_path }}">
-                        </form>
-
-                        <!-- T/r -->
-                        <td class="text-center text-muted fw-bold small">{{ row.index }}</td>
+                        <!-- T/r va inline forma -->
+                        <td class="text-center text-muted fw-bold small">
+                            {{ row.index }}
+                            <form id="pay-form-{{ row.student_id }}" method="POST" action="{% url 'admin_payment_save' %}" style="display:none;">
+                                {% csrf_token %}
+                                <input type="hidden" name="student_id" value="{{ row.student_id }}">
+                                <input type="hidden" name="month" value="{{ current_month }}">
+                                <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                            </form>
+                        </td>
 
                         <!-- Fan nomi (Guruh fanidan olinadi) -->
                         <td>
@@ -362,16 +362,14 @@
                         <!-- 3. TO'LOGAN MIQDOR (To'g'ridan-to'g'ri Jadval ichida Input) -->
                         <td class="text-center">
                             <div class="input-group input-group-sm" style="width: 140px; margin: 0 auto;">
-                                <input type="number"
+                                <input type="text"
                                        form="pay-form-{{ row.student_id }}"
                                        name="amount"
-                                       value="{{ row.num_paid|default:'' }}"
-                                       min="0"
-                                       step="1000"
-                                       placeholder="0"
+                                       value="{{ row.amount_paid|default:'' }}"
+                                       placeholder="0 yoki mahalla"
                                        class="form-control form-control-sm text-end fw-bold shadow-none"
                                        style="border-radius: 8px 0 0 8px; border: 1.5px solid #cbd5e1; font-size: 0.88rem; padding: 4px 6px;"
-                                       title="To'langan miqdorni kiriting">
+                                       title="To'langan miqdorni yoki 'mahalla' deb yozing">
                                 <span class="input-group-text bg-light text-muted px-1" style="border: 1.5px solid #cbd5e1; border-left: none; border-radius: 0 8px 8px 0; font-size: 0.72rem;">so'm</span>
                             </div>
                         </td>

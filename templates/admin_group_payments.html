@@ -271,16 +271,16 @@
                 <tbody>
                     {% for row in rows %}
                     <tr id="row-student-{{ row.student_id }}">
-                        <!-- Har bir o'quvchi uchun alohida inline forma -->
-                        <form id="pay-form-{{ row.student_id }}" method="POST" action="{% url 'admin_payment_save' %}">
-                            {% csrf_token %}
-                            <input type="hidden" name="student_id" value="{{ row.student_id }}">
-                            <input type="hidden" name="month" value="{{ current_month }}">
-                            <input type="hidden" name="next" value="{{ request.get_full_path }}">
-
-
-                        <!-- T/r -->
-                        <td class="text-center text-muted fw-bold small">{{ row.index }}</td>
+                        <!-- T/r va inline forma -->
+                        <td class="text-center text-muted fw-bold small">
+                            {{ row.index }}
+                            <form id="pay-form-{{ row.student_id }}" method="POST" action="{% url 'admin_payment_save' %}" style="display:none;">
+                                {% csrf_token %}
+                                <input type="hidden" name="student_id" value="{{ row.student_id }}">
+                                <input type="hidden" name="month" value="{{ current_month }}">
+                                <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                            </form>
+                        </td>
 
                         <!-- Ism familiyasi -->
                         <td>
@@ -329,7 +329,7 @@
                                 <input type="text"
                                     form="pay-form-{{ row.student_id }}"
                                     name="amount"
-                                    value="{{ row.num_paid|default:'' }}"
+                                    value="{{ row.amount_paid|default:'' }}"
                                     placeholder="0 yoki mahalla"
                                     class="form-control form-control-sm text-end fw-bold shadow-none"
                                     style="border-radius: 8px 0 0 8px; border: 1.5px solid #cbd5e1; font-size: 0.88rem; padding: 4px 6px;"
@@ -377,7 +377,6 @@
                                         style="background: linear-gradient(135deg, #2563eb, #1d4ed8); border: none; font-size: 0.82rem;">
                                     💾 <span>Saqlash</span>
                                 </button>
-                                </form>
                                 {% if row.payment_id %}
                                 <a href="{% url 'admin_payment_delete' row.payment_id %}?next={{ request.get_full_path|urlencode }}"
                                    onclick="return confirm('{{ row.student_name }} to\'lovini bekor qilmoqchimisiz?')"
