@@ -450,6 +450,12 @@ def admin_student_create(request, timeslot_id):
             )
             if age.isdigit():
                 student.age = int(age)
+            joined_date_raw = request.POST.get('joined_date', '').strip()
+            if joined_date_raw:
+                try:
+                    student.joined_date = datetime.strptime(joined_date_raw, '%Y-%m-%d').date()
+                except Exception:
+                    pass
             if photo:
                 opt_photo, err = optimize_student_photo(photo)
                 student.photo = opt_photo if opt_photo else photo
@@ -853,8 +859,9 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
         total_paid += num_paid
 
         # ── To'lov muddati (due_date) hisoblash ─────────────────────────────
-        is_text_local = raw_paid.lower() in ('mahalla', 'm', 'tekin')
-        has_paid_val = (num_paid > 0) or is_text_local or is_loc
+        # Har qanday bo'sh bo'lmagan matn ("mahalla", "B.U", "tekin" va h.k.) to'langan deb baholanadi
+        has_text_payment = bool(raw_paid and raw_paid not in ('0', '-')) and (num_paid == 0)
+        has_paid_val = (num_paid > 0) or has_text_payment or is_loc
 
         if pay_date_obj and has_paid_val:
             if relativedelta:
@@ -876,7 +883,7 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
         due_date_str = due_date.strftime('%d.%m.%Y')
 
         # ── Holat aniqlash ───────────────────────────────────────────────────
-        # Tanlangan oy bo'yicha to'lov qilingan bo'lsa 'paid', aks holda 'unpaid'
+        # Matn kiritilgan bo'lsa yoki to'langan bo'lsa 'paid', aks holda 'unpaid'
         if has_paid_val:
             st_code = 'paid'
         else:
@@ -895,8 +902,8 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
                 delay_days = (today - due_date).days
                 overdue_count += 1
 
-        # Qarz hisobi: mahalla bo'lsa 0, aks holda tarif - to'langan
-        if is_loc or is_text_local:
+        # Qarz hisobi: mahalla yoki matnli to'lov bo'lsa qarz 0, aks holda tarif - to'langan
+        if is_loc or has_text_payment:
             debt_val = 0
         else:
             debt_val = max(0, rate_val - num_paid)
@@ -905,12 +912,13 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
 
         if st_code == 'paid':
             paid_count += 1
+            status_display = f"To'langan ({raw_paid})" if has_text_payment else "To'langan"
         else:
             unpaid_count += 1
-
-        status_display = "To'langan" if st_code == 'paid' else ("Muddati o'tgan" if is_overdue else "To'lanmagan")
+            status_display = "Muddati o'tgan" if is_overdue else "To'lanmagan"
 
         joined_str = s.joined_date.strftime('%d.%m.%Y') if s.joined_date else "-"
+        joined_iso = s.joined_date.strftime('%Y-%m-%d') if s.joined_date else ""
         phone_str = f"{s.phone_1} {s.phone_2 or ''}".strip()
 
         row_item = {
@@ -925,6 +933,7 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
             'subject_name': subject_name,
             'teacher_name': teacher_name,
             'joined_date': joined_str,
+            'joined_date_iso': joined_iso,
             # To'lov muddati va kechikish:
             'due_date': due_date,
             'due_date_str': due_date_str,
@@ -939,6 +948,7 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
             'amount_paid': raw_paid,
             'amount_paid_formatted': f"{num_paid:,}".replace(',', ' ') if num_paid > 0 else (raw_paid if raw_paid else "-"),
             'num_paid': num_paid,
+            'has_text_payment': has_text_payment,
             'status_code': st_code,
             'status_display': status_display,
             'phone': phone_str,
@@ -956,7 +966,7 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
             continue
         if status_filter == 'overdue' and not is_overdue:
             continue
-        if status_filter == 'local' and not (is_loc or is_text_local):
+        if status_filter == 'local' and not (is_loc or has_text_payment):
             continue
 
         rows.append(row_item)
@@ -1114,6 +1124,17 @@ def admin_payment_save(request):
 
     # ── To'langan sana: doim bugungi sana (input olib tashlandi) ────────────
     p_date = date.today()
+
+    # ── Kelgan sanani tahrirlash (joined_date) ──────────────────────────────
+    joined_date_raw = request.POST.get('joined_date', '').strip()
+    if joined_date_raw:
+        try:
+            new_joined = datetime.strptime(joined_date_raw, '%Y-%m-%d').date()
+            if student.joined_date != new_joined:
+                student.joined_date = new_joined
+                student.save(update_fields=['joined_date'])
+        except Exception:
+            pass
 
     # ── To'lovni BAZAGA SAQLASH ─────────────────────────────────────────────
     mp, created = MonthlyPayment.objects.update_or_create(
@@ -1600,6 +1621,12 @@ def admin_student_edit(request, id):
             student.phone_2 = phone_2
             if payment_rate_raw.isdigit():
                 student.payment_rate = int(payment_rate_raw)
+            joined_date_raw = request.POST.get('joined_date', '').strip()
+            if joined_date_raw:
+                try:
+                    student.joined_date = datetime.strptime(joined_date_raw, '%Y-%m-%d').date()
+                except Exception:
+                    pass
             student.is_local = (request.POST.get('is_local') in ('1', 'on', 'true', True))
             student.save()
             messages.success(request, f"O'quvchi ma'lumotlari yangilandi.")

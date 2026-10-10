@@ -37,10 +37,13 @@
                     <input type="number" name="age" class="form-control" placeholder="15" value="{{ student.age|default:'' }}">
                 </div>
                 
-                {% if role == 'admin' %}
                 <div class="col-md-4">
                     <label class="form-label fw-semibold text-muted small">To'lov tarifi (so'm)</label>
                     <input type="number" name="payment_rate" class="form-control" placeholder="100000" value="{{ student.payment_rate }}">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label fw-semibold text-muted small">Kelgan sana (Guruhga)</label>
+                    <input type="date" name="joined_date" class="form-control" value="{{ student.joined_date|date:'Y-m-d' }}">
                 </div>
                 {% else %}
                 <div class="col-md-8"></div>

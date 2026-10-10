@@ -313,9 +313,15 @@
                             </div>
                         </td>
 
-                        <!-- Kelgan sana -->
-                        <td class="text-center text-muted small fw-medium">
-                            {{ row.joined_date }}
+                        <!-- Kelgan sana (Tahrirlanadigan sana inputi) -->
+                        <td class="text-center">
+                            <input type="date"
+                                   form="pay-form-{{ row.student_id }}"
+                                   name="joined_date"
+                                   value="{{ row.joined_date_iso }}"
+                                   class="form-control form-control-sm text-center fw-semibold border shadow-none"
+                                   style="width: 125px; margin: 0 auto; font-size: 0.8rem; border-radius: 8px; padding: 3px 6px; background: rgba(248,250,252,0.9);"
+                                   title="Guruhga kelgan sana (o'zgartirib 'Saqlash' tugmasini bosing)">
                         </td>
 
                         <!-- Oylik tarif -->
@@ -344,7 +350,7 @@
                             <span class="fw-bold d-inline-flex align-items-center gap-1 px-3 py-1 rounded-3"
                                   style="background:rgba(16,185,129,0.12);color:#047857;border:1.5px solid rgba(16,185,129,0.3);font-size:0.82rem;">
                                 <i class="bi bi-check-circle-fill"></i>
-                                To'langan
+                                {{ row.status_display }}
                             </span>
                             {% else %}
                             <span class="fw-bold d-inline-flex align-items-center gap-1 px-3 py-1 rounded-3"

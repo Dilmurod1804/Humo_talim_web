@@ -1,3 +1,4 @@
+from datetime import date
 from django.db import models
 from django.contrib.auth.models import AbstractUser
 from .validators import validate_latin_only
@@ -63,7 +64,7 @@ class Student(models.Model):
     phone_2 = models.CharField(max_length=20, blank=True, null=True)
     payment_rate = models.IntegerField(default=0, help_text="Oylik to'lov summasi")
     time_slot = models.ForeignKey(TimeSlot, on_delete=models.SET_NULL, null=True, related_name='students')
-    joined_date = models.DateField(auto_now_add=True)
+    joined_date = models.DateField(default=date.today, help_text="Guruhga qo'shilgan sana")
     is_active = models.BooleanField(default=True)
     left_date = models.DateField(null=True, blank=True, help_text="Guruhdan o'chirilgan/chiqqan sana")
     is_local = models.BooleanField(default=False, verbose_name="Mahalladan keladigan o'quvchi")
