@@ -277,7 +277,7 @@
                             <input type="hidden" name="student_id" value="{{ row.student_id }}">
                             <input type="hidden" name="month" value="{{ current_month }}">
                             <input type="hidden" name="next" value="{{ request.get_full_path }}">
-                        </form>
+
 
                         <!-- T/r -->
                         <td class="text-center text-muted fw-bold small">{{ row.index }}</td>
@@ -323,19 +323,17 @@
                             {{ row.payment_rate_formatted }} so'm
                         </td>
 
-                        <!-- 3. TO'LOGAN MIQDOR (To'g'ridan-to'g'ri Jadval ichida Input) -->
+                    <!-- 3. TO'LOGAN MIQDOR (To'g'ridan-to'g'ri Jadval ichida Input) -->
                         <td class="text-center">
                             <div class="input-group input-group-sm" style="width: 140px; margin: 0 auto;">
-                                <input type="number"
-                                       form="pay-form-{{ row.student_id }}"
-                                       name="amount"
-                                       value="{{ row.num_paid|default:'' }}"
-                                       min="0"
-                                       step="1000"
-                                       placeholder="0"
-                                       class="form-control form-control-sm text-end fw-bold shadow-none"
-                                       style="border-radius: 8px 0 0 8px; border: 1.5px solid #cbd5e1; font-size: 0.88rem; padding: 4px 6px;"
-                                       title="To'langan miqdorni kiriting">
+                                <input type="text"
+                                    form="pay-form-{{ row.student_id }}"
+                                    name="amount"
+                                    value="{{ row.num_paid|default:'' }}"
+                                    placeholder="0 yoki mahalla"
+                                    class="form-control form-control-sm text-end fw-bold shadow-none"
+                                    style="border-radius: 8px 0 0 8px; border: 1.5px solid #cbd5e1; font-size: 0.88rem; padding: 4px 6px;"
+                                    title="To'langan miqdorni yoki 'mahalla' deb yozing">
                                 <span class="input-group-text bg-light text-muted px-1" style="border: 1.5px solid #cbd5e1; border-left: none; border-radius: 0 8px 8px 0; font-size: 0.72rem;">so'm</span>
                             </div>
                         </td>
@@ -379,6 +377,7 @@
                                         style="background: linear-gradient(135deg, #2563eb, #1d4ed8); border: none; font-size: 0.82rem;">
                                     💾 <span>Saqlash</span>
                                 </button>
+                                </form>
                                 {% if row.payment_id %}
                                 <a href="{% url 'admin_payment_delete' row.payment_id %}?next={{ request.get_full_path|urlencode }}"
                                    onclick="return confirm('{{ row.student_name }} to\'lovini bekor qilmoqchimisiz?')"

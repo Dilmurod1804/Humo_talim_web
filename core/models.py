@@ -65,6 +65,7 @@ class Student(models.Model):
     time_slot = models.ForeignKey(TimeSlot, on_delete=models.SET_NULL, null=True, related_name='students')
     joined_date = models.DateField(auto_now_add=True)
     is_active = models.BooleanField(default=True)
+    left_date = models.DateField(null=True, blank=True, help_text="Guruhdan o'chirilgan/chiqqan sana")
     is_local = models.BooleanField(default=False, verbose_name="Mahalladan keladigan o'quvchi")
     photo = models.ImageField(upload_to='students/photos/', blank=True, null=True, help_text="O'quvchi rasmi (ixtiyoriy)")
 
@@ -101,6 +102,7 @@ class DeletedStudent(models.Model):
     phone_1 = models.CharField(max_length=20, blank=True, null=True)
     phone_2 = models.CharField(max_length=20, blank=True, null=True)
     time_slot_id = models.IntegerField(blank=True, null=True)
+    student_id = models.IntegerField(blank=True, null=True, help_text="Asosiy Student ID si")
 
     def __str__(self):
         return self.student_name

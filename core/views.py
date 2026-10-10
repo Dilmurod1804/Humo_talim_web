@@ -128,7 +128,7 @@ def admin_dashboard(request):
         for w in words:
             q_filter |= Q(first_name__icontains=w) | Q(last_name__icontains=w)
             
-        search_results = Student.objects.filter(q_filter).select_related(
+        search_results = Student.objects.filter(q_filter, is_active=True).select_related(
             'time_slot__group__teacher'
         ).prefetch_related('monthly_payments').order_by('first_name', 'last_name')
 
@@ -171,9 +171,10 @@ def admin_group_delete(request, id):
         return redirect('home')
     group = get_object_or_404(Group, id=id)
     if request.method == 'POST':
-        # Guruhdagi o'quvchilarni DeletedStudent ga arxivlash
+        # Guruhdagi o'quvchilarni soft delete orqali arxivlash
         for ts in group.time_slots.all():
-            for student in ts.students.all():
+            for student in ts.students.filter(is_active=True):
+                # O'quvchi ma'lumotlari arxivga saqlanadi
                 DeletedStudent.objects.create(
                     student_name=f"{student.first_name} {student.last_name}",
                     phones=f"{student.phone_1}, {student.phone_2 or ''}".rstrip(', '),
@@ -184,8 +185,13 @@ def admin_group_delete(request, id):
                     age=student.age,
                     phone_1=student.phone_1,
                     phone_2=student.phone_2,
-                    time_slot_id=None
+                    time_slot_id=None,
+                    student_id=student.id,
                 )
+                # Soft delete — o'tgan oylar ma'lumotlari saqlanadi
+                student.is_active = False
+                student.left_date = date.today()
+                student.save()
         group.delete()
         messages.success(request, f"'{group.name}' guruhi o'chirildi va o'quvchilar arxivlandi.")
         return redirect('admin_dashboard')
@@ -273,10 +279,19 @@ def admin_group_detail(request, id):
     
     timeslots = group.time_slots.prefetch_related('students')
 
+    month_end = date(y, m, num_days)
+
+    def _student_in_month(st):
+        if st.joined_date and st.joined_date > month_end:
+            return False
+        if st.left_date:
+            return st.left_date > month_end
+        return st.is_active
+
     student_ids = []
     for ts in timeslots:
         for s in ts.students.all():
-            if s.is_active:
+            if _student_in_month(s):
                 student_ids.append(s.id)
 
     attendance_map = {sid: {} for sid in student_ids}
@@ -291,7 +306,7 @@ def admin_group_detail(request, id):
     from .schedule_helper import parse_schedule_weekdays
     for ts in timeslots:
         ts_weekdays = parse_schedule_weekdays(ts.days)
-        ts.active_students = [s for s in ts.students.all() if s.is_active]
+        ts.active_students = [s for s in ts.students.all() if _student_in_month(s)]
         for s in ts.active_students:
             matrix = []
             for d in days_data:
@@ -364,14 +379,24 @@ def admin_deleted_student_restore(request, id):
         timeslot_id = request.POST.get('timeslot_id')
         if timeslot_id:
             ts = get_object_or_404(TimeSlot, id=timeslot_id)
-            Student.objects.create(
-                first_name=ds.first_name or ds.student_name.split()[0] if ds.student_name else "Ism",
-                last_name=ds.last_name or (ds.student_name.split()[1] if len(ds.student_name.split()) > 1 else ""),
-                age=ds.age or 0,
-                phone_1=ds.phone_1 or ds.phones.split(',')[0].strip() if ds.phones else "",
-                phone_2=ds.phone_2 or (ds.phones.split(',')[1].strip() if ',' in ds.phones else ""),
-                time_slot=ts
-            )
+            student = None
+            if ds.student_id:
+                student = Student.objects.filter(id=ds.student_id).first()
+            if student:
+                student.is_active = True
+                student.left_date = None
+                student.time_slot = ts
+                student.save()
+            else:
+                Student.objects.create(
+                    first_name=ds.first_name or (ds.student_name.split()[0] if ds.student_name else "Ism"),
+                    last_name=ds.last_name or (ds.student_name.split()[1] if len(ds.student_name.split()) > 1 else ""),
+                    age=ds.age or 0,
+                    phone_1=ds.phone_1 or (ds.phones.split(',')[0].strip() if ds.phones else ""),
+                    phone_2=ds.phone_2 or (ds.phones.split(',')[1].strip() if ',' in ds.phones else ""),
+                    time_slot=ts,
+                    is_active=True
+                )
             ds.delete()
             messages.success(request, "O'quvchi guruhga qayta tiklandi.")
     return redirect('admin_deleted_students')
@@ -382,6 +407,8 @@ def admin_deleted_student_delete_permanent(request, id):
         return redirect('home')
     if request.method == 'POST':
         ds = get_object_or_404(DeletedStudent, id=id)
+        if ds.student_id:
+            Student.objects.filter(id=ds.student_id).delete()
         ds.delete()
         messages.success(request, "O'quvchi arxivdan butunlay o'chirildi.")
     return redirect('admin_deleted_students')
@@ -445,7 +472,13 @@ def admin_student_delete(request, id):
             reason = "Admin tomonidan o'chirildi"
 
         group_id = student.time_slot.group.id if student.time_slot else None
-        
+
+        # Soft delete: o'quvchi o'chirilmaydi, faqat left_date va is_active belgilanadi
+        # Bu orqali o'tgan oylarning davomati va to'lov tarixi saqlanib qoladi
+        student.is_active = False
+        student.left_date = date.today()
+        student.save()
+
         DeletedStudent.objects.create(
             student_name=f"{student.first_name} {student.last_name}",
             phones=f"{student.phone_1}, {student.phone_2 or ''}".rstrip(', '),
@@ -456,9 +489,9 @@ def admin_student_delete(request, id):
             age=student.age,
             phone_1=student.phone_1,
             phone_2=student.phone_2,
-            time_slot_id=student.time_slot.id if student.time_slot else None
+            time_slot_id=student.time_slot.id if student.time_slot else None,
+            student_id=student.id,
         )
-        student.delete()
         messages.success(request, f"O'quvchi arxivga o'tkazildi.")
         next_url = request.POST.get('next') or request.GET.get('next')
         if next_url:
@@ -716,17 +749,16 @@ def admin_attendance_mark(request):
 # ADMIN PAYMENTS (To'lovlar boshqaruvi)
 # ─────────────────────────────────────────────
 
-def _build_payments_data(students_qs, req_month, status_filter='all'):
+def _build_payments_data(students_qs, req_month, status_filter='all', is_group_specific=False):
     """
     O'quvchilar va ularning to'lovlari bo'yicha ma'lumotlar ro'yxatini shakllantiradi.
     status_filter: 'all', 'paid', 'unpaid', 'overdue', 'local'
 
-    To'lov muddati (due_date) mantiqi:
-      - O'quvchi to'lov qilgan bo'lsa: due_date = payment_date + 1 oy (o'sha kun)
-      - To'lov qilmagan bo'lsa: due_date = joined_date.day shu oyga nisbatan
-    Holat:
-      - To'langan (paid): due_date hali kelmagan yoki today <= due_date
-      - Qarzdor (unpaid): to'lov qilinmagan yoki due_date o'tib ketgan
+    Mantiq:
+      1. ARXIV: Tanlangan oy (req_month) da guruhda bo'lgan o'quvchilar chiqadi.
+         left_date va joined_date asosida filtr qilinadi.
+      2. BUGUNGI TUSHUM: Faqat bugun (today) payment_date bo'lgan to'lovlar summasi.
+      3. OYLIK TUSHUM: Tanlangan oy uchun haqiqiy to'langan (num_paid) summalar yig'indisi.
     """
     today = date.today()
     try:
@@ -736,17 +768,26 @@ def _build_payments_data(students_qs, req_month, status_filter='all'):
         req_month = f"{req_year:04d}-{req_mon:02d}"
 
     max_day_in_month = calendar.monthrange(req_year, req_mon)[1]
+    month_end = date(req_year, req_mon, max_day_in_month)
 
-    students_list = list(students_qs.order_by('first_name', 'last_name'))
+    # Tanlangan oyda mavjud bo'lgan o'quvchilarni olish (oylik arxiv mantig'i):
+    students_in_month = students_qs.filter(
+        Q(joined_date__lte=month_end) | Q(joined_date__isnull=True)
+    ).filter(
+        Q(left_date__isnull=True, is_active=True) |
+        Q(left_date__gt=month_end)
+    )
+
+    students_list = list(students_in_month.order_by('first_name', 'last_name'))
     student_ids = [s.id for s in students_list]
 
     # Tanlangan oy to'lovlari
     payments = MonthlyPayment.objects.filter(student_id__in=student_ids, month=req_month)
     payment_map = {p.student_id: p for p in payments}
 
-    # Kunlik tushum (Bugun kassa/bankka tushgan barcha pullar yig'indisi)
-    daily_payments = MonthlyPayment.objects.filter(student_id__in=student_ids, payment_date=today)
+    # Kunlik tushum (Faqat bugun tushgan barcha to'lovlar)
     daily_collected = 0
+    daily_payments = MonthlyPayment.objects.filter(payment_date=today)
     for dp in daily_payments:
         cl_dp = str(dp.amount_paid or '').replace(' ', '').replace("'", '').replace(',', '').strip()
         if cl_dp.isdigit():
@@ -755,6 +796,7 @@ def _build_payments_data(students_qs, req_month, status_filter='all'):
     rows = []
     total_rate = 0
     total_paid = 0
+    total_debt = 0
     paid_count = 0
     unpaid_count = 0
     overdue_count = 0
@@ -832,11 +874,15 @@ def _build_payments_data(students_qs, req_month, status_filter='all'):
             delay_days = (today - due_date).days
             overdue_count += 1
 
-        debt_val = 0 if st_code == 'paid' else rate_val
+        # Qarz hisobi: tarif - haqiqiy to'langan miqdor
+        debt_val = max(0, rate_val - num_paid)
+
+        # Oylik tushumga aynan to'langan haqiqiy summa qo'shiladi:
+        total_paid += num_paid
+        total_debt += debt_val
 
         if st_code == 'paid':
             paid_count += 1
-            total_paid += rate_val
         else:
             unpaid_count += 1
 
@@ -907,8 +953,8 @@ def _build_payments_data(students_qs, req_month, status_filter='all'):
         'total_rate_formatted': f"{total_rate:,}".replace(',', ' '),
         'total_paid': total_paid,
         'total_paid_formatted': f"{total_paid:,}".replace(',', ' '),
-        'debt_sum': max(0, total_rate - total_paid),
-        'debt_sum_formatted': f"{max(0, total_rate - total_paid):,}".replace(',', ' '),
+        'debt_sum': total_debt,
+        'debt_sum_formatted': f"{total_debt:,}".replace(',', ' '),
         # Kunlik tushum:
         'daily_collected': daily_collected,
         'daily_collected_formatted': f"{daily_collected:,}".replace(',', ' '),
@@ -931,7 +977,7 @@ def admin_payments_all(request):
 
     groups = Group.objects.select_related('teacher').order_by('name')
 
-    students_qs = Student.objects.filter(is_active=True).select_related(
+    students_qs = Student.objects.select_related(
         'time_slot__group__teacher', 'time_slot__group'
     )
 
@@ -945,7 +991,10 @@ def admin_payments_all(request):
             q_filter |= Q(first_name__icontains=w) | Q(last_name__icontains=w) | Q(phone_1__icontains=w) | Q(phone_2__icontains=w)
         students_qs = students_qs.filter(q_filter)
 
-    rows, stats = _build_payments_data(students_qs, req_month, status_filter)
+    rows, stats = _build_payments_data(
+        students_qs, req_month, status_filter,
+        is_group_specific=bool(group_id and group_id.isdigit())
+    )
 
     return render(request, 'admin_payments_all.html', {
         'rows': rows,
@@ -969,7 +1018,7 @@ def admin_group_payments(request, group_id):
     status_filter = request.GET.get('status', 'all')
     search_q = request.GET.get('q', '').strip()
 
-    students_qs = Student.objects.filter(time_slot__group=group, is_active=True).select_related('time_slot')
+    students_qs = Student.objects.filter(time_slot__group=group).select_related('time_slot')
 
     if search_q:
         words = search_q.split()
@@ -978,7 +1027,7 @@ def admin_group_payments(request, group_id):
             q_filter |= Q(first_name__icontains=w) | Q(last_name__icontains=w) | Q(phone_1__icontains=w) | Q(phone_2__icontains=w)
         students_qs = students_qs.filter(q_filter)
 
-    rows, stats = _build_payments_data(students_qs, req_month, status_filter)
+    rows, stats = _build_payments_data(students_qs, req_month, status_filter, is_group_specific=True)
 
     return render(request, 'admin_group_payments.html', {
         'group': group,
@@ -1148,15 +1197,16 @@ def export_payments_excel(request):
         status_filter = 'local'
 
     group = None
-    if group_id and group_id.isdigit():
+    is_grp = bool(group_id and group_id.isdigit())
+    if is_grp:
         group = get_object_or_404(Group.objects.select_related('teacher'), id=int(group_id))
-        students_qs = Student.objects.filter(time_slot__group=group, is_active=True).select_related('time_slot')
+        students_qs = Student.objects.filter(time_slot__group=group).select_related('time_slot')
         base_title = f"Guruh To'lovlari — {group.name}"
         safe_name = "".join(c for c in group.name if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
         base_filename = f"Toluvlar_{safe_name}"
         group_info = f"Fan: {group.subject_name} | O'qituvchi: {group.teacher or '—'}"
     else:
-        students_qs = Student.objects.filter(is_active=True).select_related('time_slot__group__teacher', 'time_slot__group')
+        students_qs = Student.objects.select_related('time_slot__group__teacher', 'time_slot__group')
         base_title = "Barcha Guruhlar Umumiy To'lovlar Jadvali"
         base_filename = "Humo_Umumiy_Toluvlar"
         group_info = "Barcha guruhlar"
@@ -1189,7 +1239,7 @@ def export_payments_excel(request):
 
     # Agar yillik tanlangan bo'lsa barcha o'quvchilar ro'yxati olinadi
     filter_for_data = 'all' if status_filter == 'yearly' else status_filter
-    rows, stats = _build_payments_data(students_qs, req_month, status_filter=filter_for_data)
+    rows, stats = _build_payments_data(students_qs, req_month, status_filter=filter_for_data, is_group_specific=is_grp)
 
     excel_file = generate_payments_excel(rows, title=title, subtitle=subtitle, stats=stats)
 
@@ -1258,12 +1308,21 @@ def teacher_dashboard(request):
             'is_weekend': w_idx in (5, 6),
             'is_today': cur_d == today_date,
         })
-        
+
+    t_month_end = date(y, m, num_days)
+
+    def _teacher_student_in_month(st):
+        if st.joined_date and st.joined_date > t_month_end:
+            return False
+        if st.left_date:
+            return st.left_date > t_month_end
+        return st.is_active
+
     student_ids = []
     for g in groups:
         for ts in g.time_slots.all():
             for s in ts.students.all():
-                if s.is_active:
+                if _teacher_student_in_month(s):
                     student_ids.append(s.id)
 
     attendance_map = {sid: {} for sid in student_ids}
@@ -1279,7 +1338,7 @@ def teacher_dashboard(request):
     for g in groups:
         for ts in g.time_slots.all():
             ts_weekdays = parse_schedule_weekdays(ts.days)
-            ts.active_students = [s for s in ts.students.all() if s.is_active]
+            ts.active_students = [s for s in ts.students.all() if _teacher_student_in_month(s)]
             for s in ts.active_students:
                 matrix = []
                 for d in days_data:
@@ -1417,9 +1476,13 @@ def teacher_student_delete(request, id):
             age=student.age,
             phone_1=student.phone_1,
             phone_2=student.phone_2,
-            time_slot_id=student.time_slot.id if student.time_slot else None
+            time_slot_id=student.time_slot.id if student.time_slot else None,
+            student_id=student.id,
         )
-        student.delete()
+        # Soft delete: o'quvchi o'chirilmaydi, faqat left_date va is_active belgilanadi
+        student.is_active = False
+        student.left_date = date.today()
+        student.save()
         messages.success(request, f"O'quvchi '{st_full_name}' arxivga muvaffaqiyatli o'tkazildi.")
         return redirect('teacher_dashboard')
     return redirect('teacher_dashboard')
