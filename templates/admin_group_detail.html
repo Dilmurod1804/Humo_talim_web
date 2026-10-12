@@ -96,6 +96,9 @@
             <thead>
                 <tr>
                     <th class="student-name"><span class="text-muted opacity-75 me-1">#</span> F.I.O. (Tarif)</th>
+                    <th class="joined-date-col text-center" title="Guruhga kelgan sana">
+                        <i class="bi bi-calendar2-event me-1 text-primary"></i>Kelgan sana
+                    </th>
                     {% for d in days_data %}
                     <th class="att-header-cell {% if d.is_today %}today-col{% elif d.is_weekend %}weekend-col{% endif %}" title="{{ d.date_str }} ({{ d.weekday }})">
                         <div class="att-date-num">{{ d.display_date }}</div>
@@ -109,51 +112,63 @@
                 {% for student in ts.active_students %}
                 <tr>
                     <td class="student-name">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <div class="d-flex align-items-center gap-2">
-                                <span class="badge bg-secondary bg-opacity-20 text-dark fw-bold rounded-circle d-inline-flex align-items-center justify-content-center flex-shrink-0" style="width:22px;height:22px;font-size:0.75rem;">{{ forloop.counter }}</span>
+                        <div class="student-cell-inner d-flex align-items-center justify-content-between gap-2">
+                            <div class="d-flex align-items-center gap-2" style="min-width:0; flex:1 1 auto;">
+                                <span class="student-counter-badge">{{ forloop.counter }}</span>
                                 {% if student.photo %}
                                 <img src="{{ student.photo.url }}" alt="Rasm"
-                                     class="student-avatar-thumb"
-                                     onclick="openImgPreview('{{ student.photo.url }}','{{ student.first_name }} {{ student.last_name }}')"
+                                     class="student-avatar-thumb flex-shrink-0"
+                                     onclick="openImgPreview('{{ student.photo.url }}','{{ student.first_name }} {{ student.last_name|escapejs }}')"
                                      title="Kattalashtirish uchun bosing">
                                 {% else %}
-                                <div class="student-avatar-thumb no-photo"><i class="bi bi-person"></i></div>
+                                <div class="student-avatar-thumb no-photo flex-shrink-0"><i class="bi bi-person"></i></div>
                                 {% endif %}
-                                <div class="student-name-col inline-edit-trigger"
-                                     onclick="openInlineEdit({{ student.id }},'{{ student.first_name }}','{{ student.last_name }}','{{ student.age|default:'' }}','{{ student.phone_1 }}','{{ student.phone_2|default:'' }}')"
-                                     title="Bosib tahrirlash" style="cursor:pointer; min-width:0;">
-                                    <div class="student-last-name fw-bold" style="color: #0f172a; font-size: 0.92rem; line-height: 1.15; letter-spacing: -0.2px;">
-                                        {{ student.last_name }}
+                                <div class="student-info-block inline-edit-trigger"
+                                     onclick="openInlineEdit({{ student.id }},'{{ student.first_name|escapejs }}','{{ student.last_name|escapejs }}','{{ student.age|default:'' }}','{{ student.phone_1|escapejs }}','{{ student.phone_2|default:''|escapejs }}','{{ student.joined_date|date:'Y-m-d'|default:'' }}')"
+                                     title="Bosib tahrirlash">
+                                    <div class="student-name-row d-flex align-items-center flex-wrap gap-1">
+                                        <span class="student-last-name fw-bold">{{ student.last_name }}</span>
                                         {% if student.is_local %}
-                                        <span class="badge rounded-pill px-1 py-0 ms-1" style="background:rgba(14,165,233,0.15);color:#0284c7;font-size:0.68rem;" title="Mahalladan kelgan o'quvchi"><i class="bi bi-geo-alt-fill"></i> Mahalla</span>
+                                        <span class="badge badge-mahalla rounded-pill px-1.5 py-0" title="Mahalladan kelgan o'quvchi"><i class="bi bi-geo-alt-fill"></i> Mahalla</span>
                                         {% endif %}
-                                        <i class="bi bi-pencil-fill ms-1 opacity-25" style="font-size:0.6rem;"></i>
+                                        <span class="student-edit-hint" title="Tahrirlash"><i class="bi bi-pencil-fill"></i></span>
                                     </div>
-                                    <div class="student-first-name fw-semibold" style="color: #475569; font-size: 0.82rem; line-height: 1.2;">
+                                    <div class="student-first-name fw-semibold">
                                         {{ student.first_name }}
                                     </div>
-                                    <div class="student-rate" style="font-size: 0.72rem; color: #64748b; font-weight: 500; line-height: 1.2;">
+                                    <div class="student-rate">
                                         {{ student.payment_rate }} so'm
                                     </div>
                                 </div>
                             </div>
-                            <div class="dropdown">
+                            <div class="dropdown flex-shrink-0">
                                 <button class="btn btn-sm btn-light rounded-circle action-dot-btn" type="button"
-                                        data-bs-toggle="dropdown" aria-expanded="false"
-                                        style="width:28px;height:28px;padding:0;line-height:1;">
+                                        data-bs-toggle="dropdown" aria-expanded="false" title="Amallar">
                                     <i class="bi bi-three-dots-vertical"></i>
                                 </button>
                                 <ul class="dropdown-menu dropdown-menu-end shadow-sm" style="border:none;border-radius:12px;min-width:185px;">
                                     <li><a class="dropdown-item small" href="{% url 'admin_student_edit' student.id %}?next={{ request.path|urlencode }}"><i class="bi bi-pencil-square me-2 text-primary"></i>Tahrirlash</a></li>
-                                    <li><a class="dropdown-item small" href="#" onclick="openInlineEdit({{ student.id }},'{{ student.first_name }}','{{ student.last_name }}','{{ student.age|default:'' }}','{{ student.phone_1 }}','{{ student.phone_2|default:'' }}');return false;"><i class="bi bi-lightning-charge-fill me-2 text-warning"></i>Tez tahrirlash</a></li>
+                                    <li><a class="dropdown-item small" href="#" onclick="openInlineEdit({{ student.id }},'{{ student.first_name|escapejs }}','{{ student.last_name|escapejs }}','{{ student.age|default:'' }}','{{ student.phone_1|escapejs }}','{{ student.phone_2|default:''|escapejs }}','{{ student.joined_date|date:'Y-m-d'|default:'' }}');return false;"><i class="bi bi-lightning-charge-fill me-2 text-warning"></i>Tez tahrirlash</a></li>
                                     <li><hr class="dropdown-divider my-1"></li>
                                     <li><a class="dropdown-item small fw-semibold text-primary" href="#" onclick="triggerPhotoUpload({{ student.id }});return false;"><i class="bi bi-camera-fill me-2 text-primary"></i>Rasmni almashtirish</a></li>
                                     {% if student.photo %}
-                                    <li><a class="dropdown-item small text-secondary" href="#" onclick="openImgPreview('{{ student.photo.url }}','{{ student.first_name }} {{ student.last_name }}');return false;"><i class="bi bi-zoom-in me-2 text-info"></i>Rasmni ko'rish</a></li>
+                                    <li><a class="dropdown-item small text-secondary" href="#" onclick="openImgPreview('{{ student.photo.url }}','{{ student.first_name }} {{ student.last_name|escapejs }}');return false;"><i class="bi bi-zoom-in me-2 text-info"></i>Rasmni ko'rish</a></li>
                                     {% endif %}
                                 </ul>
                             </div>
+                        </div>
+                    </td>
+
+                    <!-- Kelgan sana ustuni -->
+                    <td class="cell-joined-date text-center">
+                        <div class="joined-date-cell-wrap d-inline-flex align-items-center justify-content-center">
+                            <input type="date"
+                                   class="form-control form-control-sm joined-date-input"
+                                   value="{{ student.joined_date|date:'Y-m-d' }}"
+                                   data-sid="{{ student.id }}"
+                                   data-original="{{ student.joined_date|date:'Y-m-d' }}"
+                                   title="Kelgan sanani o'zgartirish (tanlaganda avtomatik saqlanadi)"
+                                   aria-label="Kelgan sana">
                         </div>
                     </td>
                     
@@ -311,6 +326,12 @@
               <label class="form-label small fw-semibold text-muted">Telefon 2</label>
               <input type="text" name="phone_2" id="ie_phone2" class="form-control">
             </div>
+            <div class="col-12">
+              <label class="form-label small fw-semibold text-muted">
+                <i class="bi bi-calendar2-event me-1 text-primary"></i>Kelgan sana (Guruhga qo'shilgan)
+              </label>
+              <input type="date" name="joined_date" id="ie_joined_date" class="form-control">
+            </div>
           </div>
         </div>
         <div class="modal-footer border-0 pt-0">
@@ -337,7 +358,7 @@
     }
 
     // ── INLINE QUICK-EDIT ──────────────────────────────────
-    function openInlineEdit(id, fn, ln, age, ph1, ph2) {
+    function openInlineEdit(id, fn, ln, age, ph1, ph2, jd) {
         const form = document.getElementById('inlineEditForm');
         form.action = '/admin/student/' + id + '/edit/';
         document.getElementById('ie_first_name').value = fn;
@@ -345,8 +366,54 @@
         document.getElementById('ie_age').value        = age;
         document.getElementById('ie_phone1').value     = ph1;
         document.getElementById('ie_phone2').value     = ph2 || '';
+        if (document.getElementById('ie_joined_date')) {
+            document.getElementById('ie_joined_date').value = jd || '';
+        }
         new bootstrap.Modal(document.getElementById('inlineEditModal')).show();
     }
+
+    // ── KELGAN SANA TAHRIRLASH (AJAX) ──────────────────────
+    document.querySelectorAll('.joined-date-input').forEach(input => {
+        input.addEventListener('change', function() {
+            const sid = this.dataset.sid;
+            const newDate = this.value;
+            const self = this;
+            if (!newDate) return;
+
+            self.style.opacity = '0.6';
+            const body = new URLSearchParams({
+                joined_date: newDate
+            });
+
+            fetch(`/student/${sid}/joined-date/`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRFToken': '{{ csrf_token }}',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: body
+            })
+            .then(r => r.json())
+            .then(data => {
+                self.style.opacity = '1';
+                if (data.status === 'success') {
+                    self.classList.add('saved-pulse');
+                    self.dataset.original = newDate;
+                    setTimeout(() => { self.classList.remove('saved-pulse'); }, 1400);
+                } else {
+                    alert("Xatolik: " + (data.msg || "Kelgan sanani saqlab bo'lmadi"));
+                    self.value = self.dataset.original || '';
+                }
+            })
+            .catch(e => {
+                self.style.opacity = '1';
+                console.error(e);
+                alert("Server bilan bog'lanishda xatolik yuz berdi.");
+                self.value = self.dataset.original || '';
+            });
+        });
+    });
 
     document.querySelectorAll('.cell-att').forEach(cell => {
         cell.addEventListener('click', function() {

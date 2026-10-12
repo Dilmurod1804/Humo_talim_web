@@ -1666,6 +1666,8 @@ def teacher_student_edit(request, id):
         messages.error(request, "Sizda o'quvchini tahrirlash ruxsati yo'q. Admin bilan bog'laning.")
         return redirect('teacher_dashboard')
 
+    next_url = request.GET.get('next') or request.POST.get('next', '')
+
     if request.method == 'POST':
         first_name = request.POST.get('first_name', '').strip()
         last_name = request.POST.get('last_name', '').strip()
@@ -1683,14 +1685,67 @@ def teacher_student_edit(request, id):
             student.phone_2 = phone_2
             if 'is_local' in request.POST:
                 student.is_local = (request.POST.get('is_local') in ('1', 'on', 'true', True))
+            joined_date_raw = request.POST.get('joined_date', '').strip()
+            if joined_date_raw:
+                try:
+                    student.joined_date = datetime.strptime(joined_date_raw, '%Y-%m-%d').date()
+                except Exception:
+                    pass
             student.save()
             messages.success(request, f"O'quvchi ma'lumotlari yangilandi.")
+            if next_url:
+                return redirect(next_url)
             return redirect('teacher_dashboard')
 
     return render(request, 'student_edit.html', {
         'student': student,
-        'next': request.GET.get('next', ''),
+        'next': next_url,
         'role': 'teacher',
+    })
+
+
+# ─────────────────────────────────────────────
+# SHARED: Update Student Joined Date (AJAX)
+# ─────────────────────────────────────────────
+
+def update_student_joined_date(request, id):
+    """Admin yoki biriktirilgan o'qituvchi tomonidan o'quvchining kelgan sanasini yangilash (AJAX)."""
+    if request.method != 'POST':
+        return JsonResponse({'status': 'error', 'msg': "Noto'g'ri so'rov"}, status=400)
+
+    is_admin = bool(_admin_only(request))
+    is_teacher = request.user.is_authenticated and getattr(request.user, 'role', '') == 'teacher'
+
+    if not is_admin and not is_teacher:
+        return JsonResponse({'status': 'error', 'msg': 'Ruxsat berilmagan'}, status=403)
+
+    student = get_object_or_404(Student, id=id)
+
+    # O'qituvchi faqat o'z guruhidagi o'quvchini tahrirlashi mumkin
+    if is_teacher and not is_admin:
+        if not (student.time_slot and student.time_slot.group and
+                student.time_slot.group.teacher and
+                student.time_slot.group.teacher.user == request.user):
+            return JsonResponse({'status': 'error', 'msg': "Bu o'quvchi sizning guruhingizga tegishli emas"}, status=403)
+
+    joined_date_raw = request.POST.get('joined_date', '').strip()
+    if not joined_date_raw:
+        return JsonResponse({'status': 'error', 'msg': "Kelgan sana kiritilmadi"}, status=400)
+
+    try:
+        new_date = datetime.strptime(joined_date_raw, '%Y-%m-%d').date()
+    except ValueError:
+        return JsonResponse({'status': 'error', 'msg': "Sana formati noto'g'ri (YYYY-MM-DD)"}, status=400)
+
+    student.joined_date = new_date
+    student.save(update_fields=['joined_date'])
+
+    return JsonResponse({
+        'status': 'success',
+        'student_id': student.id,
+        'joined_date': new_date.strftime('%Y-%m-%d'),
+        'display_date': new_date.strftime('%d.%m.%Y'),
+        'msg': "Kelgan sana muvaffaqiyatli saqlandi!"
     })
 
 

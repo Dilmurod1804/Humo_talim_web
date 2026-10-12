@@ -27,6 +27,7 @@ urlpatterns = [
     path('admin/student/<int:id>/delete/', views.admin_student_delete, name='admin_student_delete'),
     path('admin/student/<int:id>/edit/', views.admin_student_edit, name='admin_student_edit'),
     path('admin/student/<int:id>/photo/', views.student_photo_upload, name='student_photo_upload'),
+    path('student/<int:id>/joined-date/', views.update_student_joined_date, name='update_student_joined_date'),
     path('admin/temp-students/',                     views.admin_temp_students,       name='admin_temp_students'),
     path('admin/temp-students/<int:id>/assign/',     views.admin_temp_student_assign, name='admin_temp_student_assign'),
     path('admin/temp-students/<int:id>/delete/',     views.admin_temp_student_delete, name='admin_temp_student_delete'),
