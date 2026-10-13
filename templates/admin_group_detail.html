@@ -154,6 +154,13 @@
                                     {% if student.photo %}
                                     <li><a class="dropdown-item small text-secondary" href="#" onclick="openImgPreview('{{ student.photo.url }}','{{ student.first_name }} {{ student.last_name|escapejs }}');return false;"><i class="bi bi-zoom-in me-2 text-info"></i>Rasmni ko'rish</a></li>
                                     {% endif %}
+                                    <li><hr class="dropdown-divider my-1"></li>
+                                    <li>
+                                        <a class="dropdown-item small text-danger fw-semibold" href="#"
+                                           onclick="openAdminDeleteModal({{ student.id }}, '{{ student.first_name }} {{ student.last_name|escapejs }}'); return false;">
+                                            <i class="bi bi-trash-fill me-2 text-danger"></i>O'chirish (Arxiv)
+                                        </a>
+                                    </li>
                                 </ul>
                             </div>
                         </div>
@@ -187,7 +194,8 @@
                     
                     <td>
                         <button type="button" class="btn btn-sm btn-outline-danger btn-icon-circle"
-                                data-bs-toggle="modal" data-bs-target="#delStudentGroupModal{{ student.id }}" title="O'chirish">
+                                onclick="openAdminDeleteModal({{ student.id }}, '{{ student.first_name }} {{ student.last_name|escapejs }}')"
+                                title="O'chirish">
                             <i class="bi bi-trash-fill"></i>
                         </button>
                     </td>
@@ -239,43 +247,37 @@
     </div>
 </div>
 
-<!-- 2. O'quvchilarni o'chirish modallari -->
-{% for ts in timeslots %}
-    {% for student in ts.students.all %}
-    {% if student.is_active %}
-    <div class="modal fade" id="delStudentGroupModal{{ student.id }}" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content border-0">
-                <form action="{% url 'admin_student_delete' student.id %}" method="post">
-                    {% csrf_token %}
-                    <input type="hidden" name="next" value="{{ request.get_full_path }}">
-                    <div class="modal-header border-0 pb-0">
-                        <h5 class="modal-title fw-bold text-danger">
-                            <i class="bi bi-exclamation-triangle-fill me-2"></i>O'quvchini o'chirish
-                        </h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Yopish"></button>
+<!-- 2. O'quvchini o'chirish modali -->
+<div class="modal fade" id="adminDeleteStudentModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered" style="max-width:480px;">
+        <div class="modal-content border-0 rounded-4 shadow-lg overflow-hidden" style="background:#ffffff;">
+            <form id="adminDeleteStudentForm" method="post" action="">
+                {% csrf_token %}
+                <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                <div class="modal-header border-0 pb-0 pt-4 px-4">
+                    <h5 class="modal-title fw-bold text-danger d-flex align-items-center gap-2">
+                        <i class="bi bi-exclamation-triangle-fill fs-4"></i>O'quvchini o'chirish
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Yopish"></button>
+                </div>
+                <div class="modal-body p-4 text-start">
+                    <p class="mb-2">Siz haqiqatdan ham <b><span id="delAdminStudentName">—</span></b>ni guruhdan o'chirmoqchimisiz?</p>
+                    <div class="alert alert-warning small mb-3">
+                        <i class="bi bi-info-circle me-1"></i>O'quvchi guruhdan chiqariladi va ma'lumotlari <b>Arxiv</b> bo'limiga o'tkaziladi.
                     </div>
-                    <div class="modal-body text-start">
-                        <p class="mb-2">Siz haqiqatdan ham <b>{{ student.first_name }} {{ student.last_name }}</b>ni o'chirmoqchimisiz?</p>
-                        <div class="alert alert-warning small mb-3">
-                            <i class="bi bi-info-circle me-1"></i>O'quvchi ma'lumotlari <b>Arxiv</b> bo'limiga o'tkaziladi.
-                        </div>
-                        <label class="form-label small fw-semibold">O'chirish sababi:</label>
-                        <input type="text" name="reason" class="form-control" placeholder="Masalan: Kursni tugatdi...">
-                    </div>
-                    <div class="modal-footer border-0 pt-0">
-                        <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Bekor qilish</button>
-                        <button type="submit" class="btn btn-danger rounded-pill px-4 fw-bold">
-                            <i class="bi bi-trash-fill me-1"></i>O'chirish
-                        </button>
-                    </div>
-                </form>
-            </div>
+                    <label class="form-label small fw-semibold">O'chirish sababi:</label>
+                    <input type="text" name="reason" id="delAdminStudentReason" class="form-control" placeholder="Masalan: Kursni tugatdi...">
+                </div>
+                <div class="modal-footer border-0 pt-0 px-4 pb-4">
+                    <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Bekor qilish</button>
+                    <button type="submit" class="btn btn-danger rounded-pill px-4 fw-bold">
+                        <i class="bi bi-trash-fill me-1"></i>O'chirish
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
-    {% endif %}
-    {% endfor %}
-{% endfor %}
+</div>
 
 <!-- 3. IMAGE PREVIEW MODAL -->
 <div class="modal fade" id="imgPreviewModal" tabindex="-1" aria-hidden="true">
@@ -349,6 +351,21 @@
 <script>
     const currentMonth = "{{ current_month }}"; // YYYY-MM
     let activePayCell = null;
+
+    // ── O'QUVCHINI O'CHIRISH MODALI ─────────────────────────
+    function openAdminDeleteModal(studentId, studentName) {
+        const modalEl = document.getElementById('adminDeleteStudentModal');
+        const formEl = document.getElementById('adminDeleteStudentForm');
+        const nameEl = document.getElementById('delAdminStudentName');
+        const reasonEl = document.getElementById('delAdminStudentReason');
+
+        formEl.action = '/admin/student/' + studentId + '/delete/';
+        nameEl.textContent = studentName;
+        if (reasonEl) reasonEl.value = '';
+
+        const bsModal = bootstrap.Modal.getOrCreateInstance(modalEl);
+        bsModal.show();
+    }
 
     // ── IMAGE PREVIEW ──────────────────────────────────────
     function openImgPreview(url, name) {

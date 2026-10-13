@@ -37,10 +37,11 @@ from .schedule_helper import parse_schedule_weekdays
 
 def _student_visible_in_month(st, year=None, month=None):
     """
-    O'quvchi guruhga biriktirilgan ekan, u jurnalda, davomatda va to'lovlar jadvalida
-    doimo ochiq va ko'rinib turadi. Sanasi va holatidan qat'i nazar yashirilmaydi.
+    O'quvchi faol bo'lsa (is_active=True), joined_date kelajakda yoki o'tmishda
+    bo'lishidan qat'i nazar doimo jurnalda ko'rinadi.
+    Arxivlangan/o'chirilgan (is_active=False) o'quvchilar guruh jurnalidan chiqariladi.
     """
-    return True
+    return bool(getattr(st, 'is_active', True))
 
 
 def _build_attendance_matrix(students, days_data, attendance_map):
@@ -323,6 +324,7 @@ def teacher_student_delete(request, id):
         )
         student.is_active = False
         student.left_date = date.today()
+        student.time_slot = None
         student.save()
         messages.success(
             request, f"O'quvchi '{st_full_name}' arxivga muvaffaqiyatli o'tkazildi.")

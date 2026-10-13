@@ -122,6 +122,13 @@
                                         {% if student.photo %}
                                         <li><a class="dropdown-item small text-secondary" href="#" onclick="openImgPreview('{{ student.photo.url }}','{{ student.first_name }} {{ student.last_name|escapejs }}');return false;"><i class="bi bi-zoom-in me-2 text-info"></i>Rasmni ko'rish</a></li>
                                         {% endif %}
+                                        <li><hr class="dropdown-divider my-1"></li>
+                                        <li>
+                                            <a class="dropdown-item small text-danger fw-semibold" href="#"
+                                               onclick="openTeacherDeleteModal({{ student.id }}, '{{ student.first_name }} {{ student.last_name|escapejs }}'); return false;">
+                                                <i class="bi bi-trash-fill me-2 text-danger"></i>Guruhdan chiqarish
+                                            </a>
+                                        </li>
                                     </ul>
                                 </div>
                             </div>

@@ -436,26 +436,29 @@ def admin_student_delete(request, id):
             messages.error(request, "O'chirish sababida faqat lotin harflaridan foydalaning!")
             reason = "Admin tomonidan o'chirildi"
 
-        group_id = student.time_slot.group.id if student.time_slot else None
-
-        student.is_active = False
-        student.left_date = date.today()
-        student.save()
+        group_id = student.time_slot.group.id if (student.time_slot and student.time_slot.group) else None
+        time_slot_id = student.time_slot.id if student.time_slot else None
+        group_name = student.time_slot.group.name if (student.time_slot and student.time_slot.group) else "Noma'lum"
+        st_full_name = f"{student.first_name} {student.last_name}"
 
         DeletedStudent.objects.create(
-            student_name=f"{student.first_name} {student.last_name}",
+            student_name=st_full_name,
             phones=f"{student.phone_1}, {student.phone_2 or ''}".rstrip(', '),
-            group_name=student.time_slot.group.name if student.time_slot else "Noma'lum",
+            group_name=group_name,
             reason=reason or "Admin tomonidan o'chirildi",
             first_name=student.first_name,
             last_name=student.last_name,
             age=student.age,
             phone_1=student.phone_1,
             phone_2=student.phone_2,
-            time_slot_id=student.time_slot.id if student.time_slot else None,
+            time_slot_id=time_slot_id,
             student_id=student.id,
         )
-        messages.success(request, "O'quvchi arxivga o'tkazildi.")
+        student.is_active = False
+        student.left_date = date.today()
+        student.time_slot = None
+        student.save()
+        messages.success(request, f"O'quvchi '{st_full_name}' arxivga o'tkazildi.")
         next_url = request.POST.get('next') or request.GET.get('next')
         if next_url:
             return redirect(next_url)
