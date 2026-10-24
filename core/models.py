@@ -216,10 +216,8 @@ class Attendance(models.Model):
         super().clean()
         if self.date:
             today = timezone.now().date()
-            if self.date < today:
-                raise ValidationError({"date": "O'tgan kunlar uchun yo'qlama qilib bo'lmaydi!"})
-            if self.date > today:
-                raise ValidationError({"date": "Kelgusi kunlar uchun yo'qlama qilib bo'lmaydi!"})
+            if self.date != today:
+                raise ValidationError("Yo'qlama faqat joriy kun (bugun) uchun kiritilishi mumkin!")
 
     def save(self, *args, **kwargs):
         self.full_clean()

@@ -192,11 +192,16 @@ def teacher_dashboard(request):
                 for d in days_data:
                     is_lesson = (d['weekday_idx'] in ts_weekdays)
                     st = attendance_map.get(s.id, {}).get(d['day'], '')
+                    is_today = d.get('is_today', False)
                     matrix.append({
                         'day': d['day'],
                         'date_str': d['date_str'],
                         'is_lesson': is_lesson,
                         'status': st,
+                        'is_today': is_today,
+                        'is_past': d.get('is_past', False),
+                        'is_future': d.get('is_future', False),
+                        'can_mark': is_lesson and is_today,
                     })
                 s.attendance_matrix = matrix
 
@@ -233,10 +238,8 @@ def teacher_attendance_mark(request):
             return JsonResponse({'status': 'error', 'msg': "Noto'g'ri sana formati!"}, status=400)
 
     # ── Strict Current Day Attendance Validation ──
-    if req_date < today:
-        return JsonResponse({'status': 'error', 'msg': "O'tgan kunlar uchun yo'qlama qilib bo'lmaydi!"}, status=400)
-    if req_date > today:
-        return JsonResponse({'status': 'error', 'msg': "Kelgusi kunlar uchun yo'qlama qilib bo'lmaydi!"}, status=400)
+    if req_date != today:
+        return JsonResponse({'status': 'error', 'msg': "Yo'qlama faqat joriy kun (bugun) uchun kiritilishi mumkin!"}, status=400)
 
     if status in ('green', 'blue'):
         status = 'present'

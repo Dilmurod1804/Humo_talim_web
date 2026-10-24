@@ -418,10 +418,8 @@ def admin_attendance_mark(request):
             return JsonResponse({'status': 'error', 'msg': "Noto'g'ri sana formati!"}, status=400)
 
     # ── Strict Current Day Attendance Validation ──
-    if req_date < today:
-        return JsonResponse({'status': 'error', 'msg': "O'tgan kunlar uchun yo'qlama qilib bo'lmaydi!"}, status=400)
-    if req_date > today:
-        return JsonResponse({'status': 'error', 'msg': "Kelgusi kunlar uchun yo'qlama qilib bo'lmaydi!"}, status=400)
+    if req_date != today:
+        return JsonResponse({'status': 'error', 'msg': "Yo'qlama faqat joriy kun (bugun) uchun kiritilishi mumkin!"}, status=400)
 
     if status_val in ('green', 'blue'):
         status_val = 'present'
