@@ -813,8 +813,13 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
 
     max_day_in_month = calendar.monthrange(req_year, req_mon)[1]
 
-    # O'quvchilar ro'yxati (hech qanday yashirishsiz)
-    students_list = list(students_qs.distinct().order_by('first_name', 'last_name'))
+    # Faqat faol o'quvchilar ro'yxati (Arxivlangan / is_active=False bo'lganlar hisobga olinmaydi)
+    students_list = list(
+        students_qs
+        .filter(is_active=True)
+        .distinct()
+        .order_by('first_name', 'last_name')
+    )
     student_ids = [s.id for s in students_list]
 
     payments = MonthlyPayment.objects.filter(student_id__in=student_ids, month=req_month)
@@ -1030,7 +1035,7 @@ def admin_payments_all(request):
 
     groups = Group.objects.select_related('teacher').order_by('name')
 
-    students_qs = Student.objects.select_related(
+    students_qs = Student.objects.filter(is_active=True).select_related(
         'time_slot__group__teacher', 'time_slot__group'
     )
 
@@ -1044,14 +1049,14 @@ def admin_payments_all(request):
             q_filter |= Q(first_name__icontains=w) | Q(last_name__icontains=w) | Q(phone_1__icontains=w) | Q(phone_2__icontains=w)
         students_qs = students_qs.filter(q_filter)
 
-    # Qarzdorlar filtri tanlanganda Mahalla o'quvchilari Queryset'dan to'liq chiqarib tashlansin
+    # Qarzdorlar filtri: Arxivdagi (is_active=False) va Mahalla o'quvchilari Queryset'dan to'liq chiqarib tashlansin
     if status_filter == 'unpaid':
         mahalla_pay_ids = MonthlyPayment.objects.filter(
             month=req_month
         ).filter(
             Q(amount_paid__icontains='mahalla') | Q(notes__icontains='mahalla')
         ).values_list('student_id', flat=True)
-        students_qs = students_qs.exclude(is_local=True).exclude(id__in=mahalla_pay_ids)
+        students_qs = students_qs.filter(is_active=True).exclude(is_local=True).exclude(id__in=mahalla_pay_ids)
 
     rows, stats = _build_payments_data(
         students_qs, req_month, status_filter,
@@ -1080,7 +1085,7 @@ def admin_group_payments(request, group_id):
     status_filter = request.GET.get('status', 'all')
     search_q = request.GET.get('q', '').strip()
 
-    students_qs = Student.objects.filter(time_slot__group=group).select_related('time_slot')
+    students_qs = Student.objects.filter(time_slot__group=group, is_active=True).select_related('time_slot')
 
     if search_q:
         words = search_q.split()
@@ -1089,14 +1094,14 @@ def admin_group_payments(request, group_id):
             q_filter |= Q(first_name__icontains=w) | Q(last_name__icontains=w) | Q(phone_1__icontains=w) | Q(phone_2__icontains=w)
         students_qs = students_qs.filter(q_filter)
 
-    # Qarzdorlar filtri tanlanganda Mahalla o'quvchilari Queryset'dan to'liq chiqarib tashlansin
+    # Qarzdorlar filtri: Arxivdagi (is_active=False) va Mahalla o'quvchilari Queryset'dan to'liq chiqarib tashlansin
     if status_filter == 'unpaid':
         mahalla_pay_ids = MonthlyPayment.objects.filter(
             month=req_month
         ).filter(
             Q(amount_paid__icontains='mahalla') | Q(notes__icontains='mahalla')
         ).values_list('student_id', flat=True)
-        students_qs = students_qs.exclude(is_local=True).exclude(id__in=mahalla_pay_ids)
+        students_qs = students_qs.filter(is_active=True).exclude(is_local=True).exclude(id__in=mahalla_pay_ids)
 
     rows, stats = _build_payments_data(students_qs, req_month, status_filter, is_group_specific=True)
 
@@ -1330,25 +1335,25 @@ def export_payments_excel(request):
     is_grp = bool(group_id and group_id.isdigit())
     if is_grp:
         group = get_object_or_404(Group.objects.select_related('teacher'), id=int(group_id))
-        students_qs = Student.objects.filter(time_slot__group=group).select_related('time_slot')
+        students_qs = Student.objects.filter(time_slot__group=group, is_active=True).select_related('time_slot')
         base_title = f"Guruh To'lovlari — {group.name}"
         safe_name = "".join(c for c in group.name if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
         base_filename = f"Toluvlar_{safe_name}"
         group_info = f"Fan: {group.subject_name} | O'qituvchi: {group.teacher or '—'}"
     else:
-        students_qs = Student.objects.select_related('time_slot__group__teacher', 'time_slot__group')
+        students_qs = Student.objects.filter(is_active=True).select_related('time_slot__group__teacher', 'time_slot__group')
         base_title = "Barcha Guruhlar Umumiy To'lovlar Jadvali"
         base_filename = "Humo_Umumiy_Toluvlar"
         group_info = "Barcha guruhlar"
 
-    # Qarzdorlar filtri tanlanganda Mahalla o'quvchilari Queryset'dan to'liq chiqarib tashlansin
+    # Qarzdorlar filtri: Arxivdagi (is_active=False) va Mahalla o'quvchilari Queryset'dan to'liq chiqarib tashlansin
     if status_filter == 'unpaid':
         mahalla_pay_ids = MonthlyPayment.objects.filter(
             month=req_month
         ).filter(
             Q(amount_paid__icontains='mahalla') | Q(notes__icontains='mahalla')
         ).values_list('student_id', flat=True)
-        students_qs = students_qs.exclude(is_local=True).exclude(id__in=mahalla_pay_ids)
+        students_qs = students_qs.filter(is_active=True).exclude(is_local=True).exclude(id__in=mahalla_pay_ids)
 
     if status_filter == 'paid':
         type_label = "To'liq To'laganlar"

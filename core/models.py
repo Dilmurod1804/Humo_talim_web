@@ -197,6 +197,15 @@ class Student(models.Model):
     def is_mahalla(self, value):
         self.is_local = bool(value)
 
+    @property
+    def is_archived(self):
+        """Arxivlanganlik holati (is_active=False bo'lsa True)."""
+        return not self.is_active
+
+    @is_archived.setter
+    def is_archived(self, value):
+        self.is_active = not bool(value)
+
     def __str__(self):
         return f"{self.first_name} {self.last_name}"
 
