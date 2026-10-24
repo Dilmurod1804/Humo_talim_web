@@ -1,0 +1,205 @@
+{% extends 'base.html' %}
+{% block title %}Menejerni Tahrirlash - HUMO{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8 col-lg-6">
+        <div class="glass-card p-4 p-md-5">
+            <div class="text-center mb-4">
+                <div class="position-relative d-inline-block">
+                    {% if manager.photo %}
+                    <img src="{{ manager.photo.url }}" alt="{{ manager.first_name }}" style="width: 80px; height: 80px; border-radius: 22px; object-fit: cover; border: 3px solid #f59e0b; box-shadow: 0 8px 24px rgba(245,158,11,0.3);">
+                    {% else %}
+                    <div style="background:linear-gradient(135deg,#f59e0b,#d97706);border-radius:22px;width:80px;height:80px;display:flex;align-items:center;justify-content:center;margin:0 auto;box-shadow:0 8px 24px rgba(245,158,11,0.35);">
+                        <i class="bi bi-briefcase-fill text-white fs-2"></i>
+                    </div>
+                    {% endif %}
+                </div>
+                <h3 class="fw-black text-dark mt-3 mb-1">{{ manager.first_name }} {{ manager.last_name }}</h3>
+                <span class="badge bg-warning text-dark rounded-pill px-3 py-1 fw-bold">Menejer Profili</span>
+            </div>
+
+            <form method="post" enctype="multipart/form-data">
+                {% csrf_token %}
+                <div class="row mb-3">
+                    <div class="col-sm-6 mb-3 mb-sm-0">
+                        <label class="form-label fw-semibold small text-dark">Ism (Lotin) *</label>
+                        <input type="text" name="first_name" class="form-control" value="{{ manager.first_name }}" required>
+                    </div>
+                    <div class="col-sm-6">
+                        <label class="form-label fw-semibold small text-dark">Familiya (Lotin) *</label>
+                        <input type="text" name="last_name" class="form-control" value="{{ manager.last_name }}" required>
+                    </div>
+                </div>
+
+                <div class="row mb-3">
+                    <div class="col-sm-6 mb-3 mb-sm-0">
+                        <label class="form-label fw-semibold small text-dark">Telefon raqami</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-white" style="border:1.5px solid #e2e8f0;border-right:none;border-radius:10px 0 0 10px;">
+                                <i class="bi bi-telephone text-muted"></i>
+                            </span>
+                            <input type="text" name="phone" class="form-control" value="{{ manager.phone|default:'' }}"
+                                   style="border:1.5px solid #e2e8f0;border-left:none;border-radius:0 10px 10px 0;">
+                        </div>
+                    </div>
+                <div class="row mb-3">
+                    <div class="col-12 col-md-6 mb-3 mb-md-0">
+                        <label class="form-label fw-semibold small text-dark">
+                            <i class="bi bi-box-arrow-in-right text-success me-1"></i>Ish boshlanishi (Kelish)
+                        </label>
+                        <input type="time" name="work_start_time" class="form-control" value="{{ manager.work_start_time|time:'H:i'|default:'09:00' }}" required>
+                        <div class="form-text" style="font-size:0.75rem;">Shu vaqtdan keyin kelinsa kechikish hisoblanadi.</div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label fw-semibold small text-dark">
+                            <i class="bi bi-box-arrow-right text-info me-1"></i>Ish tugashi (Ketish)
+                        </label>
+                        <input type="time" name="work_end_time" class="form-control" value="{{ manager.work_end_time|time:'H:i'|default:'18:00' }}" required>
+                        <div class="form-text" style="font-size:0.75rem;">Rasmiy ishdan ketish soati.</div>
+                    </div>
+                </div>
+
+                {% if is_admin %}
+                <div class="mb-4">
+                    <label class="form-label fw-semibold small text-dark">Oylik maosh stavkasi (so'm)</label>
+                    <div class="input-group">
+                        <span class="input-group-text bg-white" style="border:1.5px solid #e2e8f0;border-right:none;border-radius:10px 0 0 10px;">
+                            <i class="bi bi-cash-stack text-success"></i>
+                        </span>
+                        <input type="number" step="1000" name="monthly_salary" class="form-control" value="{{ manager.monthly_salary|stringformat:'.0f' }}" required
+                               style="border:1.5px solid #e2e8f0;border-left:none;border-radius:0 10px 10px 0; font-weight:700;">
+                    </div>
+                    <div class="form-text" style="font-size:0.75rem;">Kechikish jarimalari oy oxirida avtomatik ravishda shu summadan hisoblanadi.</div>
+                </div>
+
+                <!-- ══════ INTERAKTIV PHONE VOLUME SLIDER (Jarima foizi) ══════ -->
+                <div class="phone-volume-card mb-4">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <label class="fw-bold fs-6 mb-0 d-flex align-items-center gap-2">
+                            <i class="bi bi-percent text-danger fs-5"></i> Kechikish jarima foizi
+                        </label>
+                        <span class="badge bg-danger bg-opacity-25 text-danger border border-danger border-opacity-30 rounded-pill px-3 py-1">
+                            Har bir kechikish uchun
+                        </span>
+                    </div>
+                    <p class="small text-white opacity-75 mb-3">Xodim kechikib kelganda oyligidan ushlab qolinadigan jarima miqdorini volume slider orqali o'zgartiring:</p>
+
+                    <div class="phone-volume-widget" id="managerEditFineSlider" data-min="0" data-max="15" data-step="0.5" data-unit="%" data-value="{{ manager.late_fine_rate|default:'2.0' }}">
+                        <input type="hidden" name="late_fine_rate" value="{{ manager.late_fine_rate|default:'2.0' }}">
+                        
+                        <div class="phone-volume-capsule-wrap">
+                            <button type="button" class="volume-step-btn volume-step-dec" title="Kamaytirish">
+                                <i class="bi bi-dash"></i>
+                            </button>
+
+                            <div class="phone-volume-capsule horizontal fine-slider flex-grow-1">
+                                <div class="phone-volume-fill"></div>
+                                <div class="phone-volume-overlay">
+                                    <i class="bi bi-percent phone-volume-icon"></i>
+                                    <span class="phone-volume-badge-val">{{ manager.late_fine_rate|default:'2.0' }} %</span>
+                                </div>
+                            </div>
+
+                            <button type="button" class="volume-step-btn volume-step-inc" title="Ko'paytirish">
+                                <i class="bi bi-plus"></i>
+                            </button>
+                        </div>
+
+                        <div class="volume-presets-wrap mt-3">
+                            <button type="button" class="volume-preset-btn" data-val="0.5">0.5%</button>
+                            <button type="button" class="volume-preset-btn" data-val="1.0">1.0%</button>
+                            <button type="button" class="volume-preset-btn" data-val="2.0">2.0%</button>
+                            <button type="button" class="volume-preset-btn" data-val="3.0">3.0%</button>
+                            <button type="button" class="volume-preset-btn" data-val="5.0">5.0%</button>
+                            <button type="button" class="volume-preset-btn" data-val="10.0">10.0%</button>
+                        </div>
+                    </div>
+                </div>
+                {% else %}
+                <input type="hidden" name="monthly_salary" value="{{ manager.monthly_salary|stringformat:'.0f' }}">
+                <input type="hidden" name="late_fine_rate" value="{{ manager.late_fine_rate|default:'2.0' }}">
+                {% endif %}
+
+                <!-- ══════ YUZ RASMI YUKLASH (Face ID) ══════ -->
+                <div class="mb-4">
+                    <label class="form-label fw-semibold small text-dark d-flex align-items-center gap-1">
+                        <i class="bi bi-camera-fill text-primary"></i> Face ID Yuz Fotosurati (Taqqoslash rasmini yangilash)
+                    </label>
+                    <div class="d-flex align-items-center gap-3 p-3 rounded-3" style="background:#f8fafc; border:1.5px dashed #cbd5e1;">
+                        <div id="photoPreviewBox" style="width:72px; height:72px; border-radius:16px; background:#e2e8f0; display:flex; align-items:center; justify-content:center; overflow:hidden; flex-shrink:0;">
+                            {% if manager.photo %}
+                            <img id="imgPreview" src="{{ manager.photo.url }}" alt="{{ manager.first_name }}" style="width:100%; height:100%; object-fit:cover;">
+                            <i class="bi bi-person-bounding-box text-muted fs-2" id="placeholderIcon" style="display:none;"></i>
+                            {% else %}
+                            <i class="bi bi-person-bounding-box text-muted fs-2" id="placeholderIcon"></i>
+                            <img id="imgPreview" src="" alt="Preview" style="width:100%; height:100%; object-fit:cover; display:none;">
+                            {% endif %}
+                        </div>
+                        <div class="flex-grow-1">
+                            <input type="file" name="photo" id="photoInput" class="form-control form-control-sm" accept="image/*" onchange="previewPhoto(event)">
+                            <div class="form-text" style="font-size:0.75rem;">Yangi rasm tanlansa, Face ID taqqoslash uchun eski rasm o'rniga shu rasm saqlanadi.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Login va yangi parol -->
+                <div class="p-3 mb-4 rounded-3 border" style="background: rgba(15, 23, 42, 0.03);">
+                    <div class="d-flex justify-content-between mb-2">
+                        <span class="text-muted small">Tizimga kirish logini:</span>
+                        <strong class="text-primary font-monospace">{{ manager.generated_login }}</strong>
+                    </div>
+                    <div>
+                        <label class="form-label small fw-semibold text-dark">Yangi parol (agar o'zgartirmoqchi bo'lsangiz):</label>
+                        <input type="text" name="new_password" class="form-control form-control-sm font-monospace" placeholder="Yangi parol kiriting yoki bo'sh qoldiring">
+                    </div>
+                </div>
+
+                <div class="d-flex gap-2">
+                    <a href="{% url 'admin_dashboard' %}" class="btn btn-light rounded-pill px-4 fw-semibold flex-grow-1 text-center">
+                        Bekor qilish
+                    </a>
+                    <button type="submit" class="btn fw-bold text-white rounded-pill px-5 flex-grow-1"
+                            style="background:linear-gradient(135deg,#f59e0b,#d97706);border:none;box-shadow:0 4px 15px rgba(245,158,11,0.35);">
+                        <i class="bi bi-check-circle-fill me-1"></i> Saqlash
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+function previewPhoto(event) {
+    const input = event.target;
+    if (input.files && input.files[0]) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const preview = document.getElementById('imgPreview');
+            const icon = document.getElementById('placeholderIcon');
+            preview.src = e.target.result;
+            preview.style.display = 'block';
+            if (icon) icon.style.display = 'none';
+        }
+        reader.readAsDataURL(input.files[0]);
+    }
+}
+
+// Forma yuborishdan oldin barcha raqamli inputlarni tozalash
+document.addEventListener('DOMContentLoaded', function() {
+    const form = document.querySelector('form');
+    if (form) {
+        form.addEventListener('submit', function() {
+            ['monthly_salary', 'late_fine_rate'].forEach(function(name) {
+                const inp = form.querySelector('[name="' + name + '"]');
+                if (inp) {
+                    let v = inp.value.replace(',', '.').trim();
+                    if (!v || isNaN(parseFloat(v))) v = name === 'monthly_salary' ? '0' : '2.0';
+                    inp.value = parseFloat(v).toString();
+                }
+            });
+        });
+    }
+});
+</script>
+{% endblock %}

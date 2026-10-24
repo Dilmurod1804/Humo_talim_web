@@ -14,125 +14,273 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <!-- Custom CSS -->
     {% load static %}
-    <link rel="stylesheet" href="{% static 'css/style.css' %}">
-</head>
-<body>
+    <link rel="stylesheet" href="{% static 'css/style.css' %}?v=20261015-01">
 
-<!-- ═══════════════════════ NAVBAR & QUICK NAVIGATION ═══════════════════════ -->
-<nav class="navbar navbar-expand-lg navbar-dark glass-nav fixed-top py-2">
-    <div class="container-fluid px-2 px-sm-3 px-md-4">
-        
+    <style>
+        /* ════════════════ NAVBAR 2-TIER LAYOUT ════════════════ */
+        .glass-nav {
+            background: rgba(15, 23, 42, 0.95) !important;
+            backdrop-filter: blur(16px) !important;
+            -webkit-backdrop-filter: blur(16px) !important;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.12) !important;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35) !important;
+            z-index: 1030;
+        }
+
+        /* Top row */
+        .navbar-top-row {
+            min-height: 52px;
+        }
+
+        /* Sub-navbar row */
+        .sub-navbar-row {
+            background: rgba(10, 15, 30, 0.65) !important;
+            border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+        }
+
+        /* Nav scroll container */
+        .nav-scroll-container {
+            overflow-x: auto;
+            overflow-y: hidden;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+            white-space: nowrap;
+            -webkit-overflow-scrolling: touch;
+        }
+        .nav-scroll-container::-webkit-scrollbar { display: none; }
+
+        .quick-nav-pills {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 3px 0;
+        }
+
+        .quick-nav-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 5px 12px;
+            border-radius: 50px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: rgba(255, 255, 255, 0.85);
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            text-decoration: none;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+        .quick-nav-link:hover {
+            color: #fff;
+            background: rgba(255, 255, 255, 0.2);
+            border-color: rgba(255, 255, 255, 0.3);
+            transform: translateY(-1px);
+        }
+        .quick-nav-link.active {
+            color: #fff;
+            background: linear-gradient(135deg, #06b6d4, #3b82f6);
+            border-color: transparent;
+            box-shadow: 0 4px 12px rgba(6, 182, 212, 0.35);
+        }
+
+        .user-chip {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 50px;
+            color: #fff;
+            font-size: 0.8rem;
+            padding: 4px 12px;
+            white-space: nowrap;
+        }
+
+        /* Mobile specific */
+        @media (max-width: 991.98px) {
+            .sub-navbar-row {
+                background: rgba(15, 23, 42, 0.98) !important;
+                border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
+                max-height: calc(100vh - 60px);
+                overflow-y: auto;
+            }
+            .sub-navbar-row.collapse:not(.show) {
+                display: none !important;
+            }
+            .quick-nav-pills {
+                display: flex !important;
+                flex-direction: column !important;
+                width: 100% !important;
+                gap: 6px !important;
+                padding: 10px 0 !important;
+            }
+            .quick-nav-link {
+                width: 100% !important;
+                padding: 10px 14px !important;
+                border-radius: 12px !important;
+                font-size: 0.9rem !important;
+            }
+            .main-content-wrapper {
+                padding-top: 75px !important;
+            }
+        }
+
+        @media (min-width: 992px) {
+            .main-content-wrapper {
+                padding-top: 105px !important;
+            }
+        }
+
+        /* Mobile Table Scrolling & Touch UX */
+        .table-responsive {
+            -webkit-overflow-scrolling: touch;
+            overflow-x: auto;
+            border-radius: 12px;
+        }
+    </style>
+</head>
+<body><!-- ═══════════════════════ NAVBAR & 2-TIER SUB-NAVBAR ═══════════════════════ -->
+<header class="fixed-top glass-nav">
+    <!-- TIER 1: TOP NAVBAR (Brand on Left, User & Logout on Right) -->
+    <div class="navbar-top-row d-flex align-items-center justify-content-between px-2 px-sm-3 px-md-4 py-2 border-bottom border-white border-opacity-10">
         <!-- Left: Back Button & Brand Logo -->
         <div class="d-flex align-items-center gap-1 gap-sm-2 flex-nowrap">
-            {% if request.path != '/' and request.path != '/admin-login/' and request.path != '/teacher/login/' %}
+            {% if request.path != '/' and request.path != '/admin-login/' and request.path != '/teacher/login/' and request.path != '/manager/login/' %}
             <button onclick="history.back()"
                     class="btn btn-sm rounded-pill px-2 px-sm-3 d-flex align-items-center gap-1 flex-shrink-0 text-white"
-                    style="background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.25);font-weight:600;font-size:.78rem;backdrop-filter:blur(6px);padding-top:4px;padding-bottom:4px;"
+                    style="background:rgba(255,255,255,0.14);border:1px solid rgba(255,255,255,0.25);font-weight:600;font-size:.78rem;backdrop-filter:blur(6px);padding-top:4px;padding-bottom:4px;"
                     title="Ortga">
                 <i class="bi bi-arrow-left"></i> <span class="d-none d-sm-inline">Ortga</span>
             </button>
             {% endif %}
 
-            <a class="navbar-brand d-flex align-items-center gap-2 m-0 flex-nowrap" href="{% url 'home' %}">
-                <img src="{% static 'img/humo_logo.jpg' %}" alt="HUMO"
-                     style="height:30px;width:auto;border-radius:8px;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.3);">
-                <span class="fw-bold fs-6 text-white">HUMO <span class="d-none d-md-inline opacity-75">O'quv Markazi</span></span>
+            <a class="navbar-brand d-flex align-items-center gap-2 m-0 flex-nowrap text-decoration-none" href="{% url 'home' %}">
+                <img src="{% static 'img/humo_logo.jpg' %}" alt="HummoKids"
+                     style="height:32px;width:auto;border-radius:8px;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.3);">
+                <span class="fw-bold fs-6 text-white">HummoKids <span class="d-none d-md-inline opacity-75">Bog'chasi</span></span>
             </a>
         </div>
 
-        <!-- Right Mobile Toggle (Burger Button & Mobile User Badge) -->
-        <div class="d-flex align-items-center gap-1 gap-sm-2 d-lg-none ms-auto flex-nowrap">
-            {% if request.session.admin_authenticated %}
-            <span class="badge bg-warning bg-opacity-20 text-warning border border-warning border-opacity-30 rounded-pill px-2 py-1 small">
-                <i class="bi bi-shield-lock-fill me-1"></i>Admin
+        <!-- Right: Admin / User Chip & Logout (and Burger Toggle on Mobile) -->
+        <div class="d-flex align-items-center gap-2 flex-nowrap ms-auto">
+            {% if is_admin %}
+            <span class="user-chip d-inline-flex align-items-center gap-1 py-1 px-3">
+                <i class="bi bi-shield-lock-fill text-warning"></i>
+                <span style="font-size:0.82rem;" class="fw-bold">Admin</span>
             </span>
+            <a href="{% url 'admin_logout' %}"
+               class="btn btn-sm rounded-pill px-3 text-center flex-shrink-0 d-inline-flex align-items-center gap-1 shadow-sm"
+               style="background:rgba(239,68,68,0.25);border:1px solid rgba(239,68,68,0.5);color:#fff;font-weight:600;font-size:.8rem;white-space:nowrap;">
+                <i class="bi bi-box-arrow-right"></i><span>Chiqish</span>
+            </a>
+            {% elif is_manager %}
+            <span class="user-chip d-inline-flex align-items-center gap-1 py-1 px-3" title="{{ user.username }}">
+                <i class="bi bi-briefcase-fill text-warning"></i>
+                <span style="font-size:0.82rem;" class="fw-bold">Menejer: {{ user.username|truncatechars:10 }}</span>
+            </span>
+            <a href="{% url 'logout' %}"
+               class="btn btn-sm rounded-pill px-3 text-center flex-shrink-0 d-inline-flex align-items-center gap-1 shadow-sm"
+               style="background:rgba(239,68,68,0.25);border:1px solid rgba(239,68,68,0.5);color:#fff;font-weight:600;font-size:.8rem;white-space:nowrap;">
+                <i class="bi bi-box-arrow-right"></i><span>Chiqish</span>
+            </a>
             {% elif user.is_authenticated %}
-            <span class="badge bg-info bg-opacity-20 text-info border border-info border-opacity-30 rounded-pill px-2 py-1 small">
-                <i class="bi bi-person-circle me-1"></i>{{ user.username|truncatechars:8 }}
+            <span class="user-chip d-inline-flex align-items-center gap-1 py-1 px-3" title="{{ user.username }}">
+                <i class="bi bi-person-circle text-info"></i>
+                <span style="font-size:0.82rem;">{{ user.username|truncatechars:10 }}</span>
             </span>
+            <a href="{% url 'logout' %}"
+               class="btn btn-sm rounded-pill px-3 text-center flex-shrink-0 d-inline-flex align-items-center gap-1 shadow-sm"
+               style="background:rgba(239,68,68,0.25);border:1px solid rgba(239,68,68,0.5);color:#fff;font-weight:600;font-size:.8rem;white-space:nowrap;">
+                <i class="bi bi-box-arrow-right"></i><span>Chiqish</span>
+            </a>
+            {% else %}
+            <a href="{% url 'admin_login' %}" class="btn btn-sm rounded-pill px-3 text-white fw-semibold text-center flex-shrink-0"
+               style="background:rgba(99,102,241,0.35); border:1px solid rgba(99,102,241,0.6); font-size:0.8rem;white-space:nowrap;">
+                <i class="bi bi-lock-fill me-1"></i>Kirish
+            </a>
             {% endif %}
 
-            <button class="navbar-toggler border-0 p-1 text-white shadow-none" type="button" 
-                    data-bs-toggle="collapse" data-bs-target="#glassNavbarCollapse" 
-                    aria-controls="glassNavbarCollapse" aria-expanded="false" aria-label="Menyuni ochish">
+            <!-- Mobile Burger Toggle Button -->
+            <button class="navbar-toggler border-0 p-1 text-white shadow-none d-lg-none" type="button" 
+                    data-bs-toggle="collapse" data-bs-target="#mobileNavCollapse" 
+                    aria-controls="mobileNavCollapse" aria-expanded="false" aria-label="Menyu">
                 <i class="bi bi-list fs-2 text-white"></i>
             </button>
         </div>
+    </div>
 
-        <!-- Collapsible Navigation Area -->
-        <div class="collapse navbar-collapse mt-2 mt-lg-0" id="glassNavbarCollapse">
-            <!-- Center: Quick Navigation Links -->
-            <div class="quick-nav-pills d-flex flex-column flex-lg-row align-items-stretch align-items-lg-center gap-1 mx-auto my-2 my-lg-0">
-                <a href="{% url 'home' %}" class="quick-nav-link {% if request.path == '/' %}active{% endif %}">
-                    <i class="bi bi-house-door-fill me-1"></i><span>Asosiy</span>
-                </a>
+    <!-- TIER 2: SUB-NAVBAR ROW (Desktop: horizontal clean bar, Mobile: collapsible menu) -->
+    <div class="collapse d-lg-block sub-navbar-row" id="mobileNavCollapse">
+        <div class="px-2 px-sm-3 px-md-4 py-1 py-lg-1">
+            <div class="nav-scroll-container">
+                <div class="quick-nav-pills">
+                    <!-- 1. Asosiy -->
+                    <a href="{% url 'home' %}" class="quick-nav-link {% if request.path == '/' %}active{% endif %}">
+                        <i class="bi bi-house-door-fill me-1"></i><span>Asosiy</span>
+                    </a>
 
-                {% if request.session.admin_authenticated %}
-                <a href="{% url 'admin_dashboard' %}" class="quick-nav-link {% if '/admin/' in request.path and '/temp-students' not in request.path and '/deleted-students' not in request.path and '/payments' not in request.path %}active{% endif %}">
-                    <i class="bi bi-grid-1x2-fill me-1"></i><span>Admin Panel</span>
-                </a>
+                    <!-- 2. ADMIN VA MENEJER UCHUN ASOSIY OPERATSION BO'LIMLAR -->
+                    {% if is_admin or is_manager %}
+                        <a href="{% url 'admin_dashboard' %}" class="quick-nav-link {% if '/admin/' in request.path and '/temp-students' not in request.path and '/deleted-students' not in request.path and '/payments' not in request.path and '/face-id' not in request.path and '/salary' not in request.path and '/audit-logs' not in request.path and '/advances' not in request.path %}active{% endif %}">
+                            <i class="bi bi-grid-1x2-fill me-1"></i><span>Guruhlar & Xodimlar</span>
+                        </a>
 
-                <a href="{% url 'admin_payments_all' %}" class="quick-nav-link {% if 'payments' in request.path %}active{% endif %}">
-                    <i class="bi bi-wallet2 me-1"></i><span>To'lovlar</span>
-                </a>
+                        <a href="{% url 'admin_face_id_logs' %}" class="quick-nav-link {% if '/admin/face-id/logs' in request.path %}active{% endif %}" style="background:rgba(6,182,212,0.18); border-color:rgba(6,182,212,0.4);">
+                            <i class="bi bi-person-bounding-box text-info me-1"></i><span>Face ID Jurnali</span>
+                        </a>
 
-                <a href="{% url 'admin_temp_students' %}" class="quick-nav-link {% if 'temp-students' in request.path %}active{% endif %}">
-                    <i class="bi bi-hourglass-split me-1"></i><span>Vaqtinchalik</span>
-                </a>
+                        <a href="{% url 'admin_payments_all' %}" class="quick-nav-link {% if 'payments' in request.path %}active{% endif %}">
+                            <i class="bi bi-wallet2 me-1"></i><span>To'lovlar (Guruhlar)</span>
+                        </a>
 
-                <a href="{% url 'admin_deleted_students' %}" class="quick-nav-link {% if 'deleted-students' in request.path %}active{% endif %}">
-                    <i class="bi bi-archive-fill me-1"></i><span>Arxiv</span>
-                </a>
-                {% endif %}
+                        <a href="{% url 'admin_advance_list' %}" class="quick-nav-link {% if 'advances' in request.path %}active{% endif %}" style="background:rgba(245,158,11,0.18); border-color:rgba(245,158,11,0.4);">
+                            <i class="bi bi-cash-coin text-warning me-1"></i><span>Avans So'rovlari</span>
+                        </a>
 
-                {% if user.is_authenticated and user.role == 'teacher' %}
-                <a href="{% url 'teacher_dashboard' %}" class="quick-nav-link {% if '/teacher/' in request.path %}active{% endif %}">
-                    <i class="bi bi-person-workspace me-1"></i><span>O'qituvchi Kabineti</span>
-                </a>
-                {% elif request.session.admin_authenticated %}
-                <a href="{% url 'teacher_dashboard' %}" class="quick-nav-link {% if '/teacher/' in request.path %}active{% endif %}">
-                    <i class="bi bi-person-workspace me-1"></i><span>O'qituvchilar</span>
-                </a>
-                {% endif %}
+                        <a href="{% url 'admin_audit_logs' %}" class="quick-nav-link {% if 'audit-logs' in request.path %}active{% endif %}">
+                            <i class="bi bi-clock-history text-secondary me-1"></i><span>Tizim Tarixi</span>
+                        </a>
+                    {% endif %}
 
-                <a href="{% url 'parent_view' %}" class="quick-nav-link {% if '/parent/' in request.path %}active{% endif %}">
-                    <i class="bi bi-eye-fill me-1"></i><span>Ota-ona</span>
-                </a>
-            </div>
+                    <!-- 3. FAQAT VA FAQAT ADMIN UCHUN RUXSAT ETILGAN BO'LIMLAR (Menejerga ko'rinmaydi) -->
+                    {% if is_admin %}
+                        <a href="{% url 'admin_salary_report' %}" class="quick-nav-link {% if '/admin/salary' in request.path %}active{% endif %}" style="background:rgba(16,185,129,0.18); border-color:rgba(16,185,129,0.4);">
+                            <i class="bi bi-cash-stack text-success me-1"></i><span>Oyliklar & Bonuslar</span>
+                        </a>
 
-            <!-- Right: Desktop User Profile & Logout / Login -->
-            <div class="d-flex align-items-center justify-content-between justify-content-lg-end gap-2 pt-2 pt-lg-0 border-top border-white border-opacity-10 border-lg-0">
-                {% if request.session.admin_authenticated %}
-                <span class="user-chip d-none d-lg-flex align-items-center gap-1 py-1 px-3">
-                    <i class="bi bi-shield-lock-fill text-warning"></i>
-                    <span style="font-size:0.82rem;">Admin</span>
-                </span>
-                <a href="{% url 'admin_logout' %}"
-                   class="btn btn-sm rounded-pill px-3 w-100 w-lg-auto text-center"
-                   style="background:rgba(239,68,68,0.25);border:1px solid rgba(239,68,68,0.5);color:#fff;font-weight:600;font-size:.8rem;">
-                    <i class="bi bi-box-arrow-right me-1"></i>Chiqish
-                </a>
-                {% elif user.is_authenticated %}
-                <span class="user-chip d-none d-lg-flex align-items-center gap-1 py-1 px-3">
-                    <i class="bi bi-person-circle text-info"></i>
-                    <span style="font-size:0.82rem;">{{ user.username }}</span>
-                </span>
-                <a href="{% url 'logout' %}"
-                   class="btn btn-sm rounded-pill px-3 w-100 w-lg-auto text-center"
-                   style="background:rgba(239,68,68,0.25);border:1px solid rgba(239,68,68,0.5);color:#fff;font-weight:600;font-size:.8rem;">
-                    <i class="bi bi-box-arrow-right me-1"></i>Chiqish
-                </a>
-                {% else %}
-                <a href="{% url 'admin_login' %}" class="btn btn-sm rounded-pill px-3 text-white fw-semibold w-100 w-lg-auto text-center"
-                   style="background:rgba(99,102,241,0.35); border:1px solid rgba(99,102,241,0.6); font-size:0.8rem;">
-                    <i class="bi bi-lock-fill me-1"></i>Kirish
-                </a>
-                {% endif %}
+                        <a href="{% url 'admin_face_id_settings' %}" class="quick-nav-link {% if '/admin/face-id/settings' in request.path %}active{% endif %}" style="background:rgba(99,102,241,0.18); border-color:rgba(99,102,241,0.4);">
+                            <i class="bi bi-sliders text-primary me-1"></i><span>Sozlamalar</span>
+                        </a>
+                    {% endif %}
+
+                    <!-- 4. GURUH BIRIKTIRILGAN TARBIYACHI MENYUSI -->
+                    {% if is_assigned_teacher %}
+                        <a href="{% url 'teacher_dashboard' %}" class="quick-nav-link {% if '/teacher/dashboard' in request.path or '/teacher/' in request.path and '/chat' not in request.path %}active{% endif %}">
+                            <i class="bi bi-calendar-check-fill text-success me-1"></i><span>Bolalar Davomati ({{ assigned_group.name }})</span>
+                        </a>
+
+                        <a href="{% url 'staff_my_face_logs' %}" class="quick-nav-link {% if '/staff/my-logs' in request.path %}active{% endif %}">
+                            <i class="bi bi-person-bounding-box text-info me-1"></i><span>Face ID Jurnali & Avans</span>
+                        </a>
+
+                        <a href="{% url 'teacher_chat' %}" class="quick-nav-link {% if '/teacher/chat' in request.path %}active{% endif %}">
+                            <i class="bi bi-chat-dots-fill text-primary me-1"></i><span>Chat</span>
+                        </a>
+
+                    <!-- 5. GURUH BIRIKTIRILMAGAN XODIM (Faqat Face ID va Shaxsiy profil) -->
+                    {% elif is_unassigned_staff %}
+                        <a href="{% url 'staff_my_face_logs' %}" class="quick-nav-link {% if '/staff/my-logs' in request.path %}active{% endif %}">
+                            <i class="bi bi-person-badge-fill text-warning me-1"></i><span>Xodimlar Paneli (Shaxsiy & Avans)</span>
+                        </a>
+                    {% endif %}
+
+                    <!-- Face ID Skaner Terminali (Alohida tabda to'liq ochiladi) -->
+                    <a href="{% url 'face_id_terminal' %}" class="quick-nav-link" target="_blank" style="background:rgba(14,165,233,0.18);border-color:rgba(14,165,233,0.4);">
+                        <i class="bi bi-qr-code-scan text-cyan me-1"></i><span>Face ID Skaner</span>
+                    </a>
+                </div>
             </div>
         </div>
-
     </div>
-</nav>
+</header>
 <!-- ═══════════════════════════════════════════════════════ -->
 
 <div class="main-content-wrapper container-fluid px-2 px-sm-3 px-md-4">
@@ -373,6 +521,92 @@
             toggle._movedMenu = null;
         }
     });
+</script>
+
+<!-- Global Phone Volume Slider Component -->
+<script src="{% static 'js/volume-slider.js' %}"></script>
+
+<!-- Quick Navigation Smooth Horizontal Wheel Scroll -->
+<script>
+(function() {
+    function initNavScroll() {
+        const navScroll = document.querySelector('.nav-scroll-container');
+        if (!navScroll) return;
+        navScroll.addEventListener('wheel', function(e) {
+            if (e.deltaY !== 0 && navScroll.scrollWidth > navScroll.clientWidth) {
+                e.preventDefault();
+                navScroll.scrollLeft += e.deltaY * 0.9;
+            }
+        }, { passive: false });
+    }
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initNavScroll);
+    } else {
+        initNavScroll();
+    }
+})();
+</script>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!-- GLOBAL SCROLL RESTORATION: Sahifaning tepaga sakrashini oldini olish -->
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<script>
+(function() {
+    const STORAGE_KEY = 'humo_saved_scroll_pos';
+    const PATH_KEY = 'humo_saved_scroll_path';
+
+    // 1. Har qanday forma submit bo'lganda scroll holatini saqlash
+    document.addEventListener('submit', function() {
+        try {
+            sessionStorage.setItem(STORAGE_KEY, window.scrollY.toString());
+            sessionStorage.setItem(PATH_KEY, window.location.pathname);
+        } catch(e) {}
+    }, true);
+
+    // 2. Sahifa qayta yuklanganda yoki sahifadan chiqilayotganda
+    window.addEventListener('beforeunload', function() {
+        try {
+            if (window.scrollY > 0) {
+                sessionStorage.setItem(STORAGE_KEY, window.scrollY.toString());
+                sessionStorage.setItem(PATH_KEY, window.location.pathname);
+            }
+        } catch(e) {}
+    });
+
+    // 3. Sahifa chizilganda scrollni tiklash
+    function restoreScrollPos() {
+        try {
+            const savedY = sessionStorage.getItem(STORAGE_KEY);
+            const savedPath = sessionStorage.getItem(PATH_KEY);
+            if (savedY !== null && savedPath === window.location.pathname) {
+                const targetY = parseInt(savedY, 10);
+                if (!isNaN(targetY) && targetY > 0) {
+                    window.scrollTo({
+                        top: targetY,
+                        behavior: 'instant'
+                    });
+                    setTimeout(function() {
+                        window.scrollTo({
+                            top: targetY,
+                            behavior: 'instant'
+                        });
+                        sessionStorage.removeItem(STORAGE_KEY);
+                        sessionStorage.removeItem(PATH_KEY);
+                    }, 50);
+                    return;
+                }
+            }
+            sessionStorage.removeItem(STORAGE_KEY);
+            sessionStorage.removeItem(PATH_KEY);
+        } catch(e) {}
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', restoreScrollPos);
+    } else {
+        restoreScrollPos();
+    }
+})();
 </script>
 {% block extra_js %}{% endblock %}
 

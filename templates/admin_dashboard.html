@@ -12,9 +12,32 @@
     </div>
     
     <div class="d-flex gap-2 header-actions-wrap flex-wrap">
+        <a href="{% url 'admin_face_id_logs' %}" class="btn fw-semibold px-3 py-2 shadow-sm text-white"
+           style="background:linear-gradient(135deg, #06b6d4, #0891b2); border:1px solid rgba(255,255,255,0.3); backdrop-filter:blur(8px);">
+            <i class="bi bi-person-bounding-box me-1"></i> Face ID Jurnali
+            {% if face_stats.total_scans %}
+            <span class="badge bg-white text-dark rounded-pill ms-1" style="font-size:0.72rem;">{{ face_stats.total_scans }}</span>
+            {% endif %}
+        </a>
+        {% if is_admin %}
+        <a href="{% url 'admin_face_id_settings' %}" class="btn fw-semibold px-3 py-2 shadow-sm text-white"
+           style="background:linear-gradient(135deg, #6366f1, #8b5cf6); border:1px solid rgba(255,255,255,0.3); backdrop-filter:blur(8px);">
+            <i class="bi bi-sliders me-1"></i> Face ID Boshqaruvi
+        </a>
+        {% endif %}
+        {% if is_admin %}
+        <a href="{% url 'admin_salary_report' %}" class="btn fw-semibold px-3 py-2 shadow-sm text-white"
+           style="background:linear-gradient(135deg, #10b981, #059669); border:1px solid rgba(255,255,255,0.3); backdrop-filter:blur(8px);">
+            <i class="bi bi-cash-stack me-1"></i> Oylik & Jarimalar
+        </a>
+        {% endif %}
+        <a href="{% url 'face_id_terminal' %}" target="_blank" class="btn fw-semibold px-3 py-2 shadow-sm text-white"
+           style="background:rgba(14,165,233,0.9); border:1px solid rgba(255,255,255,0.3); backdrop-filter:blur(8px);">
+            <i class="bi bi-qr-code-scan me-1"></i> Terminal
+        </a>
         <a href="{% url 'admin_export_excel' %}" class="btn fw-semibold px-3 py-2 btn-export shadow-sm text-white"
            style="background:linear-gradient(135deg,#10b981,#059669); border:1px solid rgba(255,255,255,0.3); backdrop-filter:blur(8px);">
-            <i class="bi bi-file-earmark-excel-fill me-1"></i> Excel Yuklab Olish
+            <i class="bi bi-file-earmark-excel-fill me-1"></i> Excel
         </a>
         <a href="{% url 'admin_temp_students' %}" class="btn fw-semibold px-3 py-2 shadow-sm text-white"
            style="background:rgba(245,158,11,0.9); border:1px solid rgba(255,255,255,0.3); backdrop-filter:blur(8px);">
@@ -183,10 +206,10 @@
 </div>
 <!-- ════════════════════════════════════════════════════════════════════════════════════ -->
 
-<div class="row g-4">
+<div class="row g-4 align-items-stretch">
     <!-- ===== GURUHLAR BO'LIMI ===== -->
-    <div class="col-lg-8">
-        <div class="glass-card h-100" style="overflow:hidden;">
+    <div class="col-12 col-lg-7">
+        <div class="glass-card h-100 d-flex flex-column" style="overflow:hidden;">
             <div class="p-3 p-md-4 d-flex align-items-center justify-content-between" style="border-bottom: 1px solid rgba(0,0,0,0.06);">
                 <h4 class="fw-bold text-dark mb-0 d-flex align-items-center gap-2 fs-5 fs-md-4">
                     <i class="bi bi-collection-fill text-primary"></i> Guruhlar 
@@ -202,7 +225,7 @@
                 </div>
             </div>
 
-            <div class="p-3">
+            <div class="p-3 flex-grow-1" style="max-height: 640px; overflow-y: auto;">
                 {% for group in groups %}
                 <div class="d-flex align-items-center justify-content-between p-3 mb-2 rounded-3 bg-light"
                      style="border:1px solid rgba(0,0,0,0.05); transition: all 0.2s;">
@@ -249,125 +272,235 @@
         </div>
     </div>
 
-    <!-- ===== O'QITUVCHILAR BO'LIMI ===== -->
-    <div class="col-lg-4">
+    <!-- ===== XODIMLAR VA MENAJERLAR BO'LIMI ===== -->
+    <div class="col-12 col-lg-5">
         <div class="glass-card h-100" style="overflow:hidden;">
-            <div class="p-3 p-md-4 d-flex align-items-center justify-content-between" style="border-bottom: 1px solid rgba(0,0,0,0.06);">
-                <h4 class="fw-bold text-dark mb-0 d-flex align-items-center gap-2 fs-5 fs-md-4">
-                    <i class="bi bi-people-fill text-success"></i> O'qituvchilar
-                    <span class="badge bg-success bg-opacity-10 text-success rounded-pill px-2 fs-6">{{ teachers|length }}</span>
-                </h4>
+            <div class="p-3 p-md-4 d-flex align-items-center justify-content-between flex-wrap gap-2" style="border-bottom: 1px solid rgba(0,0,0,0.06);">
+                <div>
+                    <h4 class="fw-bold text-dark mb-0 d-flex align-items-center gap-2 fs-5">
+                        <i class="bi bi-people-fill text-primary"></i> Markaz Xodimlari
+                    </h4>
+                    <small class="text-muted">Menejerlar: <b>{{ managers|length }}</b> | O'qituvchilar: <b>{{ teachers|length }}</b></small>
+                </div>
                 <div class="d-flex gap-2 flex-wrap">
-                    <a href="{% url 'admin_chat_list' %}" class="btn btn-outline-primary fw-semibold px-3 py-2 d-flex align-items-center gap-1 shadow-sm">
-                        <i class="bi bi-chat-dots-fill"></i> Chat
+                    <a href="{% url 'admin_manager_create' %}" class="btn btn-warning text-dark fw-bold px-3 py-2 d-flex align-items-center gap-1 shadow-sm" style="border-radius:10px;">
+                        <i class="bi bi-person-badge-fill"></i> + Menejer
                     </a>
-                    <a href="{% url 'admin_teacher_create' %}" class="btn btn-success fw-semibold px-3 py-2 d-flex align-items-center gap-1 shadow-sm">
-                        <i class="bi bi-person-plus-fill"></i> Qo'shish
+                    <a href="{% url 'admin_teacher_create' %}" class="btn btn-success fw-semibold px-3 py-2 d-flex align-items-center gap-1 shadow-sm" style="border-radius:10px;">
+                        <i class="bi bi-person-plus-fill"></i> + O'qituvchi
+                    </a>
+                    <a href="{% url 'admin_chat_list' %}" class="btn btn-outline-primary px-3 py-2 d-flex align-items-center gap-1 shadow-sm" style="border-radius:10px;">
+                        <i class="bi bi-chat-dots-fill"></i>
                     </a>
                 </div>
             </div>
 
-            <!-- ─── GLOBAL TAHRIRLASH SWITCH ─── -->
-            <div class="px-3 py-2" style="background: linear-gradient(135deg, rgba(99,102,241,0.07), rgba(139,92,246,0.07)); border-bottom: 1px solid rgba(0,0,0,0.06);">
-                <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap">
-                    <div class="d-flex align-items-center gap-2">
-                        <i class="bi bi-toggles fs-5 text-primary"></i>
-                        <div>
-                            <div class="fw-bold text-dark small">Barcha o'qituvchilar — Global Ruxsat</div>
-                            <div class="text-muted" style="font-size:0.75rem;">Barcha o'qituvchilar uchun tahrirlash huquqini bir yo'la yoqish yoki o'chirish</div>
-                        </div>
-                    </div>
-                    <div class="d-flex gap-2">
-                        <form action="{% url 'admin_teacher_toggle_all_edit' %}" method="post" class="m-0">
-                            {% csrf_token %}
-                            <input type="hidden" name="action" value="on">
-                            <button type="submit" class="btn btn-success btn-sm rounded-pill px-3 py-1 fw-bold d-flex align-items-center gap-1 shadow-sm"
-                                    style="font-size:0.78rem;"
-                                    onclick="return confirm('Barcha o\'qituvchilar uchun tahrirlash ruxsatini YOQMOQCHIMISIZ?')"
-                                    title="Barcha o'qituvchilar uchun tahrirlashni yoqish">
-                                <i class="bi bi-toggle2-on fs-6"></i> Barchasini Yoq
-                            </button>
-                        </form>
-                        <form action="{% url 'admin_teacher_toggle_all_edit' %}" method="post" class="m-0">
-                            {% csrf_token %}
-                            <input type="hidden" name="action" value="off">
-                            <button type="submit" class="btn btn-outline-danger btn-sm rounded-pill px-3 py-1 fw-bold d-flex align-items-center gap-1"
-                                    style="font-size:0.78rem; background:#fff;"
-                                    onclick="return confirm('Barcha o\'qituvchilar uchun tahrirlash ruxsatini O\'CHIRMOQCHIMISIZ?')"
-                                    title="Barcha o'qituvchilar uchun tahrirlashni o'chirish">
-                                <i class="bi bi-toggle2-off fs-6"></i> Barchasini O'chir
-                            </button>
-                        </form>
-                    </div>
-                </div>
-            </div>
+            <!-- Tab Headers (Menejerlar & O'qituvchilar) -->
+            <ul class="nav nav-pills p-2 bg-light border-bottom staff-tabs-row" id="staffTabs" role="tablist" style="display:flex !important; flex-direction:row !important; flex-wrap:nowrap !important; gap:10px !important;">
+                <li class="nav-item flex-fill" role="presentation" style="flex:1 1 0; min-width:0;">
+                    <button class="nav-link active fw-bold py-2 px-2 w-100 d-flex align-items-center justify-content-center gap-2 text-nowrap" id="managers-tab" data-bs-toggle="tab" data-bs-target="#managers-pane" type="button" role="tab" style="white-space:nowrap;">
+                        <i class="bi bi-briefcase-fill text-warning"></i> <span>Menejerlar</span> 
+                        <span class="badge bg-warning text-dark rounded-pill">{{ managers|length }}</span>
+                    </button>
+                </li>
+                <li class="nav-item flex-fill" role="presentation" style="flex:1 1 0; min-width:0;">
+                    <button class="nav-link fw-bold py-2 px-2 w-100 d-flex align-items-center justify-content-center gap-2 text-nowrap" id="teachers-tab" data-bs-toggle="tab" data-bs-target="#teachers-pane" type="button" role="tab" style="white-space:nowrap;">
+                        <i class="bi bi-person-workspace text-success"></i> <span>O'qituvchilar</span> 
+                        <span class="badge bg-success rounded-pill">{{ teachers|length }}</span>
+                    </button>
+                </li>
+            </ul>
 
-            <div class="p-3">
-                {% for teacher in teachers %}
-                <div class="teacher-card p-3 mb-3 rounded-3" style="background: rgba(255, 255, 255, 0.85); border: 1px solid rgba(226, 232, 240, 0.8); box-shadow: 0 4px 14px rgba(15, 23, 42, 0.04); transition: all 0.25s ease;">
-                    <div class="d-flex align-items-center justify-content-between mb-2">
-                        <div class="d-flex align-items-center gap-2">
-                            <div style="background: linear-gradient(135deg, #10b981, #059669); border-radius:10px; width:42px; height:42px; display:flex; align-items:center; justify-content:center; flex-shrink:0; box-shadow:0 4px 10px rgba(16,185,129,0.25);">
-                                <i class="bi bi-person-fill text-white fs-5"></i>
+            <div class="tab-content p-3" id="staffTabsContent">
+                
+                <!-- ════════════ 1. MENAJERLAR TABI ════════════ -->
+                <div class="tab-pane fade show active" id="managers-pane" role="tabpanel">
+                    {% for manager in managers %}
+                    <div class="teacher-card p-3 mb-3 rounded-3" style="background: rgba(255, 255, 255, 0.95); border: 1.5px solid rgba(245, 158, 11, 0.3); box-shadow: 0 4px 14px rgba(245, 158, 11, 0.08);">
+                        <div class="d-flex align-items-center justify-content-between mb-2">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="position-relative">
+                                    {% if manager.photo %}
+                                    <img src="{{ manager.photo.url }}" alt="{{ manager.first_name }}" style="width: 50px; height: 50px; border-radius: 14px; object-fit: cover; border: 2px solid #f59e0b; box-shadow: 0 4px 10px rgba(0,0,0,0.15);">
+                                    <span class="position-absolute bottom-0 end-0 badge rounded-pill bg-success p-1" title="Face ID faol"><i class="bi bi-check" style="font-size:0.6rem;"></i></span>
+                                    {% else %}
+                                    <div style="background: linear-gradient(135deg, #f59e0b, #d97706); border-radius: 14px; width: 50px; height: 50px; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 1.2rem; box-shadow: 0 4px 10px rgba(245,158,11,0.3);">
+                                        {{ manager.last_name|slice:":1" }}{{ manager.first_name|slice:":1" }}
+                                    </div>
+                                    <span class="position-absolute bottom-0 end-0 badge rounded-pill bg-danger p-1" title="Yuz rasmi yuklanmagan"><i class="bi bi-camera" style="font-size:0.6rem;"></i></span>
+                                    {% endif %}
+                                </div>
+                                <div>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <span class="fw-bold text-dark fs-6">{{ manager.first_name }} {{ manager.last_name }}</span>
+                                        <span class="badge bg-warning bg-opacity-20 text-warning border border-warning border-opacity-30 rounded-pill px-2 py-0 small fw-bold">Menejer</span>
+                                    </div>
+                                    <small class="text-muted"><i class="bi bi-telephone-fill me-1 text-success"></i>{{ manager.phone|default:"Telefon kiritilmagan" }}</small>
+                                </div>
                             </div>
+
+                            <div class="d-flex gap-1">
+                                <a href="{% url 'admin_manager_edit' manager.id %}" class="btn btn-sm btn-outline-primary btn-icon-circle" title="Tahrirlash va Yuz rasmini yuklash">
+                                    <i class="bi bi-pencil-fill"></i>
+                                </a>
+                                <button type="button" class="btn btn-sm btn-outline-danger btn-icon-circle" data-bs-toggle="modal" data-bs-target="#deleteManagerModal{{ manager.id }}" title="O'chirish">
+                                    <i class="bi bi-trash-fill"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Login & Parol -->
+                        <div class="credential-box mb-2 p-2 rounded-2" style="background: rgba(15, 23, 42, 0.04); font-size: 0.82rem;">
+                            <div class="d-flex justify-content-between mb-1">
+                                <span class="text-muted">Login:</span>
+                                <strong class="text-primary font-monospace">{{ manager.generated_login }}</strong>
+                            </div>
+                            <div class="d-flex justify-content-between">
+                                <span class="text-muted">Parol:</span>
+                                <strong class="text-danger font-monospace">{{ manager.generated_password }}</strong>
+                            </div>
+                        </div>
+
+                        <!-- Oylik & Face ID parametrlari -->
+                        <div class="p-2 rounded-2 border d-flex align-items-center justify-content-between bg-white text-muted flex-wrap gap-1" style="font-size: 0.78rem;">
+                            {% if is_admin %}
                             <div>
-                                <div class="fw-bold text-dark fs-6 lh-sm">{{ teacher.first_name }} {{ teacher.last_name }}</div>
-                                <small class="text-muted"><i class="bi bi-telephone-fill me-1 text-success"></i>{{ teacher.phone|default:"Telefon kiritilmagan" }}</small>
+                                <i class="bi bi-cash-stack text-success me-1"></i>Oylik: <b class="text-dark">{{ manager.monthly_salary|floatformat:0 }} so'm</b>
                             </div>
-                        </div>
-
-                        <!-- O'qituvchini o'chirish tugmasi -->
-                        <button type="button" class="btn btn-sm btn-outline-danger btn-icon-circle" 
-                                data-bs-toggle="modal" data-bs-target="#deleteTeacherModal{{ teacher.id }}" title="O'qituvchini o'chirish">
-                            <i class="bi bi-trash-fill"></i>
-                        </button>
-                    </div>
-
-                    <div class="credential-box mb-2">
-                        <div class="d-flex justify-content-between mb-1">
-                            <span class="text-muted small">Login:</span>
-                            <strong class="text-primary font-monospace">{{ teacher.generated_login }}</strong>
-                        </div>
-                        <div class="d-flex justify-content-between">
-                            <span class="text-muted small">Parol:</span>
-                            <strong class="text-danger font-monospace">{{ teacher.generated_password }}</strong>
+                            {% endif %}
+                            <div>
+                                <i class="bi bi-clock-history text-primary me-1"></i>Ish: <b class="text-dark">{{ manager.work_start_time|time:"H:i" }}–{{ manager.work_end_time|time:"H:i" }}</b>
+                            </div>
+                            {% if is_admin %}
+                            <div>
+                                <i class="bi bi-percent text-danger me-1"></i>Jarima: <b class="text-danger">{{ manager.late_fine_rate }}%</b>
+                            </div>
+                            {% endif %}
                         </div>
                     </div>
+                    {% empty %}
+                    <div class="text-center py-4">
+                        <i class="bi bi-briefcase text-muted" style="font-size:2.5rem; opacity:0.4;"></i>
+                        <p class="text-muted mt-2 small">Hozircha menejerlar qo'shilmagan.<br>
+                            <a href="{% url 'admin_manager_create' %}" class="text-primary text-decoration-none fw-bold">+ Menejer qo'shish</a>
+                        </p>
+                    </div>
+                    {% endfor %}
+                </div>
 
-                    <!-- Tahrirlash ruxsati boshqaruvi va statusi -->
-                    <div class="pt-2 border-top" style="border-color: rgba(226, 232, 240, 0.9) !important;">
-                        <div class="d-flex justify-content-between align-items-center p-2 rounded-2 {% if teacher.can_edit_students or teacher.can_edit %}bg-success bg-opacity-10 border border-success border-opacity-25{% else %}bg-secondary bg-opacity-10 border border-secondary border-opacity-20{% endif %}" style="transition: all 0.2s ease;">
+                <!-- ════════════ 2. O'QITUVCHILAR TABI ════════════ -->
+                <div class="tab-pane fade" id="teachers-pane" role="tabpanel">
+                    
+                    <!-- Global switch -->
+                    <div class="p-2 mb-3 rounded-2" style="background: linear-gradient(135deg, rgba(99,102,241,0.07), rgba(139,92,246,0.07)); border: 1px solid rgba(0,0,0,0.06);">
+                        <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap">
                             <div class="d-flex align-items-center gap-1">
-                                {% if teacher.can_edit_students or teacher.can_edit %}
-                                <i class="bi bi-check-circle-fill text-success fs-6"></i>
-                                <span class="small fw-bold text-success">Tahrirlash: Yoqilgan</span>
-                                {% else %}
-                                <i class="bi bi-x-circle-fill text-muted fs-6"></i>
-                                <span class="small fw-semibold text-secondary">Tahrirlash: O'chirilgan</span>
-                                {% endif %}
+                                <i class="bi bi-toggles fs-6 text-primary"></i>
+                                <span class="small fw-bold">Global Tahrirlash:</span>
+                            </div>
+                            <div class="d-flex gap-2">
+                                <form action="{% url 'admin_teacher_toggle_all_edit' %}" method="post" class="m-0">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="action" value="on">
+                                    <button type="submit" class="btn btn-success btn-sm rounded-pill px-2 py-0 fw-bold" style="font-size:0.75rem;" onclick="return confirm('Barcha o\'qituvchilar uchun tahrirlash ruxsatini YOQMOQCHIMISIZ?')">
+                                        Yoqish
+                                    </button>
+                                </form>
+                                <form action="{% url 'admin_teacher_toggle_all_edit' %}" method="post" class="m-0">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="action" value="off">
+                                    <button type="submit" class="btn btn-outline-danger btn-sm rounded-pill px-2 py-0 fw-bold" style="font-size:0.75rem;" onclick="return confirm('Barcha o\'qituvchilar uchun tahrirlash ruxsatini O\'CHIRMOQCHIMISIZ?')">
+                                        O'chirish
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+
+                    {% for teacher in teachers %}
+                    <div class="teacher-card p-3 mb-3 rounded-3" style="background: rgba(255, 255, 255, 0.95); border: 1px solid rgba(226, 232, 240, 0.9); box-shadow: 0 4px 14px rgba(15, 23, 42, 0.04);">
+                        <div class="d-flex align-items-center justify-content-between mb-2">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="position-relative">
+                                    {% if teacher.photo %}
+                                    <img src="{{ teacher.photo.url }}" alt="{{ teacher.first_name }}" style="width: 50px; height: 50px; border-radius: 14px; object-fit: cover; border: 2px solid #10b981; box-shadow: 0 4px 10px rgba(0,0,0,0.15);">
+                                    <span class="position-absolute bottom-0 end-0 badge rounded-pill bg-success p-1" title="Face ID faol"><i class="bi bi-check" style="font-size:0.6rem;"></i></span>
+                                    {% else %}
+                                    <div style="background: linear-gradient(135deg, #10b981, #059669); border-radius: 14px; width: 50px; height: 50px; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 1.2rem; box-shadow: 0 4px 10px rgba(16,185,129,0.3);">
+                                        {{ teacher.last_name|slice:":1" }}{{ teacher.first_name|slice:":1" }}
+                                    </div>
+                                    <span class="position-absolute bottom-0 end-0 badge rounded-pill bg-danger p-1" title="Yuz rasmi yuklanmagan"><i class="bi bi-camera" style="font-size:0.6rem;"></i></span>
+                                    {% endif %}
+                                </div>
+                                <div>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <span class="fw-bold text-dark fs-6">{{ teacher.first_name }} {{ teacher.last_name }}</span>
+                                        <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill px-2 py-0 small fw-bold">O'qituvchi</span>
+                                    </div>
+                                    <small class="text-muted"><i class="bi bi-telephone-fill me-1 text-success"></i>{{ teacher.phone|default:"Telefon kiritilmagan" }}</small>
+                                </div>
                             </div>
 
-                            <form action="{% url 'admin_teacher_toggle_edit' teacher.id %}" method="post" class="m-0 p-0">
+                            <div class="d-flex gap-1">
+                                <a href="{% url 'admin_teacher_edit' teacher.id %}" class="btn btn-sm btn-outline-primary btn-icon-circle" title="Tahrirlash va Yuz rasmini yuklash">
+                                    <i class="bi bi-pencil-fill"></i>
+                                </a>
+                                <button type="button" class="btn btn-sm btn-outline-danger btn-icon-circle" data-bs-toggle="modal" data-bs-target="#deleteTeacherModal{{ teacher.id }}" title="O'chirish">
+                                    <i class="bi bi-trash-fill"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Login & Parol -->
+                        <div class="credential-box mb-2 p-2 rounded-2" style="background: rgba(15, 23, 42, 0.04); font-size: 0.82rem;">
+                            <div class="d-flex justify-content-between mb-1">
+                                <span class="text-muted">Login:</span>
+                                <strong class="text-primary font-monospace">{{ teacher.generated_login }}</strong>
+                            </div>
+                            <div class="d-flex justify-content-between">
+                                <span class="text-muted">Parol:</span>
+                                <strong class="text-danger font-monospace">{{ teacher.generated_password }}</strong>
+                            </div>
+                        </div>
+
+                        <!-- Oylik & Face ID parametrlari -->
+                        <div class="p-2 mb-2 rounded-2 border d-flex align-items-center justify-content-between bg-white text-muted flex-wrap gap-1" style="font-size: 0.78rem;">
+                            {% if is_admin %}
+                            <div>
+                                <i class="bi bi-cash-stack text-success me-1"></i>Oylik: <b class="text-dark">{{ teacher.monthly_salary|floatformat:0 }} so'm</b>
+                            </div>
+                            {% endif %}
+                            <div>
+                                <i class="bi bi-clock-history text-primary me-1"></i>Dars: <b class="text-dark">{{ teacher.work_start_time|time:"H:i" }}–{{ teacher.work_end_time|time:"H:i" }}</b>
+                            </div>
+                            {% if is_admin %}
+                            <div>
+                                <i class="bi bi-percent text-danger me-1"></i>Jarima: <b class="text-danger">{{ teacher.late_fine_rate }}%</b>
+                            </div>
+                            {% endif %}
+                        </div>
+
+                        <!-- Tahrirlash ruxsati switch -->
+                        <div class="pt-2 border-top d-flex justify-content-between align-items-center" style="font-size:0.8rem;">
+                            <span class="{% if teacher.can_edit_students %}text-success fw-bold{% else %}text-muted{% endif %}">
+                                <i class="bi {% if teacher.can_edit_students %}bi-check-circle-fill text-success{% else %}bi-x-circle text-muted{% endif %} me-1"></i>
+                                O'quvchini tahrirlash: {% if teacher.can_edit_students %}Yoqilgan{% else %}O'chirilgan{% endif %}
+                            </span>
+                            <form action="{% url 'admin_teacher_toggle_edit' teacher.id %}" method="post" class="m-0">
                                 {% csrf_token %}
-                                {% if teacher.can_edit_students or teacher.can_edit %}
-                                <button type="submit" class="btn btn-sm btn-success rounded-pill px-3 py-1 shadow-sm d-flex align-items-center gap-1" style="font-size:0.75rem; font-weight:700;" title="Ruxsatni o'chirish">
-                                    <i class="bi bi-toggle2-on fs-6"></i> Yoqilgan
+                                <button type="submit" class="btn btn-sm {% if teacher.can_edit_students %}btn-success{% else %}btn-outline-secondary{% endif %} rounded-pill px-2 py-0" style="font-size:0.75rem;">
+                                    {% if teacher.can_edit_students %}O'chirish{% else %}Yoqish{% endif %}
                                 </button>
-                                {% else %}
-                                <button type="submit" class="btn btn-sm btn-outline-secondary rounded-pill px-3 py-1 d-flex align-items-center gap-1" style="font-size:0.75rem; font-weight:600; background:#ffffff;" title="Ruxsat berish">
-                                    <i class="bi bi-toggle2-off fs-6"></i> O'chirilgan
-                                </button>
-                                {% endif %}
                             </form>
                         </div>
                     </div>
+                    {% empty %}
+                    <div class="text-center py-4">
+                        <i class="bi bi-person-x text-muted" style="font-size:2.5rem; opacity:0.4;"></i>
+                        <p class="text-muted mt-2 small">O'qituvchilar mavjud emas.</p>
+                    </div>
+                    {% endfor %}
                 </div>
-                {% empty %}
-                <div class="text-center py-5">
-                    <i class="bi bi-person-x text-muted" style="font-size:3rem; opacity:0.4;"></i>
-                    <p class="text-muted mt-2 small">O'qituvchilar mavjud emas.</p>
-                </div>
-                {% endfor %}
             </div>
         </div>
     </div>
@@ -459,6 +592,37 @@
                     <p class="mb-2">Siz haqiqatdan ham <b>{{ teacher.first_name }} {{ teacher.last_name }}</b>ni o'chirmoqchimisiz?</p>
                     <div class="alert alert-warning small mb-0">
                         <i class="bi bi-info-circle me-1"></i>O'qituvchi o'chirilganda uning tizimga kirish akkaunti ham butunlay o'chiriladi.
+                    </div>
+                </div>
+                <div class="modal-footer border-0 pt-0">
+                    <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Bekor qilish</button>
+                    <button type="submit" class="btn btn-danger rounded-pill px-4 fw-bold">
+                        <i class="bi bi-trash-fill me-1"></i>O'chirish
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endfor %}
+
+<!-- 4. Manager Delete Modals -->
+{% for manager in managers %}
+<div class="modal fade" id="deleteManagerModal{{ manager.id }}" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0">
+            <form action="{% url 'admin_manager_delete' manager.id %}" method="post">
+                {% csrf_token %}
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="modal-title fw-bold text-danger">
+                        <i class="bi bi-exclamation-triangle-fill me-2"></i>Menejerni o'chirish
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Yopish"></button>
+                </div>
+                <div class="modal-body text-start">
+                    <p class="mb-2">Siz haqiqatdan ham menejer <b>{{ manager.first_name }} {{ manager.last_name }}</b>ni o'chirmoqchimisiz?</p>
+                    <div class="alert alert-warning small mb-0">
+                        <i class="bi bi-info-circle me-1"></i>Menejer o'chirilganda uning tizimga kirish akkaunti ham butunlay o'chiriladi.
                     </div>
                 </div>
                 <div class="modal-footer border-0 pt-0">

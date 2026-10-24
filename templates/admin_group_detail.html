@@ -181,10 +181,19 @@
                     
                     {% for item in student.attendance_matrix %}
                         {% if item.is_lesson %}
-                        <td class="cell-att {% if item.status == 'present' %}present{% elif item.status == 'absent' %}absent{% endif %}"
-                            data-sid="{{ student.id }}" data-day="{{ item.day }}" title="{{ item.date_str }} - Davomat belgilash">
-                            {% if item.status == 'present' %}+{% elif item.status == 'absent' %}-{% else %}&nbsp;{% endif %}
-                        </td>
+                            {% if item.is_today %}
+                            <td class="cell-att cell-today active-today {% if item.status == 'present' %}present{% elif item.status == 'absent' %}absent{% endif %}"
+                                data-sid="{{ student.id }}" data-day="{{ item.day }}" data-date="{{ item.date_str }}" data-today="true"
+                                title="Bugungi sana: {{ item.date_str }} — Davomat belgilash uchun bosing">
+                                {% if item.status == 'present' %}+{% elif item.status == 'absent' %}-{% else %}&nbsp;{% endif %}
+                            </td>
+                            {% else %}
+                            <td class="cell-att cell-locked disabled {% if item.status == 'present' %}present-locked{% elif item.status == 'absent' %}absent-locked{% endif %}"
+                                data-sid="{{ student.id }}" data-day="{{ item.day }}" data-date="{{ item.date_str }}" data-today="false"
+                                title="{% if item.is_past %}O'tgan kun ({{ item.date_str }}) — Yo'qlama qulflangan{% else %}Kelgusi kun ({{ item.date_str }}) — Yo'qlama qulflangan{% endif %}">
+                                {% if item.status == 'present' %}+{% elif item.status == 'absent' %}-{% else %}&nbsp;{% endif %}
+                            </td>
+                            {% endif %}
                         {% else %}
                         <td class="cell-not-lesson" title="{{ item.date_str }} - Dars kuni emas">
                             <span class="no-lesson-dot">—</span>
@@ -433,11 +442,16 @@
     });
 
     document.querySelectorAll('.cell-att').forEach(cell => {
-        cell.addEventListener('click', function() {
+        cell.addEventListener('click', function(e) {
+            const isToday = this.dataset.today === 'true';
+            if (!isToday) {
+                e.preventDefault();
+                alert("O'tgan yoki kelgusi kunlar uchun yo'qlama qilib bo'lmaydi! Faqatgina bugungi kun uchun davomat belgilash mumkin.");
+                return;
+            }
+
             const sid = this.dataset.sid;
-            const day = this.dataset.day;
-            const dayStr = day.toString().padStart(2, '0');
-            const dateStr = currentMonth + '-' + dayStr;
+            const dateStr = this.dataset.date || (currentMonth + '-' + this.dataset.day.toString().padStart(2, '0'));
 
             let currentStatus = '';
             if (this.classList.contains('present')) currentStatus = 'present';

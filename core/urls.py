@@ -1,4 +1,5 @@
-from django.urls import path
+from django.urls import path, re_path
+from django.views.generic import RedirectView
 from . import auth_views, admin_views, teacher_views
 
 urlpatterns = [
@@ -17,9 +18,39 @@ urlpatterns = [
     path('admin/group/<int:group_id>/export/', admin_views.admin_group_export_excel, name='admin_group_export_excel'),
     path('admin/group/<int:id>/delete/', admin_views.admin_group_delete,  name='admin_group_delete'),
     path('admin/teacher/create/',    admin_views.admin_teacher_create,   name='admin_teacher_create'),
+    path('admin/teacher/<int:id>/edit/', admin_views.admin_teacher_edit, name='admin_teacher_edit'),
     path('admin/teacher/<int:id>/delete/', admin_views.admin_teacher_delete, name='admin_teacher_delete'),
     path('admin/teacher/<int:id>/toggle-edit/', admin_views.admin_teacher_toggle_edit, name='admin_teacher_toggle_edit'),
     path('admin/teachers/toggle-all-edit/', admin_views.admin_teacher_toggle_all_edit, name='admin_teacher_toggle_all_edit'),
+    
+    # ── Manager & Staff Management (Admin) ──────────────────────────────────
+    path('admin/manager/create/',    admin_views.admin_manager_create,   name='admin_manager_create'),
+    path('admin/manager/<int:id>/edit/', admin_views.admin_manager_edit, name='admin_manager_edit'),
+    path('admin/manager/<int:id>/delete/', admin_views.admin_manager_delete, name='admin_manager_delete'),
+
+    # ── Face ID Boshqaruvi, Jurnali va Oyliklar (Admin) ───────────────────────
+    path('admin/face-id/logs/',      admin_views.admin_face_id_logs,     name='admin_face_id_logs'),
+    path('admin/face-id/settings/',  admin_views.admin_face_id_settings, name='admin_face_id_settings'),
+    path('admin/salary/report/',     admin_views.admin_salary_report,    name='admin_salary_report'),
+    path('admin/salary/export/',     admin_views.admin_salary_export_excel, name='admin_salary_export_excel'),
+    path('admin/bonus/save/',        admin_views.admin_bonus_save,       name='admin_bonus_save'),
+    path('admin/bonus/<int:id>/delete/', admin_views.admin_bonus_delete, name='admin_bonus_delete'),
+    path('admin/audit-logs/',        admin_views.admin_audit_logs,       name='admin_audit_logs'),
+
+    # ── Xodimlar Avans Tizimi (Admin & Manager & Staff) ─────────────────────
+    path('admin/advances/',          admin_views.admin_advance_list,     name='admin_advance_list'),
+    path('admin/advance/<int:id>/action/', admin_views.admin_advance_action, name='admin_advance_action'),
+    path('staff/advance/request/',   admin_views.staff_advance_request,  name='staff_advance_request'),
+
+    # ── Face ID Biometric Terminal & Mobile Scan ────────────────────────────
+    path('face-id/terminal/',        admin_views.face_id_terminal,       name='face_id_terminal'),
+    path('face id/terminal/',        RedirectView.as_view(url='/face-id/terminal/', permanent=True)),
+    path('face%20id/terminal/',      RedirectView.as_view(url='/face-id/terminal/', permanent=True)),
+    path('face_id/terminal/',        RedirectView.as_view(url='/face-id/terminal/', permanent=True)),
+    re_path(r'^face[\s%20_]+id/terminal/?$', RedirectView.as_view(url='/face-id/terminal/', permanent=True)),
+    path('face-id/check-in/',        admin_views.face_id_check_in,       name='face_id_check_in'),
+    path('api/face-id/verify/',      admin_views.face_id_verify_api,     name='face_id_verify_api'),
+
     path('admin/deleted-students/',  admin_views.admin_deleted_students, name='admin_deleted_students'),
     path('admin/deleted-students/<int:id>/restore/', admin_views.admin_deleted_student_restore, name='admin_deleted_student_restore'),
     path('admin/deleted-students/<int:id>/delete/', admin_views.admin_deleted_student_delete_permanent, name='admin_deleted_student_delete_permanent'),
@@ -43,9 +74,12 @@ urlpatterns = [
     path('admin/payment/<int:id>/delete/',           admin_views.admin_payment_delete,      name='admin_payment_delete'),
     path('admin/payments/export/',                   admin_views.export_payments_excel,     name='export_payments_excel'),
 
-    # ── Teacher ──────────────────────────────────────────────────────────────
+    # ── Teacher & Manager Auth & Dashboards ──────────────────────────────────
     path('teacher/login/',              auth_views.teacher_login,           name='teacher_login'),
+    path('manager/login/',              auth_views.manager_login,           name='manager_login'),
     path('teacher/dashboard/',          teacher_views.teacher_dashboard,       name='teacher_dashboard'),
+    path('manager/dashboard/',          admin_views.manager_dashboard,         name='manager_dashboard'),
+    path('staff/my-logs/',              admin_views.staff_my_face_logs,        name='staff_my_face_logs'),
     path('teacher/export/',             teacher_views.teacher_export_excel,    name='teacher_export_excel'),
     path('teacher/attendance/',         teacher_views.teacher_attendance_mark, name='teacher_attendance_mark'),
     path('teacher/timeslot/<int:timeslot_id>/student/create/', teacher_views.teacher_student_create, name='teacher_student_create'),

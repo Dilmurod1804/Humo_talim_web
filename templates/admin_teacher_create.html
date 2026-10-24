@@ -26,7 +26,7 @@
                         <input type="text" name="last_name" class="form-control" placeholder="Masalan: Rahimov" value="{{ last_name_val|default:'' }}" required>
                     </div>
                 </div>
-                <div class="mb-4">
+                <div class="mb-3">
                     <label class="form-label fw-semibold small text-dark">Telefon (ixtiyoriy)</label>
                     <div class="input-group">
                         <span class="input-group-text bg-white" style="border:1.5px solid #e5e7eb;border-right:none;border-radius:10px 0 0 10px;">
@@ -36,6 +36,31 @@
                                style="border:1.5px solid #e5e7eb;border-left:none;border-radius:0 10px 10px 0;">
                     </div>
                 </div>
+
+                <div class="row mb-3">
+                    <div class="col-6">
+                        <label class="form-label fw-semibold small text-dark">
+                            <i class="bi bi-box-arrow-in-right text-success me-1"></i>Kelish vaqti
+                        </label>
+                        <input type="time" name="work_start_time" class="form-control" value="{{ default_start_time|time:'H:i'|default:'09:00' }}" required>
+                        <div class="form-text" style="font-size:0.72rem;">Dars/ish boshlanish soati</div>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label fw-semibold small text-dark">
+                            <i class="bi bi-box-arrow-right text-info me-1"></i>Ketish vaqti
+                        </label>
+                        <input type="time" name="work_end_time" class="form-control" value="{{ default_end_time|time:'H:i'|default:'18:00' }}" required>
+                        <div class="form-text" style="font-size:0.72rem;">Dars/ish tugash soati</div>
+                    </div>
+                </div>
+
+                {% if is_admin %}
+                <div class="mb-3">
+                    <label class="form-label fw-semibold small text-dark">Oylik maosh stavkasi (so'm)</label>
+                    <input type="number" step="1000" name="monthly_salary" class="form-control" placeholder="Masalan: 4000000" value="0">
+                </div>
+                {% endif %}
+
                 <div class="alert small" style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;color:#166534;">
                     <i class="bi bi-info-circle-fill me-2"></i>Saqlangandan so'ng yangi login va parol boshqaruv panelida ko'rinadi.
                 </div>

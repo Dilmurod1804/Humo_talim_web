@@ -78,32 +78,113 @@ body {
         width: 100%;
         margin-bottom: 4px;
     }
+    .navbar-user-actions {
+        padding-top: 14px;
+        margin-top: 12px;
+        border-top: 1px solid rgba(255, 255, 255, 0.15);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        width: 100%;
+    }
 }
 
-.quick-nav-pills {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 3px 0;
+/* Nav scroll container for horizontal scrolling on desktop */
+.nav-scroll-container {
+    max-width: 100%;
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
 }
 
-.quick-nav-pills::-webkit-scrollbar {
-    display: none;
+.nav-scroll-container::-webkit-scrollbar,
+.nav-scroll-container::-webkit-scrollbar-track,
+.nav-scroll-container::-webkit-scrollbar-thumb,
+.nav-scroll-container::-webkit-scrollbar-button {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+}
+
+@media (min-width: 992px) {
+    .glass-nav .container-fluid {
+        display: flex;
+        align-items: center;
+        flex-wrap: nowrap;
+        gap: 10px;
+    }
+
+    .glass-nav .navbar-collapse {
+        display: flex !important;
+        align-items: center;
+        justify-content: space-between;
+        min-width: 0;
+        flex: 1 1 0%;
+        gap: 0;
+    }
+
+    .nav-scroll-container {
+        display: flex;
+        align-items: center;
+        overflow-x: auto;
+        overflow-y: hidden;
+        white-space: nowrap;
+        flex: 1 1 0%;
+        min-width: 0;
+        max-width: 100%;
+        margin: 0;
+        padding: 4px 6px;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none !important;
+        -ms-overflow-style: none !important;
+    }
+
+    .nav-scroll-container::-webkit-scrollbar,
+    .nav-scroll-container::-webkit-scrollbar-track,
+    .nav-scroll-container::-webkit-scrollbar-thumb,
+    .nav-scroll-container::-webkit-scrollbar-button {
+        display: none !important;
+        width: 0 !important;
+        height: 0 !important;
+    }
+
+    .quick-nav-pills {
+        display: inline-flex !important;
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
+        white-space: nowrap !important;
+        align-items: center;
+        gap: 6px;
+        margin: 0;
+        padding-right: 8px;
+    }
+
+    .navbar-user-actions {
+        flex-shrink: 0 !important;
+        white-space: nowrap !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+        margin-left: 14px !important;
+        padding-left: 14px !important;
+        border-left: 1px solid rgba(255, 255, 255, 0.18) !important;
+    }
 }
 
 .quick-nav-link {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 6px 12px;
+    gap: 5px;
+    padding: 5px 11px;
     border-radius: 50px;
-    font-size: 0.82rem;
+    font-size: 0.8rem;
     font-weight: 600;
-    color: rgba(255, 255, 255, 0.8);
+    color: rgba(255, 255, 255, 0.85);
     background: rgba(255, 255, 255, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.14);
     text-decoration: none;
     white-space: nowrap;
+    flex-shrink: 0;
     transition: all 0.2s ease;
 }
 
@@ -130,14 +211,20 @@ body {
 }
 
 .user-chip {
-    background: rgba(255, 255, 255, 0.18);
-    border: 1px solid rgba(255, 255, 255, 0.35);
+    background: rgba(255, 255, 255, 0.16);
+    border: 1px solid rgba(255, 255, 255, 0.32);
     border-radius: 50px;
-    padding: 6px 14px;
-    font-size: 0.85rem;
+    padding: 4px 12px;
+    font-size: 0.8rem;
     color: #fff;
     font-weight: 600;
     backdrop-filter: blur(8px);
+    white-space: nowrap;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 200px;
 }
 
 /* === GLASS CARDS === */
@@ -604,6 +691,54 @@ body {
 .cell-att.absent {
     color: #ef4444;
     background-color: rgba(239, 68, 68, 0.12);
+}
+
+/* ── Bugungi Kun (Active Attendance Cell) ──────── */
+.cell-att.cell-today {
+    cursor: pointer !important;
+    box-shadow: inset 0 0 0 2px #3b82f6 !important;
+    background-color: rgba(59, 130, 246, 0.08);
+    position: relative;
+}
+.cell-att.cell-today:hover {
+    background-color: rgba(59, 130, 246, 0.2) !important;
+    transform: scale(1.15);
+}
+.cell-att.cell-today.present {
+    color: #059669 !important;
+    background-color: rgba(16, 185, 129, 0.22) !important;
+    box-shadow: inset 0 0 0 2px #10b981 !important;
+}
+.cell-att.cell-today.absent {
+    color: #dc2626 !important;
+    background-color: rgba(239, 68, 68, 0.22) !important;
+    box-shadow: inset 0 0 0 2px #ef4444 !important;
+}
+
+/* ── O'tgan / Kelgusi Kunlar (Locked & Disabled) ─ */
+.cell-att.cell-locked,
+.cell-att.disabled {
+    cursor: not-allowed !important;
+    user-select: none;
+    background-color: #f8fafc !important;
+    color: #94a3b8 !important;
+    opacity: 0.8;
+}
+.cell-att.cell-locked:hover,
+.cell-att.disabled:hover {
+    background-color: #f1f5f9 !important;
+    transform: none !important;
+    box-shadow: none !important;
+}
+.cell-att.present-locked {
+    color: #059669 !important;
+    background-color: rgba(16, 185, 129, 0.1) !important;
+    cursor: not-allowed !important;
+}
+.cell-att.absent-locked {
+    color: #dc2626 !important;
+    background-color: rgba(239, 68, 68, 0.1) !important;
+    cursor: not-allowed !important;
 }
 
 /* Non-lesson day */
@@ -1403,4 +1538,348 @@ body {
         white-space: nowrap;
     }
 }
+
+/* ==========================================================================
+   PHONE VOLUME SLIDER & BIOMETRIC FACE ID STYLES
+   ========================================================================== */
+
+.phone-volume-card {
+    background: linear-gradient(145deg, rgba(15, 23, 42, 0.85), rgba(30, 41, 59, 0.75));
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 24px;
+    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    padding: 24px;
+    color: #fff;
+    position: relative;
+    overflow: hidden;
+}
+
+/* Vertical & Horizontal Phone Volume Sliders */
+.phone-volume-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.phone-volume-capsule-wrap {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    width: 100%;
+}
+
+.phone-volume-capsule {
+    position: relative;
+    background: rgba(15, 23, 42, 0.95);
+    border: 2px solid rgba(255, 255, 255, 0.18);
+    border-radius: 36px;
+    overflow: hidden;
+    cursor: pointer;
+    touch-action: none;
+    box-shadow: inset 0 4px 12px rgba(0,0,0,0.6), 0 8px 24px rgba(0,0,0,0.3);
+    transition: transform 0.15s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.phone-volume-capsule:hover {
+    border-color: rgba(99, 102, 241, 0.6);
+    box-shadow: inset 0 4px 12px rgba(0,0,0,0.6), 0 0 25px rgba(99, 102, 241, 0.3);
+}
+
+.phone-volume-capsule.active-dragging {
+    transform: scale(1.02);
+    border-color: #6366f1;
+    box-shadow: inset 0 4px 12px rgba(0,0,0,0.6), 0 0 30px rgba(99, 102, 241, 0.45);
+}
+
+/* Horizontal capsule */
+.phone-volume-capsule.horizontal {
+    width: 100%;
+    height: 64px;
+}
+
+.phone-volume-capsule.horizontal .phone-volume-fill {
+    height: 100%;
+    width: 50%;
+    background: linear-gradient(90deg, #4f46e5 0%, #06b6d4 100%);
+    box-shadow: 0 0 20px rgba(6, 182, 212, 0.5);
+    transition: width 0.08s ease-out;
+}
+
+.phone-volume-capsule.horizontal.fine-slider .phone-volume-fill {
+    background: linear-gradient(90deg, #ec4899 0%, #f43f5e 50%, #f97316 100%);
+    box-shadow: 0 0 20px rgba(244, 63, 94, 0.5);
+}
+
+/* Vertical capsule */
+.phone-volume-capsule.vertical {
+    width: 68px;
+    height: 240px;
+}
+
+.phone-volume-capsule.vertical .phone-volume-fill {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    height: 50%;
+    background: linear-gradient(0deg, #4f46e5 0%, #06b6d4 100%);
+    box-shadow: 0 0 25px rgba(6, 182, 212, 0.6);
+    transition: height 0.08s ease-out;
+}
+
+.phone-volume-capsule.vertical.fine-slider .phone-volume-fill {
+    background: linear-gradient(0deg, #ec4899 0%, #f43f5e 50%, #f97316 100%);
+    box-shadow: 0 0 25px rgba(244, 63, 94, 0.6);
+}
+
+/* Volume Content Overlay (Icon & Value inside capsule) */
+.phone-volume-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px;
+    pointer-events: none;
+    z-index: 2;
+}
+
+.phone-volume-capsule.vertical .phone-volume-overlay {
+    flex-direction: column;
+    padding: 16px 0;
+}
+
+.phone-volume-icon {
+    font-size: 1.5rem;
+    color: #fff;
+    filter: drop-shadow(0 2px 6px rgba(0,0,0,0.6));
+    transition: transform 0.2s ease;
+}
+
+.phone-volume-badge-val {
+    font-size: 1.25rem;
+    font-weight: 800;
+    font-family: 'Inter', monospace;
+    color: #fff;
+    letter-spacing: -0.5px;
+    filter: drop-shadow(0 2px 8px rgba(0,0,0,0.7));
+}
+
+/* Preset buttons row */
+.volume-presets-wrap {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+    width: 100%;
+}
+
+.volume-preset-btn {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #cbd5e1;
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 6px 14px;
+    border-radius: 20px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.volume-preset-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+    color: #fff;
+    transform: translateY(-2px);
+}
+
+.volume-preset-btn.active {
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    border-color: #a5b4fc;
+    color: #fff;
+    box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4);
+}
+
+.volume-step-btn {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+}
+
+.volume-step-btn:hover {
+    background: rgba(255, 255, 255, 0.25);
+    transform: scale(1.1);
+}
+
+.volume-step-btn:active {
+    transform: scale(0.95);
+}
+
+/* Face ID Terminal & Scan Elements */
+.faceid-viewfinder-wrap {
+    position: relative;
+    width: 100%;
+    max-width: 460px;
+    aspect-ratio: 4/3;
+    margin: 0 auto;
+    border-radius: 28px;
+    overflow: hidden;
+    background: #000;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6), 0 0 0 2px rgba(255, 255, 255, 0.15);
+}
+
+.faceid-video-feed {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transform: scaleX(-1); /* Mirror camera */
+}
+
+.faceid-scan-hud {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.faceid-reticle {
+    position: relative;
+    width: 230px;
+    height: 270px;
+    border-radius: 40px;
+    border: 2px dashed rgba(6, 182, 212, 0.5);
+    box-shadow: 0 0 30px rgba(6, 182, 212, 0.25), inset 0 0 30px rgba(6, 182, 212, 0.15);
+    transition: all 0.3s ease;
+}
+
+.faceid-reticle.reticle-success {
+    border-color: #10b981;
+    box-shadow: 0 0 40px rgba(16, 185, 129, 0.5), inset 0 0 40px rgba(16, 185, 129, 0.25);
+}
+
+.faceid-reticle.reticle-late {
+    border-color: #f59e0b;
+    box-shadow: 0 0 40px rgba(245, 158, 11, 0.5), inset 0 0 40px rgba(245, 158, 11, 0.25);
+}
+
+.faceid-reticle.reticle-error {
+    border-color: #ef4444;
+    box-shadow: 0 0 40px rgba(239, 68, 68, 0.5), inset 0 0 40px rgba(239, 68, 68, 0.25);
+}
+
+/* Corner brackets */
+.reticle-corner {
+    position: absolute;
+    width: 24px;
+    height: 24px;
+    border-color: #06b6d4;
+    border-style: solid;
+}
+.reticle-corner.top-left { top: -2px; left: -2px; border-width: 4px 0 0 4px; border-top-left-radius: 12px; }
+.reticle-corner.top-right { top: -2px; right: -2px; border-width: 4px 4px 0 0; border-top-right-radius: 12px; }
+.reticle-corner.bottom-left { bottom: -2px; left: -2px; border-width: 0 0 4px 4px; border-bottom-left-radius: 12px; }
+.reticle-corner.bottom-right { bottom: -2px; right: -2px; border-width: 0 4px 4px 0; border-bottom-right-radius: 12px; }
+
+/* Animated Laser Scan Line */
+.faceid-laser {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, transparent 0%, #06b6d4 50%, transparent 100%);
+    box-shadow: 0 0 16px #06b6d4, 0 0 8px #fff;
+    animation: laserScan 2.4s ease-in-out infinite alternate;
+}
+
+@keyframes laserScan {
+    0% { top: 10px; opacity: 0.3; }
+    50% { opacity: 1; }
+    100% { top: 255px; opacity: 0.3; }
+}
+
+/* Geolocation Radar Badge */
+.geo-radar-badge {
+    position: absolute;
+    top: 14px;
+    left: 14px;
+    background: rgba(15, 23, 42, 0.85);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 20px;
+    padding: 6px 14px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    z-index: 10;
+}
+
+/* === STAFF TABS (Menejerlar & O'qituvchilar) YONMA-YON DIZAYNI === */
+#staffTabs,
+.staff-tabs-row {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+    gap: 10px !important;
+    margin: 0 !important;
+}
+
+#staffTabs .nav-item,
+.staff-tabs-row .nav-item {
+    flex: 1 1 0 !important;
+    min-width: 0 !important;
+}
+
+#staffTabs .nav-link,
+.staff-tabs-row .nav-link {
+    width: 100% !important;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 6px !important;
+    white-space: nowrap !important;
+    border-radius: 10px !important;
+    padding: 8px 12px !important;
+    font-size: 0.9rem !important;
+    color: #475569 !important;
+    background: transparent !important;
+    border: 1px solid transparent !important;
+    transition: all 0.2s ease !important;
+}
+
+#staffTabs .nav-link:hover,
+.staff-tabs-row .nav-link:hover {
+    background: rgba(255, 255, 255, 0.6) !important;
+    color: #0f172a !important;
+}
+
+#staffTabs .nav-link.active,
+.staff-tabs-row .nav-link.active {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    font-weight: 700 !important;
+    border-color: rgba(0, 0, 0, 0.08) !important;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.08) !important;
+}
+
 

@@ -3,6 +3,7 @@ HUMO O'quv markazi — Admin Views
 Admin paneli: guruhlar, o'qituvchilar, dars vaqtlari, o'quvchilar,
 to'lovlar, davomat, Excel eksport va chat.
 """
+from core.face_service import compare_two_faces
 import os
 import random
 import string
@@ -22,17 +23,55 @@ from django.shortcuts import get_object_or_404, redirect, render
 
 import openpyxl
 
+import base64
+import uuid
+from decimal import Decimal
+from django.utils import timezone
+from django.core.exceptions import ValidationError
+from django.contrib.auth.decorators import login_required
+from django.views.decorators.csrf import csrf_exempt
+from django.core.files.base import ContentFile
+
 from .models import (
     Attendance, CustomUser, DeletedStudent, Group, Student,
-    Teacher, TemporaryStudent, TimeSlot, MonthlyPayment, Message
+    Teacher, Manager, FaceIDSettings, FaceIDLog,
+    TemporaryStudent, TimeSlot, MonthlyPayment, Message,
+    StaffBonus, AuditLog, AdvanceRequest
 )
 from .forms import TemporaryStudentForm
 from .services import optimize_student_photo
 from .validators import contains_cyrillic
-from .auth_views import admin_required, _admin_only
+from .auth_views import (
+    admin_required, _admin_only,
+    is_admin_user, is_manager_user, is_admin_or_manager
+)
 from .schedule_helper import parse_schedule_weekdays
 from .payment_excel import generate_payments_excel
 from .teacher_views import _student_visible_in_month, _populate_excel_sheet
+from .face_service import (
+    calculate_haversine_distance, process_face_check_in,
+    calculate_staff_salary_summary, match_staff_by_face
+)
+
+
+# ─────────────────────────────────────────────
+# HELPERS: Xavfsiz Decimal konversiyasi
+# ─────────────────────────────────────────────
+
+def _safe_decimal(value, default='0'):
+    """
+    Har qanday string qiymatni xavfsiz ravishda Decimal ga o'giradi.
+    - Vergul ',' ni nuqta '.' ga almashtiradi (Yevropa formati uchun).
+    - Bo'shliqlarni olib tashlaydi.
+    - Noto'g'ri format yoki bo'sh qiymat bo'lsa, default qaytaradi.
+    """
+    try:
+        cleaned = str(value).replace(',', '.').strip()
+        if not cleaned or cleaned in ('.', '-'):
+            return Decimal(default)
+        return Decimal(cleaned)
+    except Exception:
+        return Decimal(default)
 
 
 # ─────────────────────────────────────────────
@@ -59,11 +98,23 @@ def admin_dashboard(request):
         ).prefetch_related('monthly_payments').order_by('first_name', 'last_name')
 
     groups = Group.objects.select_related('teacher').prefetch_related('time_slots__students')
-    teachers = Teacher.objects.all().prefetch_related('groups')
+    teachers = Teacher.objects.filter(is_active=True).prefetch_related('groups')
+    managers = Manager.objects.filter(is_active=True)
+
+    today = date.today()
+    today_face_logs = FaceIDLog.objects.filter(date=today)
+    face_stats = {
+        'total_scans': today_face_logs.count(),
+        'on_time_count': today_face_logs.filter(is_late=False).count(),
+        'late_count': today_face_logs.filter(is_late=True).count(),
+        'total_fines': sum(l.fine_amount_deducted for l in today_face_logs),
+    }
 
     return render(request, 'admin_dashboard.html', {
         'groups': groups,
         'teachers': teachers,
+        'managers': managers,
+        'face_stats': face_stats,
         'search_query': query,
         'search_results': search_results,
     })
@@ -132,10 +183,15 @@ def admin_group_delete(request, id):
 def admin_teacher_create(request):
     if not _admin_only(request):
         return redirect('home')
+    settings_obj = FaceIDSettings.get_settings()
     if request.method == 'POST':
         first_name = request.POST.get('first_name', '').strip()
         last_name = request.POST.get('last_name', '').strip()
         phone = request.POST.get('phone', '').strip()
+        monthly_salary = request.POST.get('monthly_salary', '0').strip()
+        late_fine_rate = request.POST.get('late_fine_rate', str(settings_obj.default_late_fine_rate)).strip()
+        work_start_time = request.POST.get('work_start_time', str(settings_obj.default_work_start_time)).strip()
+        work_end_time = request.POST.get('work_end_time', str(settings_obj.default_work_end_time)).strip()
 
         if contains_cyrillic(first_name) or contains_cyrillic(last_name):
             messages.error(
@@ -146,12 +202,17 @@ def admin_teacher_create(request):
                 'first_name_val': first_name,
                 'last_name_val': last_name,
                 'phone_val': phone,
+                'default_fine_rate': settings_obj.default_late_fine_rate,
+                'default_start_time': settings_obj.default_work_start_time,
+                'default_end_time': settings_obj.default_work_end_time,
             })
 
         login_str = f"t_{first_name.lower()[:3]}_{random.randint(100, 999)}"
         pwd_str = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
 
         user = CustomUser.objects.create_user(username=login_str, password=pwd_str, role='teacher')
+        salary_val = _safe_decimal(monthly_salary, '0') if is_admin_user(request) else Decimal('0')
+        fine_rate_val = _safe_decimal(late_fine_rate, str(settings_obj.default_late_fine_rate)) if is_admin_user(request) else settings_obj.default_late_fine_rate
         Teacher.objects.create(
             user=user,
             first_name=first_name,
@@ -159,10 +220,18 @@ def admin_teacher_create(request):
             phone=phone,
             generated_login=login_str,
             generated_password=pwd_str,
+            monthly_salary=salary_val,
+            late_fine_rate=fine_rate_val,
+            work_start_time=work_start_time or '09:00',
+            work_end_time=work_end_time or '18:00',
         )
         messages.success(request, f"O'qituvchi '{first_name} {last_name}' muvaffaqiyatli yaratildi.")
         return redirect('admin_dashboard')
-    return render(request, 'admin_teacher_create.html')
+    return render(request, 'admin_teacher_create.html', {
+        'default_fine_rate': settings_obj.default_late_fine_rate,
+        'default_start_time': settings_obj.default_work_start_time,
+        'default_end_time': settings_obj.default_work_end_time,
+    })
 
 
 @admin_required
@@ -260,7 +329,7 @@ def admin_group_detail(request, id):
 
     num_days = calendar.monthrange(y, m)[1]
     weekdays_uz = ['Du', 'Se', 'Chor', 'Pay', 'Ju', 'Sha', 'Yak']
-    today_date = date.today()
+    today_date = timezone.now().date()
 
     days_data = []
     for d in range(1, num_days + 1):
@@ -275,6 +344,8 @@ def admin_group_detail(request, id):
             'weekday': weekdays_uz[w_idx],
             'is_weekend': w_idx in (5, 6),
             'is_today': cur_d == today_date,
+            'is_past': cur_d < today_date,
+            'is_future': cur_d > today_date,
         })
 
     timeslots = group.time_slots.prefetch_related('students')
@@ -304,11 +375,16 @@ def admin_group_detail(request, id):
             for d in days_data:
                 is_lesson = (d['weekday_idx'] in ts_weekdays)
                 st = attendance_map.get(s.id, {}).get(d['day'], '')
+                is_today = d['is_today']
                 matrix.append({
                     'day': d['day'],
                     'date_str': d['date_str'],
                     'is_lesson': is_lesson,
                     'status': st,
+                    'is_today': is_today,
+                    'is_past': d['is_past'],
+                    'is_future': d['is_future'],
+                    'can_mark': is_lesson and is_today,
                 })
             s.attendance_matrix = matrix
 
@@ -322,7 +398,7 @@ def admin_group_detail(request, id):
 
 @admin_required
 def admin_attendance_mark(request):
-    """Admin uchun davomat belgilash (AJAX). Toggle: present -> absent -> none"""
+    """Admin uchun davomat belgilash (AJAX). Faqat bugungi kun uchun yo'qlama qilish mumkin."""
     if not _admin_only(request):
         return JsonResponse({'status': 'error', 'msg': "Ruxsat yo'q"}, status=403)
     if request.method != 'POST':
@@ -330,7 +406,22 @@ def admin_attendance_mark(request):
 
     student_id = request.POST.get('student_id')
     status_val = request.POST.get('status', '').strip().lower()
-    req_date = request.POST.get('date', date.today().isoformat())
+    req_date_raw = request.POST.get('date', '').strip()
+
+    today = timezone.now().date()
+    if not req_date_raw:
+        req_date = today
+    else:
+        try:
+            req_date = datetime.strptime(req_date_raw, '%Y-%m-%d').date()
+        except Exception:
+            return JsonResponse({'status': 'error', 'msg': "Noto'g'ri sana formati!"}, status=400)
+
+    # ── Strict Current Day Attendance Validation ──
+    if req_date < today:
+        return JsonResponse({'status': 'error', 'msg': "O'tgan kunlar uchun yo'qlama qilib bo'lmaydi!"}, status=400)
+    if req_date > today:
+        return JsonResponse({'status': 'error', 'msg': "Kelgusi kunlar uchun yo'qlama qilib bo'lmaydi!"}, status=400)
 
     if status_val in ('green', 'blue'):
         status_val = 'present'
@@ -340,10 +431,14 @@ def admin_attendance_mark(request):
     student = get_object_or_404(Student, id=student_id)
 
     if status_val in ('present', 'absent'):
-        att, _ = Attendance.objects.update_or_create(
-            student=student, date=req_date,
-            defaults={'status': status_val},
-        )
+        try:
+            att, _ = Attendance.objects.update_or_create(
+                student=student, date=req_date,
+                defaults={'status': status_val},
+            )
+        except ValidationError as ve:
+            err_msg = ve.message_dict.get('date', [str(ve)])[0] if hasattr(ve, 'message_dict') else str(ve)
+            return JsonResponse({'status': 'error', 'msg': err_msg}, status=400)
         return JsonResponse({'status': 'success', 'attendance': status_val})
     else:
         Attendance.objects.filter(student=student, date=req_date).delete()
@@ -678,14 +773,37 @@ def _is_text_payment(val) -> bool:
     return not digits.isdigit()
 
 
+def _is_mahalla_student(student, pay=None) -> bool:
+    """
+    O'quvchi mahalla toifasiga kiradimi yoki to'lov sharti mahalla ekanligini tekshiradi:
+      1. Student.is_local == True yoki Student.is_mahalla == True
+      2. To'lov summasiga (amount_paid) 'mahalla' yozilgan
+      3. To'lov izohiga (notes) 'mahalla' yozilgan
+    """
+    if getattr(student, 'is_local', False) or getattr(student, 'is_mahalla', False):
+        return True
+    if pay:
+        raw_amt = str(getattr(pay, 'amount_paid', '') or '').strip().lower()
+        if 'mahalla' in raw_amt:
+            return True
+        raw_notes = str(getattr(pay, 'notes', '') or '').strip().lower()
+        if 'mahalla' in raw_notes:
+            return True
+    return False
+
+
 def _build_payments_data(students_qs, req_month, status_filter='all', is_group_specific=False):
     """
     O'quvchilar va ularning to'lovlari bo'yicha ma'lumotlar ro'yxatini shakllantiradi.
     Mantiq:
       1. O'quvchi guruhga biriktirilgan ekan, to'lovlar jadvalida doimo ko'rinib turadi.
          Hech qanday sun'iy joined_date, left_date yoki is_active cheklovlari qo'llanmaydi.
-      2. Matn kiritilganda ('mahalla', 'B.U' va h.k.):
-         - Holat: 'paid' (To'langan)
+      2. "Mahalla" toifasidagi o'quvchilar (is_local=True, is_mahalla=True yoki to'lov sharti mahalla bo'lganlar):
+         - QARZDORLAR (unpaid) ro'yxatiga MUTLAQO qo'shilmaydi
+         - Umumiy qarzdorlar soniga (unpaid_count) sanalmaydi
+         - Kechikkanlar (overdue) ro'yxatiga va soniga sanalmaydi
+         - Qarz summasi har doim 0 so'm hisoblanadi
+      3. Matn kiritilganda ('mahalla', 'B.U' va h.k.):
          - Qarzdorlik: 0 so'm (Qarzdor deb hisoblanmaydi)
     """
     today = date.today()
@@ -717,18 +835,21 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
     curr_month_str = today.strftime('%Y-%m')
 
     for idx, s in enumerate(students_list, start=1):
-        is_loc = getattr(s, 'is_local', False)
-        if is_loc:
-            local_count += 1
-
-        grp = s.time_slot.group if s.time_slot else None
-        subject_name = grp.subject_name if grp else "-"
-        teacher_name = str(grp.teacher) if (grp and grp.teacher) else "-"
         pay = payment_map.get(s.id)
 
         raw_paid = str(pay.amount_paid if pay else '').strip()
         num_paid = _clean_amount(raw_paid)
         has_text_payment = _is_text_payment(raw_paid)
+
+        # Mahalla o'quvchisini aniqlash (is_local, is_mahalla yoki to'lov sharti mahalla)
+        is_mahalla = _is_mahalla_student(s, pay)
+        is_loc = is_mahalla
+        if is_mahalla:
+            local_count += 1
+
+        grp = s.time_slot.group if s.time_slot else None
+        subject_name = grp.subject_name if grp else "-"
+        teacher_name = str(grp.teacher) if (grp and grp.teacher) else "-"
 
         rate_val = s.payment_rate or 0
         total_rate += rate_val
@@ -751,7 +872,7 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
         total_paid += num_paid
 
         # To'lov muddati (due_date)
-        has_paid_val = (num_paid > 0) or has_text_payment or is_loc
+        has_paid_val = (num_paid > 0) or has_text_payment or is_mahalla
 
         if pay_date_obj and has_paid_val:
             if relativedelta:
@@ -771,16 +892,18 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
 
         due_date_str = due_date.strftime('%d.%m.%Y')
 
-        # Holat aniqlash
-        if has_paid_val:
+        # Holat aniqlash (Mahalla o'quvchisi hech qachon 'unpaid' bo'lmaydi)
+        if is_mahalla:
+            st_code = 'local'
+        elif has_paid_val:
             st_code = 'paid'
         else:
             st_code = 'unpaid'
 
-        # Kechikish hisobi
+        # Kechikish hisobi (Mahalla o'quvchilari kechikkan deb hisoblanmaydi)
         is_overdue = False
         delay_days = 0
-        if st_code == 'unpaid':
+        if not is_mahalla and st_code == 'unpaid':
             if req_month < curr_month_str:
                 is_overdue = True
                 delay_days = max(1, (today - due_date).days)
@@ -791,7 +914,7 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
                 overdue_count += 1
 
         # Qarz hisobi: matnli to'lov ('mahalla', 'B.U' va h.k.) yoki mahalliy bo'lsa QARZ 0!
-        if is_loc or has_text_payment:
+        if is_mahalla or has_text_payment:
             debt_val = 0
         elif num_paid > 0:
             debt_val = max(0, rate_val - num_paid)
@@ -800,7 +923,17 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
 
         total_debt += debt_val
 
-        if st_code == 'paid':
+        # Status va hisoblagichlar:
+        # Mahalla o'quvchilari qarzdorlar soniga (unpaid_count) MUTLAQO sanalmasin!
+        if is_mahalla:
+            if num_paid > 0:
+                paid_count += 1
+                status_display = f"To'langan ({raw_paid})"
+            elif has_text_payment and raw_paid.lower() != 'mahalla':
+                status_display = f"Mahalla ({raw_paid})"
+            else:
+                status_display = "Mahalla"
+        elif st_code == 'paid':
             paid_count += 1
             status_display = f"To'langan ({raw_paid})" if has_text_payment else "To'langan"
         else:
@@ -817,6 +950,7 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
             'student_id': s.id,
             'student_name': f"{s.first_name} {s.last_name}",
             'is_local': is_loc,
+            'is_mahalla': is_mahalla,
             'group': grp,
             'group_name': grp.name if grp else "-",
             'group_id': grp.id if grp else None,
@@ -846,15 +980,19 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
             'debt_formatted': f"{debt_val:,}".replace(',', ' '),
         }
 
-        # Filtrlash
-        if status_filter == 'paid' and st_code != 'paid':
-            continue
-        if status_filter == 'unpaid' and st_code != 'unpaid':
-            continue
-        if status_filter == 'overdue' and not is_overdue:
-            continue
-        if status_filter == 'local' and not (is_loc or has_text_payment):
-            continue
+        # Filtrlash: Mahalla o'quvchilari Qarzdorlar (unpaid) ro'yxatidan MUTLAQO chiqarilsin
+        if status_filter == 'unpaid':
+            if is_mahalla or st_code != 'unpaid':
+                continue
+        elif status_filter == 'paid':
+            if st_code != 'paid' or (is_mahalla and num_paid == 0):
+                continue
+        elif status_filter == 'overdue':
+            if is_mahalla or not is_overdue:
+                continue
+        elif status_filter == 'local':
+            if not (is_mahalla or has_text_payment):
+                continue
 
         rows.append(row_item)
 
@@ -908,6 +1046,15 @@ def admin_payments_all(request):
             q_filter |= Q(first_name__icontains=w) | Q(last_name__icontains=w) | Q(phone_1__icontains=w) | Q(phone_2__icontains=w)
         students_qs = students_qs.filter(q_filter)
 
+    # Qarzdorlar filtri tanlanganda Mahalla o'quvchilari Queryset'dan to'liq chiqarib tashlansin
+    if status_filter == 'unpaid':
+        mahalla_pay_ids = MonthlyPayment.objects.filter(
+            month=req_month
+        ).filter(
+            Q(amount_paid__icontains='mahalla') | Q(notes__icontains='mahalla')
+        ).values_list('student_id', flat=True)
+        students_qs = students_qs.exclude(is_local=True).exclude(id__in=mahalla_pay_ids)
+
     rows, stats = _build_payments_data(
         students_qs, req_month, status_filter,
         is_group_specific=bool(group_id and group_id.isdigit())
@@ -943,6 +1090,15 @@ def admin_group_payments(request, group_id):
         for w in words:
             q_filter |= Q(first_name__icontains=w) | Q(last_name__icontains=w) | Q(phone_1__icontains=w) | Q(phone_2__icontains=w)
         students_qs = students_qs.filter(q_filter)
+
+    # Qarzdorlar filtri tanlanganda Mahalla o'quvchilari Queryset'dan to'liq chiqarib tashlansin
+    if status_filter == 'unpaid':
+        mahalla_pay_ids = MonthlyPayment.objects.filter(
+            month=req_month
+        ).filter(
+            Q(amount_paid__icontains='mahalla') | Q(notes__icontains='mahalla')
+        ).values_list('student_id', flat=True)
+        students_qs = students_qs.exclude(is_local=True).exclude(id__in=mahalla_pay_ids)
 
     rows, stats = _build_payments_data(students_qs, req_month, status_filter, is_group_specific=True)
 
@@ -994,11 +1150,21 @@ def admin_payment_save(request):
     amount_raw_str = str(amount_raw).strip()
     clean_digits = amount_raw_str.replace(' ', '').replace("'", '').replace(',', '')
     has_text = _is_text_payment(amount_raw_str)
+    is_mahalla_user = (
+        getattr(student, 'is_local', False) or
+        getattr(student, 'is_mahalla', False) or
+        ('mahalla' in amount_raw_str.lower()) or
+        ('mahalla' in notes.lower())
+    )
 
-    if clean_digits.isdigit():
+    if clean_digits.isdigit() and int(clean_digits) > 0:
         amount_num = int(clean_digits)
         amount_to_save = str(amount_num)
-        new_status = 'paid' if amount_num > 0 else 'unpaid'
+        new_status = 'paid'
+    elif is_mahalla_user:
+        amount_num = 0
+        amount_to_save = amount_raw_str if amount_raw_str else 'mahalla'
+        new_status = 'paid'
     else:
         amount_num = 0
         amount_to_save = amount_raw_str
@@ -1033,12 +1199,22 @@ def admin_payment_save(request):
         }
     )
 
+    try:
+        AuditLog.objects.create(
+            action_type='payment',
+            actor=request.user if (hasattr(request, 'user') and request.user.is_authenticated) else None,
+            actor_name="Direktor / Admin",
+            title=f"To'lov qayd etildi: {student.first_name} {student.last_name} ({amount_to_save})",
+            details=f"Guruh: {student.time_slot.group.name if student.time_slot and student.time_slot.group else '-'}, Oy: {month}, Holat: {new_status}"
+        )
+    except Exception:
+        pass
+
     # AJAX javobi
     if request.headers.get('x-requested-with') == 'XMLHttpRequest' or request.POST.get('ajax') == '1':
         rate_val = student.payment_rate or 0
-        is_loc = getattr(student, 'is_local', False)
 
-        if mp.payment_date and (amount_num > 0 or has_text):
+        if mp.payment_date and (amount_num > 0 or has_text or is_mahalla_user):
             if relativedelta:
                 due_date_obj = mp.payment_date + relativedelta(months=1)
             else:
@@ -1053,26 +1229,34 @@ def admin_payment_save(request):
         else:
             due_date_str = ''
 
-        is_paid = (new_status == 'paid') or has_text or is_loc
-        if has_text:
+        is_paid = (new_status == 'paid') or has_text or is_mahalla_user
+        if is_mahalla_user:
+            status_display = "Mahalla" if amount_num == 0 else f"To'langan ({amount_to_save})"
+            st_code_resp = 'paid'
+            debt = 0
+        elif has_text:
             status_display = f"To'langan ({amount_to_save})"
+            st_code_resp = 'paid'
+            debt = 0
         elif is_paid:
             status_display = "To'langan"
+            st_code_resp = 'paid'
+            debt = 0
         else:
             status_display = "Qarzdor"
-
-        debt = 0 if is_paid else rate_val
+            st_code_resp = 'unpaid'
+            debt = rate_val
 
         return JsonResponse({
             'status': 'success',
             'payment_id': mp.id,
             'amount_paid': mp.amount_paid,
             'amount_paid_num': amount_num,
-            'amount_paid_formatted': f"{amount_num:,}".replace(',', ' ') if amount_num > 0 else (amount_to_save if has_text else '0'),
+            'amount_paid_formatted': f"{amount_num:,}".replace(',', ' ') if amount_num > 0 else (amount_to_save if (has_text or is_mahalla_user) else '0'),
             'payment_date': mp.payment_date.strftime('%d.%m.%Y') if mp.payment_date else '',
             'payment_date_iso': mp.payment_date.strftime('%Y-%m-%d') if mp.payment_date else '',
             'due_date': due_date_str,
-            'status_code': mp.status,
+            'status_code': st_code_resp,
             'status_display': status_display,
             'notes': mp.notes,
             'rate': rate_val,
@@ -1086,6 +1270,12 @@ def admin_payment_save(request):
         messages.success(
             request,
             f"✅ {student.first_name} {student.last_name}: {formatted_amount} so'm "
+            f"({month}) uchun muvaffaqiyatli saqlandi!"
+        )
+    elif is_mahalla_user:
+        messages.success(
+            request,
+            f"✅ {student.first_name} {student.last_name}: Mahalla toifasi "
             f"({month}) uchun muvaffaqiyatli saqlandi!"
         )
     elif has_text:
@@ -1152,6 +1342,15 @@ def export_payments_excel(request):
         base_title = "Barcha Guruhlar Umumiy To'lovlar Jadvali"
         base_filename = "Humo_Umumiy_Toluvlar"
         group_info = "Barcha guruhlar"
+
+    # Qarzdorlar filtri tanlanganda Mahalla o'quvchilari Queryset'dan to'liq chiqarib tashlansin
+    if status_filter == 'unpaid':
+        mahalla_pay_ids = MonthlyPayment.objects.filter(
+            month=req_month
+        ).filter(
+            Q(amount_paid__icontains='mahalla') | Q(notes__icontains='mahalla')
+        ).values_list('student_id', flat=True)
+        students_qs = students_qs.exclude(is_local=True).exclude(id__in=mahalla_pay_ids)
 
     if status_filter == 'paid':
         type_label = "To'liq To'laganlar"
@@ -1382,3 +1581,820 @@ def admin_chat_detail(request, teacher_id):
         'teacher': teacher,
         'chat_messages': messages_qs
     })
+
+
+# ─────────────────────────────────────────────
+# 10. MENAJERLAR VA XODIMLAR BOSHQARUVI
+# ─────────────────────────────────────────────
+
+@admin_required
+def admin_manager_create(request):
+    if not _admin_only(request):
+        return redirect('home')
+    if request.method == 'POST':
+        first_name = request.POST.get('first_name', '').strip()
+        last_name = request.POST.get('last_name', '').strip()
+        phone = request.POST.get('phone', '').strip()
+        monthly_salary = request.POST.get('monthly_salary', '0').strip()
+        late_fine_rate = request.POST.get('late_fine_rate', '2.0').strip()
+        work_start_time = request.POST.get('work_start_time', '09:00').strip()
+        work_end_time = request.POST.get('work_end_time', '18:00').strip()
+        photo_file = request.FILES.get('photo')
+
+        if contains_cyrillic(first_name) or contains_cyrillic(last_name):
+            messages.error(request, "Ism va familiyada faqat lotin alifbosidan foydalaning!")
+            return render(request, 'admin_manager_create.html', request.POST)
+
+        login_str = f"m_{first_name.lower()[:3]}_{random.randint(100, 999)}"
+        pwd_str = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
+
+        user = CustomUser.objects.create_user(username=login_str, password=pwd_str, role='manager')
+
+        opt_photo = None
+        if photo_file:
+            opt_photo, err = optimize_student_photo(photo_file)
+
+        settings_obj = FaceIDSettings.get_settings()
+        salary_val = _safe_decimal(monthly_salary, '0') if is_admin_user(request) else Decimal('0')
+        fine_rate_val = _safe_decimal(late_fine_rate, str(settings_obj.default_late_fine_rate)) if is_admin_user(request) else settings_obj.default_late_fine_rate
+        Manager.objects.create(
+            user=user,
+            first_name=first_name,
+            last_name=last_name,
+            phone=phone,
+            generated_login=login_str,
+            generated_password=pwd_str,
+            monthly_salary=salary_val,
+            late_fine_rate=fine_rate_val,
+            work_start_time=work_start_time or '09:00',
+            work_end_time=work_end_time or '18:00',
+            photo=opt_photo
+        )
+        messages.success(request, f"Menejer '{first_name} {last_name}' muvaffaqiyatli qo'shildi.")
+        return redirect('admin_dashboard')
+
+    settings_obj = FaceIDSettings.get_settings()
+    return render(request, 'admin_manager_create.html', {
+        'default_fine_rate': settings_obj.default_late_fine_rate,
+        'default_start_time': settings_obj.default_work_start_time,
+        'default_end_time': settings_obj.default_work_end_time,
+    })
+
+
+@admin_required
+def admin_manager_edit(request, id):
+    if not _admin_only(request):
+        return redirect('home')
+    manager = get_object_or_404(Manager, id=id)
+
+    if request.method == 'POST':
+        first_name = request.POST.get('first_name', '').strip()
+        last_name = request.POST.get('last_name', '').strip()
+        phone = request.POST.get('phone', '').strip()
+        monthly_salary = request.POST.get('monthly_salary', '0').strip()
+        late_fine_rate = request.POST.get('late_fine_rate', '2.0').strip()
+        work_start_time = request.POST.get('work_start_time', '09:00').strip()
+        work_end_time = request.POST.get('work_end_time', '18:00').strip()
+        photo_file = request.FILES.get('photo')
+        new_password = request.POST.get('new_password', '').strip()
+
+        if contains_cyrillic(first_name) or contains_cyrillic(last_name):
+            messages.error(request, "Ism va familiyada faqat lotin alifbosidan foydalaning!")
+            return render(request, 'admin_manager_edit.html', {'manager': manager})
+
+        manager.first_name = first_name
+        manager.last_name = last_name
+        manager.phone = phone
+        if is_admin_user(request):
+            manager.monthly_salary = _safe_decimal(monthly_salary, str(manager.monthly_salary))
+            manager.late_fine_rate = _safe_decimal(late_fine_rate, str(manager.late_fine_rate))
+        manager.work_start_time = work_start_time or '09:00'
+        manager.work_end_time = work_end_time or '18:00'
+
+        if photo_file:
+            opt_photo, err = optimize_student_photo(photo_file)
+            if opt_photo:
+                manager.photo = opt_photo
+
+        if new_password:
+            manager.user.set_password(new_password)
+            manager.user.save()
+            manager.generated_password = new_password
+
+        manager.save()
+        messages.success(request, f"Menejer '{manager.first_name} {manager.last_name}' ma'lumotlari yangilandi.")
+        return redirect('admin_dashboard')
+
+    return render(request, 'admin_manager_edit.html', {'manager': manager})
+
+
+@admin_required
+def admin_manager_delete(request, id):
+    if not _admin_only(request):
+        return redirect('home')
+    manager = get_object_or_404(Manager, id=id)
+    if request.method == 'POST':
+        user = manager.user
+        name = f"{manager.first_name} {manager.last_name}"
+        manager.delete()
+        if user:
+            user.delete()
+        messages.success(request, f"Menejer '{name}' tizimdan o'chirildi.")
+        return redirect('admin_dashboard')
+    return redirect('admin_dashboard')
+
+
+@admin_required
+def admin_teacher_edit(request, id):
+    if not _admin_only(request):
+        return redirect('home')
+    teacher = get_object_or_404(Teacher, id=id)
+
+    if request.method == 'POST':
+        first_name = request.POST.get('first_name', '').strip()
+        last_name = request.POST.get('last_name', '').strip()
+        phone = request.POST.get('phone', '').strip()
+        monthly_salary = request.POST.get('monthly_salary', '0').strip()
+        late_fine_rate = request.POST.get('late_fine_rate', '2.0').strip()
+        work_start_time = request.POST.get('work_start_time', '09:00').strip()
+        work_end_time = request.POST.get('work_end_time', '18:00').strip()
+        photo_file = request.FILES.get('photo')
+        new_password = request.POST.get('new_password', '').strip()
+        can_edit = request.POST.get('can_edit_students') == '1'
+
+        if contains_cyrillic(first_name) or contains_cyrillic(last_name):
+            messages.error(request, "Ism va familiyada faqat lotin alifbosidan foydalaning!")
+            return render(request, 'admin_teacher_edit.html', {'teacher': teacher})
+
+        teacher.first_name = first_name
+        teacher.last_name = last_name
+        teacher.phone = phone
+        if is_admin_user(request):
+            teacher.monthly_salary = _safe_decimal(monthly_salary, str(teacher.monthly_salary))
+            teacher.late_fine_rate = _safe_decimal(late_fine_rate, str(teacher.late_fine_rate))
+        teacher.work_start_time = work_start_time or '09:00'
+        teacher.work_end_time = work_end_time or '18:00'
+        teacher.can_edit_students = can_edit
+
+        if photo_file:
+            opt_photo, err = optimize_student_photo(photo_file)
+            if opt_photo:
+                teacher.photo = opt_photo
+
+        if new_password:
+            teacher.user.set_password(new_password)
+            teacher.user.save()
+            teacher.generated_password = new_password
+
+        teacher.save()
+        messages.success(request, f"O'qituvchi '{teacher.first_name} {teacher.last_name}' ma'lumotlari muvaffaqiyatli saqlandi.")
+        return redirect('admin_dashboard')
+
+    return render(request, 'admin_teacher_edit.html', {'teacher': teacher})
+
+
+# ─────────────────────────────────────────────
+# 11. FACE ID JURNALI VA SOZLAMALARI (Faqat Admin)
+# ─────────────────────────────────────────────
+
+@admin_required
+def admin_face_id_logs(request):
+    """Barcha xodimlarning Face ID davomat jurnali (kelish-ketish va kechikishlar)."""
+    if not _admin_only(request):
+        return redirect('home')
+
+    filter_date_str = request.GET.get('date', date.today().strftime('%Y-%m-%d'))
+    filter_role = request.GET.get('role', 'all')
+    filter_status = request.GET.get('status', 'all')
+
+    try:
+        filter_date = datetime.strptime(filter_date_str, '%Y-%m-%d').date()
+    except Exception:
+        filter_date = date.today()
+        filter_date_str = filter_date.strftime('%Y-%m-%d')
+
+    logs_qs = FaceIDLog.objects.select_related('user').filter(date=filter_date)
+
+    if filter_role == 'manager':
+        logs_qs = logs_qs.filter(user__role='manager')
+    elif filter_role == 'teacher':
+        logs_qs = logs_qs.filter(user__role='teacher')
+
+    if filter_status == 'on_time':
+        logs_qs = logs_qs.filter(is_late=False)
+    elif filter_status == 'late':
+        logs_qs = logs_qs.filter(is_late=True)
+
+    logs_list = list(logs_qs.order_by('-check_in_time'))
+
+    # Statistika
+    total_scans = len(logs_list)
+    late_scans = sum(1 for l in logs_list if l.is_late)
+    ontime_scans = total_scans - late_scans
+    total_fines = sum(l.fine_amount_deducted for l in logs_list)
+
+    return render(request, 'admin_face_id_logs.html', {
+        'logs': logs_list,
+        'filter_date': filter_date_str,
+        'filter_role': filter_role,
+        'filter_status': filter_status,
+        'total_scans': total_scans,
+        'late_scans': late_scans,
+        'ontime_scans': ontime_scans,
+        'total_fines': total_fines,
+    })
+
+
+@admin_required
+def admin_face_id_settings(request):
+    """
+    Faqat Admin uchun Face ID sozlamalari paneli:
+    - Markaz koordinatalari (lat, lon)
+    - Ruxsat etilgan masofa chegarasi (Phone Volume Slider yordamida)
+    - Kechikish jarima foizi (Phone Volume Slider yordamida)
+    DIQQAT: Menejer uchun qat'iy taqiqlangan (403 Access Denied)!
+    """
+    if not is_admin_user(request):
+        return render(request, '403_access_denied.html', {
+            'title': "403 - Ruxsat Berilmagan (Access Denied)",
+            'message': "Face ID tizimi sozlamalari va geolokatsiya boshqaruv paneli faqat Markaz Rahbari (Admin) uchun ruxsat etilgan. Menejer hisobida ushbu sahifani ko'rish yoki o'zgartirish huquqi mavjud emas."
+        }, status=403)
+
+    settings_obj = FaceIDSettings.get_settings()
+
+    if request.method == 'POST':
+        lat_val = request.POST.get('latitude', '').strip()
+        lon_val = request.POST.get('longitude', '').strip()
+        radius_val = request.POST.get('allowed_radius_meters', '').strip()
+        fine_rate_val = request.POST.get('default_late_fine_rate', '').strip()
+        start_time_val = request.POST.get('default_work_start_time', '09:00').strip()
+        end_time_val = request.POST.get('default_work_end_time', '18:00').strip()
+        geofence_val = request.POST.get('is_geofencing_enabled') == 'on'
+
+        try:
+            if lat_val:
+                settings_obj.latitude = float(lat_val.replace(',', '.'))
+            if lon_val:
+                settings_obj.longitude = float(lon_val.replace(',', '.'))
+            if radius_val:
+                settings_obj.allowed_radius_meters = int(float(radius_val.replace(',', '.')))
+            if fine_rate_val:
+                settings_obj.default_late_fine_rate = _safe_decimal(fine_rate_val, '2.0')
+            settings_obj.default_work_start_time = start_time_val or '09:00'
+            settings_obj.default_work_end_time = end_time_val or '18:00'
+            settings_obj.is_geofencing_enabled = geofence_val
+            settings_obj.save()
+            messages.success(request, "Face ID va Geolokatsiya sozlamalari muvaffaqiyatli yangilandi! ✅")
+            return redirect('admin_face_id_settings')
+        except Exception as e:
+            messages.error(request, f"Saqlashda xatolik yuz berdi: {e}")
+
+    return render(request, 'admin_face_id_settings.html', {
+        'settings': settings_obj,
+    })
+
+
+# ─────────────────────────────────────────────
+# 12. OYLIK VA KECHIKISH JARIMALARI HISOBLASH
+# ─────────────────────────────────────────────
+
+@admin_required
+def admin_salary_report(request):
+    """
+    Barcha xodimlarning oyligi, Face ID kechikish jarimalari va tasdiqlangan avanslarini avtomatik hisoblash sahifasi.
+    DIQQAT: Menejer uchun qat'iy cheklangan (Faqat Markaz Rahbari / Admin ko'ra oladi)!
+    """
+    if not is_admin_user(request):
+        return render(request, '403_access_denied.html', {
+            'title': "403 - Ruxsat Berilmagan (Access Denied)",
+            'message': "Xodimlarning oylik maoshlari va jarimalari boshqaruvi faqat Markaz Rahbari (Admin) uchun ruxsat etilgan. Menejer hisobida ushbu sahifani ko'rish yoki tahrirlash huquqi cheklangan."
+        }, status=403)
+
+    month_str = request.GET.get('month', date.today().strftime('%Y-%m'))
+    try:
+        year, month = map(int, month_str.split('-'))
+    except Exception:
+        year, month = date.today().year, date.today().month
+        month_str = f"{year}-{month:02d}"
+
+    # Barcha xodimlar
+    all_teachers = Teacher.objects.filter(is_active=True).select_related('user')
+    all_managers = Manager.objects.filter(is_active=True).select_related('user')
+
+    reports = []
+    total_base_payroll = Decimal(0)
+    total_deductions = Decimal(0)
+    total_advances_center = Decimal(0)
+    total_net_payroll = Decimal(0)
+    total_lates_center = 0
+    total_bonuses_center = Decimal(0)
+
+    for m in all_managers:
+        summary = calculate_staff_salary_summary(m, year, month)
+        summary['role_title'] = "Menejer"
+        reports.append(summary)
+        total_base_payroll += summary['base_salary']
+        total_deductions += summary['total_fine_amount']
+        total_advances_center += summary['total_advance_amount']
+        total_bonuses_center += summary['total_bonus_amount']
+        total_net_payroll += summary['net_salary']
+        total_lates_center += summary['total_late_count']
+
+    for t in all_teachers:
+        summary = calculate_staff_salary_summary(t, year, month)
+        summary['role_title'] = "O'qituvchi / Tarbiyachi"
+        reports.append(summary)
+        total_base_payroll += summary['base_salary']
+        total_deductions += summary['total_fine_amount']
+        total_advances_center += summary['total_advance_amount']
+        total_bonuses_center += summary['total_bonus_amount']
+        total_net_payroll += summary['net_salary']
+        total_lates_center += summary['total_late_count']
+
+    return render(request, 'admin_salary_report.html', {
+        'reports': reports,
+        'current_month': month_str,
+        'year': year,
+        'month': month,
+        'total_base_payroll': total_base_payroll,
+        'total_deductions': total_deductions,
+        'total_advances_center': total_advances_center,
+        'total_bonuses_center': total_bonuses_center,
+        'total_net_payroll': total_net_payroll,
+        'total_lates_center': total_lates_center,
+    })
+
+
+@admin_required
+def admin_bonus_save(request):
+    """Direktor tomonidan xodimga bonus qo'shish (Faqat Admin)."""
+    if not is_admin_user(request):
+        return render(request, '403_access_denied.html', {
+            'title': "403 - Ruxsat Berilmagan",
+            'message': "Bonus berish faqat Markaz Rahbari (Admin) uchun ruxsat etilgan."
+        }, status=403)
+
+    if request.method == 'POST':
+        user_id = request.POST.get('user_id')
+        month = request.POST.get('month', date.today().strftime('%Y-%m'))
+        amount_raw = request.POST.get('amount', '0').strip().replace(',', '').replace(' ', '')
+        reason = request.POST.get('reason', "Erta kelganlik / Faollik uchun bonus").strip()
+
+        try:
+            target_user = CustomUser.objects.get(id=user_id)
+            amount = Decimal(amount_raw)
+            if amount > 0:
+                bonus = StaffBonus.objects.create(
+                    user=target_user,
+                    month=month,
+                    date=date.today(),
+                    amount=amount,
+                    reason=reason,
+                    created_by=request.user if (hasattr(request, 'user') and request.user.is_authenticated) else None
+                )
+                # Tizim Tarixiga yozish
+                AuditLog.objects.create(
+                    action_type='bonus',
+                    actor=request.user if (hasattr(request, 'user') and request.user.is_authenticated) else None,
+                    actor_name="Direktor",
+                    title=f"Bonus berildi: {target_user.staff_full_name} (+{amount:,.0f} so'm)",
+                    details=f"Sabab: {reason}. Oy: {month}."
+                )
+                messages.success(request, f"{target_user.staff_full_name} ga {amount:,.0f} so'm bonus muvaffaqiyatli qo'shildi! 🎉")
+            else:
+                messages.error(request, "Bonus summasi 0 dan katta bo'lishi kerak!")
+        except Exception as e:
+            messages.error(request, f"Bonus qo'shishda xatolik: {e}")
+
+    return redirect(f"{request.META.get('HTTP_REFERER', '/admin/salary/report/')}?month={request.POST.get('month', '')}")
+
+
+
+@admin_required
+def admin_bonus_delete(request, id):
+    """Berilgan bonusni bekor qilish (Faqat Admin)."""
+    if not is_admin_user(request):
+        return render(request, '403_access_denied.html', {
+            'title': "403 - Ruxsat Berilmagan",
+            'message': "Bonuslarni o'chirish faqat Markaz Rahbari (Admin) uchun ruxsat etilgan."
+        }, status=403)
+
+    bonus = get_object_or_404(StaffBonus, id=id)
+    u_name = bonus.user.staff_full_name
+    amt = bonus.amount
+    m = bonus.month
+    bonus.delete()
+
+    AuditLog.objects.create(
+        action_type='bonus',
+        actor=request.user if (hasattr(request, 'user') and request.user.is_authenticated) else None,
+        actor_name="Direktor",
+        title=f"Bonus bekor qilindi: {u_name} (-{amt:,.0f} so'm)",
+        details=f"Oy: {m}."
+    )
+    messages.info(request, f"{u_name} ning {amt:,.0f} so'm bonusi bekor qilindi.")
+    return redirect(request.META.get('HTTP_REFERER', '/admin/salary/report/'))
+
+
+@admin_required
+def admin_audit_logs(request):
+    """
+    Tizim Tarixi (Audit Log / History):
+    - Face ID keldi-ketdi vaqtlari
+    - Bolalar davomati tarixi
+    - Ushlab qolingan shtraflar
+    - Berilgan bonuslar
+    - Xodim avanslari
+    - Qilingan to'lovlar
+    """
+    if not _admin_only(request):
+        return redirect('home')
+
+    filter_action = request.GET.get('action', 'all')
+    filter_date = request.GET.get('date', '')
+    search_q = request.GET.get('q', '').strip()
+
+    logs_qs = AuditLog.objects.select_related('actor').all()
+
+    if filter_action != 'all' and filter_action:
+        logs_qs = logs_qs.filter(action_type=filter_action)
+
+    if filter_date:
+        try:
+            d = datetime.strptime(filter_date, '%Y-%m-%d').date()
+            logs_qs = logs_qs.filter(created_at__date=d)
+        except Exception:
+            pass
+
+    if search_q:
+        logs_qs = logs_qs.filter(
+            Q(title__icontains=search_q) |
+            Q(details__icontains=search_q) |
+            Q(actor_name__icontains=search_q)
+        )
+
+    logs = logs_qs[:150]
+
+    return render(request, 'admin_audit_logs.html', {
+        'logs': logs,
+        'filter_action': filter_action,
+        'filter_date': filter_date,
+        'search_q': search_q,
+    })
+
+
+@admin_required
+def admin_salary_export_excel(request):
+    """Oylik va jarimalar hisobini Excel (.xlsx) faylga eksport qilish (Faqat Admin)."""
+    if not is_admin_user(request):
+        return render(request, '403_access_denied.html', {
+            'title': "403 - Ruxsat Berilmagan",
+            'message': "Oyliklar eksporti faqat Markaz Rahbari (Admin) uchun ruxsat etilgan."
+        }, status=403)
+
+    month_str = request.GET.get('month', date.today().strftime('%Y-%m'))
+    try:
+        year, month = map(int, month_str.split('-'))
+    except Exception:
+        year, month = date.today().year, date.today().month
+        month_str = f"{year}-{month:02d}"
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = f"Oylik_{month_str}"
+
+    headers = [
+        "№", "F.I.Sh.", "Lavozim", "Telefon", "Asosiy oylik (so'm)",
+        "Ish kunlari", "Kechikishlar soni", "Kechikilgan daqiqa",
+        "Jarima foizi (%)", "Jarima summasi (so'm)", "Avans (so'm)", "Bonus (so'm)", "Qo'lga tegadigan oylik (so'm)"
+    ]
+    ws.append(headers)
+
+    for col_idx in range(1, len(headers) + 1):
+        cell = ws.cell(row=1, column=col_idx)
+        cell.font = openpyxl.styles.Font(bold=True, color="FFFFFF", size=11)
+        cell.fill = openpyxl.styles.PatternFill(start_color="1E1B4B", end_color="1E1B4B", fill_type="solid")
+        cell.alignment = openpyxl.styles.Alignment(horizontal="center", vertical="center")
+
+    staff_list = list(Manager.objects.filter(is_active=True)) + list(Teacher.objects.filter(is_active=True))
+
+    for idx, s in enumerate(staff_list, 1):
+        summary = calculate_staff_salary_summary(s, year, month)
+        ws.append([
+            idx,
+            f"{s.first_name} {s.last_name}",
+            s.role_title,
+            s.phone or "-",
+            float(summary['base_salary']),
+            summary['total_days'],
+            summary['total_late_count'],
+            summary['total_late_minutes'],
+            float(summary['total_fine_percent']),
+            float(summary['total_fine_amount']),
+            float(summary['total_advance_amount']),
+            float(summary['total_bonus_amount']),
+            float(summary['net_salary']),
+        ])
+
+
+    response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    response['Content-Disposition'] = f'attachment; filename="HUMO_Oylik_va_Jarimalar_{month_str}.xlsx"'
+    wb.save(response)
+    return response
+
+
+# ─────────────────────────────────────────────
+# 13. FACE ID TERMINAL & API
+# ─────────────────────────────────────────────
+
+@csrf_exempt
+def face_id_terminal(request):
+    """Markaz binosida planshet yoki kompyuter orqali xodimlar yuzini skanerlovchi terminal."""
+    settings_obj = FaceIDSettings.get_settings()
+    teachers = Teacher.objects.filter(is_active=True).select_related('user')
+    managers = Manager.objects.filter(is_active=True).select_related('user')
+
+    return render(request, 'face_id_terminal.html', {
+        'settings': settings_obj,
+        'teachers': teachers,
+        'managers': managers,
+    })
+
+
+@csrf_exempt
+def face_id_check_in(request):
+    """Mobil qurilmalardan xodimlar o'z telefonlarida Face ID orqali davomat qilish sahifasi."""
+    settings_obj = FaceIDSettings.get_settings()
+    return render(request, 'face_id_mobile_checkin.html', {
+        'settings': settings_obj,
+    })
+
+
+@csrf_exempt
+def face_id_verify_api(request):
+    """Face ID tasvirini qabul qilib tekshirish va kelish/ketishni qayd etish REST API.
+    Barcha xodimlar (Teacher, Manager, Admin, Staff) uchun to'liq ruxsat bilan ishlaydi."""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': "Faqat POST so'rovi qabul qilinadi"}, status=405)
+
+    img_data = request.POST.get('image')
+    file_obj = request.FILES.get('photo')
+    user_id = request.POST.get('user_id')
+    lat = request.POST.get('latitude')
+    lon = request.POST.get('longitude')
+    bypass_geo = request.POST.get('bypass_geo') == '1'
+
+    # Rasm obyekti
+    scan_file = None
+    if file_obj:
+        scan_file = file_obj
+    elif img_data:
+        try:
+            if ',' in img_data:
+                header, img_data = img_data.split(',', 1)
+            decoded = base64.b64decode(img_data)
+            scan_file = ContentFile(decoded, name=f"scan_{uuid.uuid4().hex[:8]}.jpg")
+        except Exception as e:
+            return JsonResponse({'success': False, 'message': f"Tasvirni o'qishda xatolik: {e}"}, status=400)
+
+    if not scan_file:
+        return JsonResponse({'success': False, 'message': "Tasvir topilmadi! Iltimos qaytadan skanerlang."}, status=400)
+
+    target_user = None
+    if user_id:
+        try:
+            target_user = CustomUser.objects.get(id=user_id)
+        except CustomUser.DoesNotExist:
+            return JsonResponse({'success': False, 'message': "Tanlangan xodim topilmadi."}, status=404)
+    else:
+        # Avtomatik yuz qidirish (barcha faol menejer va o'qituvchilar)
+        match = match_staff_by_face(scan_file)
+        if match:
+            role, staff, score, dist = match
+            target_user = staff.user
+
+    # Agar match topilmasa, lekin tizimga kirgan foydalanuvchi xodim (menejer, o'qituvchi, admin) bo'lsa
+    if not target_user and request.user.is_authenticated and getattr(request.user, 'role', '') in ('manager', 'teacher', 'admin'):
+        staff_obj = getattr(request.user, 'manager_profile', None) or getattr(request.user, 'teacher_profile', None)
+        if staff_obj and staff_obj.photo and os.path.exists(staff_obj.photo.path):
+            score, is_match, dist = compare_two_faces(staff_obj.photo.path, scan_file)
+            if is_match and score >= 60.0 and dist <= 0.40:
+                target_user = request.user
+
+    if not target_user:
+        return JsonResponse({
+            'success': False,
+            'message': "Yuz aniqlanmadi yoki xodim topilmadi! Tizimda ushbu yuzga mos keluvchi xodim topilmadi."
+        }, status=400)
+
+    try:
+        res = process_face_check_in(
+            user=target_user,
+            scan_file=scan_file,
+            lat=lat,
+            lon=lon,
+            bypass_geo=bypass_geo
+        )
+        return JsonResponse(res)
+    except Exception as e:
+        print(f"process_face_check_in error: {e}")
+        return JsonResponse({
+            'success': False,
+            'message': f"Davomatni qayd etishda tizim xatoligi yuz berdi: {str(e)}"
+        }, status=500)
+
+
+# ─────────────────────────────────────────────
+# 14. MENEJER PANELI VA SHAXSIY JURNAL
+# ─────────────────────────────────────────────
+
+@login_required(login_url='/manager/login/')
+def manager_dashboard(request):
+    """
+    Menejer Paneli:
+    - Shaxsiy profil va Face ID jurnali
+    - Oylik maosh va kechikish jarimalari ko'rinishi
+    - O'quv markazi guruhlari va o'quvchilari
+    - DIQQAT: Face ID Boshqaruvi va tizim sozlamalari MUTLAQO KO'RINMAYDI!
+    """
+    if request.user.role != 'manager':
+        return redirect('home')
+
+    manager = getattr(request.user, 'manager_profile', None)
+    if not manager:
+        manager, _ = Manager.objects.get_or_create(
+            user=request.user,
+            defaults={
+                'first_name': request.user.first_name or request.user.username,
+                'last_name': request.user.last_name or '',
+                'generated_login': request.user.username,
+                'generated_password': '***'
+            }
+        )
+    today = date.today()
+
+    # Bugungi kelish holati
+    today_log = FaceIDLog.objects.filter(user=request.user, date=today).first()
+
+    # Oylik hisob-kitob
+    salary_summary = calculate_staff_salary_summary(manager, today.year, today.month)
+
+    # Shaxsiy jurnallar
+    face_logs = FaceIDLog.objects.filter(user=request.user).order_by('-date')[:30]
+
+    # Guruhlar ro'yxati (menejer o'quv jarayonini ko'rishi uchun)
+    groups = Group.objects.select_related('teacher').prefetch_related('time_slots__students')
+
+    return render(request, 'manager_dashboard.html', {
+        'manager': manager,
+        'today_log': today_log,
+        'salary_summary': salary_summary,
+        'face_logs': face_logs,
+        'groups': groups,
+    })
+
+
+@login_required
+def staff_my_face_logs(request):
+    """Har bir xodim (Menejer yoki O'qituvchi) uchun o'z shaxsiy Face ID kelib-ketish tarixi va avans so'rovlari."""
+    user = request.user
+    staff = user.staff_profile
+
+    if not staff:
+        messages.error(request, "Xodim profili biriktirilmagan.")
+        return redirect('home')
+
+    month_str = request.GET.get('month', date.today().strftime('%Y-%m'))
+    try:
+        year, month = map(int, month_str.split('-'))
+    except Exception:
+        year, month = date.today().year, date.today().month
+        month_str = f"{year}-{month:02d}"
+
+    salary_summary = calculate_staff_salary_summary(staff, year, month)
+    my_advances = AdvanceRequest.objects.filter(user=user).order_by('-created_at')[:20]
+
+    return render(request, 'staff_my_face_logs.html', {
+        'staff': staff,
+        'salary_summary': salary_summary,
+        'current_month': month_str,
+        'my_advances': my_advances,
+    })
+
+
+# ─────────────────────────────────────────────
+# 15. AVANS SO'ROVLARI BOSHQARUVI (Advance Requests)
+# ─────────────────────────────────────────────
+
+@admin_required
+def admin_advance_list(request):
+    """
+    Xodimlar tomonidan yuborilgan avans so'rovlari ro'yxati (Admin va Menejer uchun):
+    - Ko'rish, holat bo'yicha saralash (Kutilmoqda, Tasdiqlandi, Rad etildi)
+    - Tasdiqlash / Rad etish
+    """
+    filter_status = request.GET.get('status', 'all')
+    filter_month = request.GET.get('month', '')
+
+    advances_qs = AdvanceRequest.objects.select_related('user', 'reviewed_by').all()
+
+    if filter_status != 'all' and filter_status:
+        advances_qs = advances_qs.filter(status=filter_status)
+
+    if filter_month:
+        advances_qs = advances_qs.filter(month=filter_month)
+
+    all_advances = AdvanceRequest.objects.all()
+    stats = {
+        'total': all_advances.count(),
+        'pending': all_advances.filter(status='pending').count(),
+        'approved': all_advances.filter(status='approved').count(),
+        'rejected': all_advances.filter(status='rejected').count(),
+        'approved_sum': sum((a.amount for a in all_advances.filter(status='approved')), Decimal(0)),
+    }
+
+    return render(request, 'admin_advances.html', {
+        'advances': advances_qs,
+        'filter_status': filter_status,
+        'filter_month': filter_month,
+        'stats': stats,
+    })
+
+
+@admin_required
+def admin_advance_action(request, id):
+    """Avans so'rovini tasdiqlash yoki rad etish (POST)."""
+    if request.method != 'POST':
+        return redirect('admin_advance_list')
+
+    advance = get_object_or_404(AdvanceRequest, id=id)
+    action = request.POST.get('action')  # 'approve' or 'reject'
+    comment = request.POST.get('admin_comment', '').strip()
+
+    reviewer_user = request.user if getattr(request, 'user', None) and request.user.is_authenticated else None
+    actor_name = "Admin" if is_admin_user(request) else "Menejer"
+
+    if action == 'approve':
+        advance.status = 'approved'
+        status_text = "tasdiqlandi ✅"
+    elif action == 'reject':
+        advance.status = 'rejected'
+        status_text = "rad etildi ❌"
+    else:
+        messages.error(request, "Noto'g'ri buyruq yuborildi.")
+        return redirect('admin_advance_list')
+
+    advance.admin_comment = comment
+    advance.reviewed_by = reviewer_user
+    advance.reviewed_at = timezone.now()
+    advance.save()
+
+    AuditLog.objects.create(
+        action_type='advance',
+        actor=reviewer_user,
+        actor_name=actor_name,
+        title=f"Avans {status_text}: {advance.user.staff_full_name} ({advance.amount:,.0f} so'm)",
+        details=f"Oy: {advance.month}. Izoh: {comment or 'Izoh kiritilmagan'}."
+    )
+
+    messages.success(request, f"{advance.user.staff_full_name} ning {advance.amount:,.0f} so'm miqdoridagi avansi {status_text}!")
+    return redirect('admin_advance_list')
+
+
+@login_required
+def staff_advance_request(request):
+    """Xodim (O'qituvchi yoki Menejer) shaxsiy kabinetidan avans so'rash."""
+    if request.method == 'POST':
+        amount_raw = request.POST.get('amount', '0').strip().replace(',', '').replace(' ', '')
+        reason = request.POST.get('reason', '').strip()
+        month = request.POST.get('month', date.today().strftime('%Y-%m')).strip()
+
+        try:
+            amount = Decimal(amount_raw)
+            if amount <= 0:
+                messages.error(request, "Avans summasi 0 dan katta bo'lishi kerak!")
+                return redirect(request.META.get('HTTP_REFERER', '/staff/my-logs/'))
+
+            advance = AdvanceRequest.objects.create(
+                user=request.user,
+                amount=amount,
+                reason=reason,
+                month=month,
+                status='pending'
+            )
+
+            AuditLog.objects.create(
+                action_type='advance',
+                actor=request.user,
+                actor_name=request.user.staff_full_name,
+                title=f"Avans so'rovi yuborildi: {request.user.staff_full_name} ({amount:,.0f} so'm)",
+                details=f"Oy: {month}. Sabab: {reason or 'Izoh kiritilmagan'}."
+            )
+
+            messages.success(request, f"{amount:,.0f} so'm miqdoridagi avans so'rovi adminga muvaffaqiyatli yuborildi! Tasdiqlangach oylikdan avtomatik chegiriladi.")
+        except Exception as e:
+            messages.error(request, f"Avans so'rovida xatolik: {e}")
+
+    return redirect(request.META.get('HTTP_REFERER', '/staff/my-logs/'))
+
+

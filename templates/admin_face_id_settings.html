@@ -1,0 +1,247 @@
+{% extends 'base.html' %}
+{% block title %}Face ID Boshqaruvi & Geolokatsiya - HUMO Admin{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3 mb-4">
+    <div>
+        <h2 class="text-white fw-black mb-1" style="letter-spacing:-1px; text-shadow:0 2px 10px rgba(0,0,0,0.2);">
+            <i class="bi bi-sliders me-2 text-primary"></i>Face ID Boshqaruvi va Sozlamalari
+        </h2>
+        <p class="text-white mb-0 opacity-75">Markaz koordinatalari, ruxsat etilgan masofa radiusi va kechikish jarimalari</p>
+    </div>
+
+    <div class="d-flex gap-2 flex-wrap">
+        <a href="{% url 'admin_face_id_logs' %}" class="btn btn-outline-light rounded-pill px-3 fw-semibold shadow-sm">
+            <i class="bi bi-person-bounding-box me-1"></i> Face ID Jurnali
+        </a>
+        <a href="{% url 'face_id_terminal' %}" target="_blank" class="btn btn-info text-white rounded-pill px-3 fw-semibold shadow-sm" style="background:linear-gradient(135deg,#06b6d4,#0891b2); border:none;">
+            <i class="bi bi-qr-code-scan me-1"></i> Skaner Terminali
+        </a>
+    </div>
+</div>
+
+<form method="post" action="{% url 'admin_face_id_settings' %}">
+    {% csrf_token %}
+    <div class="row g-4">
+        
+        <!-- ══════ 1. GEOLOKATSIYA VA MASOFA RADIUSI (PHONE VOLUME SLIDER) ══════ -->
+        <div class="col-lg-6">
+            <div class="phone-volume-card h-100 d-flex flex-column justify-content-between">
+                <div>
+                    <div class="d-flex align-items-center justify-content-between mb-3 border-bottom border-white border-opacity-10 pb-3">
+                        <div class="d-flex align-items-center gap-2">
+                            <div style="width:44px; height:44px; border-radius:14px; background:linear-gradient(135deg, #06b6d4, #3b82f6); display:flex; align-items:center; justify-content:center; box-shadow:0 4px 14px rgba(6,182,212,0.4);">
+                                <i class="bi bi-geo-alt-fill text-white fs-5"></i>
+                            </div>
+                            <div>
+                                <h5 class="fw-bold mb-0 text-white">Geolokatsiya va Hudud Radiusi</h5>
+                                <small class="text-white opacity-75">Markaz binosi atrofidagi ruxsat etilgan masofa</small>
+                            </div>
+                        </div>
+
+                        <!-- Geofencing Switch -->
+                        <div class="form-check form-switch m-0 fs-5" title="Geolokatsiya nazorati">
+                            <input class="form-check-input" type="checkbox" name="is_geofencing_enabled" id="geoSwitch" {% if settings.is_geofencing_enabled %}checked{% endif %}>
+                        </div>
+                    </div>
+
+                    <!-- Markaz Koordinatalari -->
+                    <div class="row g-2 mb-4">
+                        <div class="col-6">
+                            <label class="form-label small text-white opacity-75 fw-semibold mb-1">Kenglik (Latitude):</label>
+                            <input type="number" step="any" name="latitude" id="latInput" class="form-control rounded-3 font-monospace bg-dark text-white border-secondary" value="{{ settings.latitude }}" required>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small text-white opacity-75 fw-semibold mb-1">Uzunlik (Longitude):</label>
+                            <input type="number" step="any" name="longitude" id="lonInput" class="form-control rounded-3 font-monospace bg-dark text-white border-secondary" value="{{ settings.longitude }}" required>
+                        </div>
+                        <div class="col-12 mt-2">
+                            <button type="button" class="btn btn-sm btn-outline-info rounded-pill w-100 fw-semibold" onclick="detectCurrentLocation()">
+                                <i class="bi bi-crosshair me-1"></i> Hozirgi joylashuvimni aniqlash (GPS)
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- PHONE VOLUME SLIDER: Ruxsat etilgan masofa (Metrlarda) -->
+                    <div class="mb-2">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <label class="fw-bold fs-6 mb-0 d-flex align-items-center gap-2">
+                                <i class="bi bi-radar text-info"></i> Ruxsat etilgan masofa chegarasi (metrda)
+                            </label>
+                            <span class="badge bg-info bg-opacity-20 text-info border border-info border-opacity-30 rounded-pill px-3 py-1">
+                                Geofence
+                            </span>
+                        </div>
+                        <p class="small text-white opacity-75 mb-3">
+                            Xodim Face ID orqali davomatdan o'tishi uchun markaz binosidan maksimal qancha metr uzoqlikda bo'lishi mumkinligini telefon ovoz balandligi shkalasi kabi sozlang:
+                        </p>
+
+                        <div class="phone-volume-widget" id="radiusVolumeSlider" data-min="20" data-max="1000" data-step="10" data-unit="m" data-value="{{ settings.allowed_radius_meters }}">
+                            <input type="hidden" name="allowed_radius_meters" value="{{ settings.allowed_radius_meters }}">
+
+                            <div class="phone-volume-capsule-wrap">
+                                <button type="button" class="volume-step-btn volume-step-dec" title="Masofani kamaytirish">
+                                    <i class="bi bi-dash"></i>
+                                </button>
+
+                                <div class="phone-volume-capsule horizontal flex-grow-1">
+                                    <div class="phone-volume-fill"></div>
+                                    <div class="phone-volume-overlay">
+                                        <i class="bi bi-radar phone-volume-icon"></i>
+                                        <span class="phone-volume-badge-val">{{ settings.allowed_radius_meters }} m</span>
+                                    </div>
+                                </div>
+
+                                <button type="button" class="volume-step-btn volume-step-inc" title="Masofani oshirish">
+                                    <i class="bi bi-plus"></i>
+                                </button>
+                            </div>
+
+                            <!-- Tezkor radius tugmalari -->
+                            <div class="volume-presets-wrap mt-3">
+                                <button type="button" class="volume-preset-btn" data-val="50">50 m</button>
+                                <button type="button" class="volume-preset-btn" data-val="100">100 m</button>
+                                <button type="button" class="volume-preset-btn" data-val="150">150 m (Tavsiya)</button>
+                                <button type="button" class="volume-preset-btn" data-val="250">250 m</button>
+                                <button type="button" class="volume-preset-btn" data-val="500">500 m</button>
+                                <button type="button" class="volume-preset-btn" data-val="1000">1000 m</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-4 pt-3 border-top border-white border-opacity-10 small opacity-75">
+                    <i class="bi bi-info-circle me-1"></i> Agar xodim ushbu radiusdan tashqarida turib yuzini skanerlasa, tizim kelishni rad etadi yoki tashqaridalik haqida ogohlantiradi.
+                </div>
+            </div>
+        </div>
+
+        <!-- ══════ 2. STANDART ISH VAQTI VA JARIMA FOIZI (PHONE VOLUME SLIDER) ══════ -->
+        <div class="col-lg-6">
+            <div class="phone-volume-card h-100 d-flex flex-column justify-content-between">
+                <div>
+                    <div class="d-flex align-items-center justify-content-between mb-3 border-bottom border-white border-opacity-10 pb-3">
+                        <div class="d-flex align-items-center gap-2">
+                            <div style="width:44px; height:44px; border-radius:14px; background:linear-gradient(135deg, #ec4899, #f43f5e); display:flex; align-items:center; justify-content:center; box-shadow:0 4px 14px rgba(244,63,94,0.4);">
+                                <i class="bi bi-stopwatch-fill text-white fs-5"></i>
+                            </div>
+                            <div>
+                                <h5 class="fw-bold mb-0 text-white">Ish Vaqti va Jarima Foizi</h5>
+                                <small class="text-white opacity-75">Yangi xodimlar uchun standart parametrlar</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Standart ish boshlanish va tugash vaqtlari (Kelish va Ketish) -->
+                    <div class="row g-2 mb-4">
+                        <div class="col-6">
+                            <label class="form-label small text-white opacity-75 fw-semibold mb-1">
+                                <i class="bi bi-box-arrow-in-right text-success me-1"></i>Standart Kelish Vaqti:
+                            </label>
+                            <input type="time" name="default_work_start_time" class="form-control rounded-3 bg-dark text-white border-secondary fs-6 fw-bold" value="{{ settings.default_work_start_time|time:'H:i'|default:'09:00' }}" required>
+                            <div class="form-text text-white opacity-50" style="font-size:0.72rem;">Shu soatdan keyin kelsa, kechikish hisoblanadi.</div>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small text-white opacity-75 fw-semibold mb-1">
+                                <i class="bi bi-box-arrow-right text-info me-1"></i>Standart Ketish Vaqti:
+                            </label>
+                            <input type="time" name="default_work_end_time" class="form-control rounded-3 bg-dark text-white border-secondary fs-6 fw-bold" value="{{ settings.default_work_end_time|time:'H:i'|default:'18:00' }}" required>
+                            <div class="form-text text-white opacity-50" style="font-size:0.72rem;">Ish kunining rasmiy tugash soati.</div>
+                        </div>
+                    </div>
+
+                    <!-- PHONE VOLUME SLIDER: Kechikish jarima foizi -->
+                    <div class="mb-2">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <label class="fw-bold fs-6 mb-0 d-flex align-items-center gap-2">
+                                <i class="bi bi-percent text-danger"></i> Standart Kechikish Jarima Foizi (%)
+                            </label>
+                            <span class="badge bg-danger bg-opacity-20 text-danger border border-danger border-opacity-30 rounded-pill px-3 py-1">
+                                Penalty Rate
+                            </span>
+                        </div>
+                        <p class="small text-white opacity-75 mb-3">
+                            Xodim kechikib kelganda oyligidan har bir kechikish uchun ushlab qolinadigan standart foizni sozlang:
+                        </p>
+
+                        <div class="phone-volume-widget" id="fineVolumeSlider" data-min="0" data-max="15" data-step="0.5" data-unit="%" data-value="{{ settings.default_late_fine_rate|default:'2.0' }}">
+                            <input type="hidden" name="default_late_fine_rate" value="{{ settings.default_late_fine_rate|default:'2.0' }}">
+
+                            <div class="phone-volume-capsule-wrap">
+                                <button type="button" class="volume-step-btn volume-step-dec" title="Jarima foizini kamaytirish">
+                                    <i class="bi bi-dash"></i>
+                                </button>
+
+                                <div class="phone-volume-capsule horizontal fine-slider flex-grow-1">
+                                    <div class="phone-volume-fill"></div>
+                                    <div class="phone-volume-overlay">
+                                        <i class="bi bi-percent phone-volume-icon"></i>
+                                        <span class="phone-volume-badge-val">{{ settings.default_late_fine_rate|default:'2.0' }} %</span>
+                                    </div>
+                                </div>
+
+                                <button type="button" class="volume-step-btn volume-step-inc" title="Jarima foizini oshirish">
+                                    <i class="bi bi-plus"></i>
+                                </button>
+                            </div>
+
+                            <!-- Tezkor foiz tugmalari -->
+                            <div class="volume-presets-wrap mt-3">
+                                <button type="button" class="volume-preset-btn" data-val="0.5">0.5%</button>
+                                <button type="button" class="volume-preset-btn" data-val="1.0">1.0%</button>
+                                <button type="button" class="volume-preset-btn" data-val="2.0">2.0% (Standart)</button>
+                                <button type="button" class="volume-preset-btn" data-val="3.0">3.0%</button>
+                                <button type="button" class="volume-preset-btn" data-val="5.0">5.0%</button>
+                                <button type="button" class="volume-preset-btn" data-val="10.0">10.0%</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-4 pt-3 border-top border-white border-opacity-10 small opacity-75">
+                    <i class="bi bi-shield-lock-fill text-warning me-1"></i> Bu sahifa va parametrlar faqat <b>Admin</b> uchun ochiq. Menejerlar panelida bu bo'lim mutlaqo ko'rinmaydi.
+                </div>
+            </div>
+        </div>
+
+        <!-- ══════ SAQLASH TUGMASI ══════ -->
+        <div class="col-12 text-end">
+            <button type="submit" class="btn btn-lg fw-bold rounded-pill px-5 text-white shadow-lg"
+                    style="background:linear-gradient(135deg,#6366f1,#8b5cf6); border:none; box-shadow:0 10px 25px rgba(99,102,241,0.4);">
+                <i class="bi bi-check2-circle me-2 fs-5"></i> Sozlamalarni Saqlash
+            </button>
+        </div>
+    </div>
+</form>
+
+<script>
+function detectCurrentLocation() {
+    if (!navigator.geolocation) {
+        alert("Brauzeringizda geolokatsiya qo'llab-quvvatlanmaydi.");
+        return;
+    }
+
+    const btn = event.currentTarget;
+    btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span> Aniqlanmoqda...`;
+    btn.disabled = true;
+
+    navigator.geolocation.getCurrentPosition(
+        (pos) => {
+            document.getElementById('latInput').value = pos.coords.latitude.toFixed(8);
+            document.getElementById('lonInput').value = pos.coords.longitude.toFixed(8);
+            btn.innerHTML = `<i class="bi bi-check-circle-fill text-success me-1"></i> Joylashuv aniqlandi!`;
+            setTimeout(() => {
+                btn.innerHTML = `<i class="bi bi-crosshair me-1"></i> Hozirgi joylashuvimni aniqlash (GPS)`;
+                btn.disabled = false;
+            }, 2500);
+        },
+        (err) => {
+            alert("Joylashuvni aniqlashda xatolik: " + err.message);
+            btn.innerHTML = `<i class="bi bi-crosshair me-1"></i> Hozirgi joylashuvimni aniqlash (GPS)`;
+            btn.disabled = false;
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+    );
+}
+</script>
+{% endblock %}

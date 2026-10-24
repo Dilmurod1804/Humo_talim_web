@@ -16,6 +16,8 @@ from django.contrib.auth.decorators import login_required
 from django.db.models import Q
 from django.http import JsonResponse, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
+from django.core.exceptions import ValidationError
 
 import openpyxl
 
@@ -50,11 +52,16 @@ def _build_attendance_matrix(students, days_data, attendance_map):
         matrix = []
         for d in days_data:
             st = attendance_map.get(s.id, {}).get(d['day'], '')
+            is_today = d.get('is_today', False)
             matrix.append({
                 'day': d['day'],
                 'date_str': d['date_str'],
                 'is_lesson': d.get('is_lesson', False),
                 'status': st,
+                'is_today': is_today,
+                'is_past': d.get('is_past', False),
+                'is_future': d.get('is_future', False),
+                'can_mark': d.get('is_lesson', False) and is_today,
             })
         s.attendance_matrix = matrix
 
@@ -63,7 +70,7 @@ def _make_days_data(year, month):
     """Berilgan oy uchun kunlar ro'yxatini tayyorlaydi."""
     num_days = calendar.monthrange(year, month)[1]
     weekdays_uz = ['Du', 'Se', 'Chor', 'Pay', 'Ju', 'Sha', 'Yak']
-    today_date = date.today()
+    today_date = timezone.now().date()
     days_data = []
     for d in range(1, num_days + 1):
         cur_d = date(year, month, d)
@@ -77,6 +84,8 @@ def _make_days_data(year, month):
             'weekday': weekdays_uz[w_idx],
             'is_weekend': w_idx in (5, 6),
             'is_today': cur_d == today_date,
+            'is_past': cur_d < today_date,
+            'is_future': cur_d > today_date,
         })
     return days_data, num_days
 
@@ -125,10 +134,25 @@ def _populate_excel_sheet(ws, students, payment_map):
 
 @login_required(login_url='/teacher/login/')
 def teacher_dashboard(request):
+    """
+    Tarbiyachi Paneli:
+    - Guruh biriktirilgan Tarbiyachi: FAQAT o'ziga biriktirilgan 1 ta guruhni va bolalar davomatini ko'radi.
+    - Guruh biriktirilmagan Xodim: Guruh va bolalar bo'limi berkitiladi, faqat Face ID va Xodimlar paneli ochiladi.
+    """
     if request.user.role != 'teacher':
         return redirect('home')
-    teacher = request.user.teacher_profile
-    groups = teacher.groups.prefetch_related('time_slots__students')
+    teacher = getattr(request.user, 'teacher_profile', None)
+    if not teacher:
+        return redirect('staff_my_face_logs')
+
+    # Guruh biriktirilganligini tekshirish
+    first_group = teacher.groups.first()
+    if not first_group:
+        messages.info(request, "Sizga hali birorta guruh biriktirilmagan. Siz faqat Face ID va Xodimlar panelidan foydalanishingiz mumkin.")
+        return redirect('staff_my_face_logs')
+
+    # FAQAT o'ziga biriktirilgan 1 ta guruh
+    groups = teacher.groups.filter(id=first_group.id).prefetch_related('time_slots__students')
 
     req_month = request.GET.get('month', date.today().strftime('%Y-%m'))
     try:
@@ -139,7 +163,7 @@ def teacher_dashboard(request):
 
     days_data, num_days = _make_days_data(y, m)
 
-    # Guruhda bo'lgan barcha o'quvchilar (is_active, joined_date'ga qaramay)
+    # Guruhda bo'lgan barcha bolalar
     student_ids = []
     for g in groups:
         for ts in g.time_slots.all():
@@ -179,6 +203,7 @@ def teacher_dashboard(request):
     return render(request, 'teacher_dashboard.html', {
         'teacher': teacher,
         'groups': groups,
+        'assigned_group': first_group,
         'current_month': req_month,
         'days_data': days_data,
     })
@@ -190,13 +215,28 @@ def teacher_dashboard(request):
 
 @login_required(login_url='/teacher/login/')
 def teacher_attendance_mark(request):
-    """O'qituvchi uchun davomat belgilash (AJAX). Toggle: present -> absent -> none"""
+    """Tarbiyachi uchun qo'lda bolalar davomati belgilash (AJAX)."""
     if request.user.role != 'teacher' or request.method != 'POST':
         return JsonResponse({'status': 'error', 'msg': 'Bad request'}, status=400)
 
     student_id = request.POST.get('student_id')
     status = request.POST.get('status', '').strip().lower()
-    req_date = request.POST.get('date', date.today().isoformat())
+    req_date_raw = request.POST.get('date', '').strip()
+
+    today = timezone.now().date()
+    if not req_date_raw:
+        req_date = today
+    else:
+        try:
+            req_date = datetime.strptime(req_date_raw, '%Y-%m-%d').date()
+        except Exception:
+            return JsonResponse({'status': 'error', 'msg': "Noto'g'ri sana formati!"}, status=400)
+
+    # ── Strict Current Day Attendance Validation ──
+    if req_date < today:
+        return JsonResponse({'status': 'error', 'msg': "O'tgan kunlar uchun yo'qlama qilib bo'lmaydi!"}, status=400)
+    if req_date > today:
+        return JsonResponse({'status': 'error', 'msg': "Kelgusi kunlar uchun yo'qlama qilib bo'lmaydi!"}, status=400)
 
     if status in ('green', 'blue'):
         status = 'present'
@@ -207,16 +247,44 @@ def teacher_attendance_mark(request):
     if not (student.time_slot and student.time_slot.group and
             student.time_slot.group.teacher and
             student.time_slot.group.teacher.user == request.user):
-        return JsonResponse({'status': 'error', 'msg': "Ruxsat yo'q"}, status=403)
+        return JsonResponse({'status': 'error', 'msg': "Ruxsat yo'q! Bu bola sizning guruhingizga tegishli emas."}, status=403)
 
     if status in ('present', 'absent'):
-        att, _ = Attendance.objects.update_or_create(
-            student=student, date=req_date,
-            defaults={'status': status},
-        )
+        try:
+            att, _ = Attendance.objects.update_or_create(
+                student=student, date=req_date,
+                defaults={'status': status},
+            )
+        except ValidationError as ve:
+            err_msg = ve.message_dict.get('date', [str(ve)])[0] if hasattr(ve, 'message_dict') else str(ve)
+            return JsonResponse({'status': 'error', 'msg': err_msg}, status=400)
+
+        try:
+            from .models import AuditLog
+            status_text = "Keldi (+)" if status == 'present' else "Kelmadi (-)"
+            AuditLog.objects.create(
+                action_type='attendance',
+                actor=request.user,
+                actor_name=request.user.staff_full_name,
+                title=f"Bolalar davomati: {student.first_name} {student.last_name} ({status_text})",
+                details=f"Guruh: {student.time_slot.group.name}, Sana: {req_date.isoformat()}"
+            )
+        except Exception:
+            pass
         return JsonResponse({'status': 'success', 'attendance': att.status})
     else:
         Attendance.objects.filter(student=student, date=req_date).delete()
+        try:
+            from .models import AuditLog
+            AuditLog.objects.create(
+                action_type='attendance',
+                actor=request.user,
+                actor_name=request.user.staff_full_name,
+                title=f"Bolalar davomati bekor qilindi: {student.first_name} {student.last_name}",
+                details=f"Guruh: {student.time_slot.group.name}, Sana: {req_date.isoformat()}"
+            )
+        except Exception:
+            pass
         return JsonResponse({'status': 'success', 'attendance': ''})
 
 

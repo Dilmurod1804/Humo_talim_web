@@ -380,9 +380,15 @@
                             </div>
                         </td>
 
-                        <!-- To'lov holati - Qizil: qarz | Yashil: to'liq to'langan -->
+                        <!-- To'lov holati - Qizil: qarz | Yashil: to'liq to'langan | Moviy: Mahalla -->
                         <td class="text-center" id="pay-status-{{ row.student_id }}">
-                            {% if row.status_code == 'paid' %}
+                            {% if row.is_local or row.is_mahalla or row.status_code == 'local' or 'Mahalla' in row.status_display %}
+                            <span class="fw-bold d-inline-flex align-items-center gap-1 px-3 py-1 rounded-3"
+                                  style="background:rgba(14,165,233,0.12);color:#0284c7;border:1.5px solid rgba(14,165,233,0.3);font-size:0.82rem;">
+                                <i class="bi bi-geo-alt-fill"></i>
+                                {{ row.status_display }}
+                            </span>
+                            {% elif row.status_code == 'paid' %}
                             <span class="fw-bold d-inline-flex align-items-center gap-1 px-3 py-1 rounded-3"
                                   style="background:rgba(16,185,129,0.12);color:#047857;border:1.5px solid rgba(16,185,129,0.3);font-size:0.82rem;">
                                 <i class="bi bi-check-circle-fill"></i>

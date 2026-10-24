@@ -1,0 +1,92 @@
+{% extends 'base.html' %}
+{% block title %}Mobil Face ID Davomat - HUMO{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-12 col-md-6 col-lg-5">
+        <div class="glass-card p-4 text-center">
+            <div style="background:linear-gradient(135deg,#06b6d4,#0891b2);border-radius:18px;width:64px;height:64px;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;box-shadow:0 8px 24px rgba(6,182,212,0.35);">
+                <i class="bi bi-camera-fill text-white fs-3"></i>
+            </div>
+            <h3 class="fw-black text-dark mb-1">Face ID Davomat</h3>
+            <p class="text-muted small mb-4">Markaz binosida bo'lsangiz, yuzingiz orqali kelish yoki ketishni qayd eting</p>
+
+            <div class="mb-3">
+                <div class="faceid-viewfinder-wrap mb-3" style="max-width:320px; aspect-ratio:1/1; border-radius:50%;">
+                    <video id="mobVideoFeed" class="faceid-video-feed" autoplay playsinline muted style="object-fit:cover;"></video>
+                    <canvas id="mobCanvas" style="display:none;"></canvas>
+                    <div class="faceid-scan-hud">
+                        <div class="faceid-laser" style="width:100%;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="p-2 mb-3 rounded-pill bg-light border small text-muted d-flex align-items-center justify-content-center gap-2">
+                <i class="bi bi-geo-alt-fill text-primary"></i>
+                <span id="mobGeoStatus">GPS joylashuv tekshirilmoqda...</span>
+            </div>
+
+            <button type="button" class="btn btn-primary btn-lg rounded-pill w-100 fw-bold shadow-lg py-3"
+                    style="background:linear-gradient(135deg, #06b6d4, #3b82f6); border:none;" onclick="mobCapture()">
+                <i class="bi bi-check2-circle me-1"></i> Davomatni Qayd Etish
+            </button>
+
+            <div id="mobAlert" class="alert mt-3 d-none rounded-4 text-start small"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+let mobLat = null, mobLon = null;
+const mobVideo = document.getElementById('mobVideoFeed');
+const mobCanvas = document.getElementById('mobCanvas');
+const mobAlert = document.getElementById('mobAlert');
+
+navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } })
+    .then(s => mobVideo.srcObject = s)
+    .catch(e => alert("Kamera xatoligi: " + e.message));
+
+if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+        p => {
+            mobLat = p.coords.latitude;
+            mobLon = p.coords.longitude;
+            document.getElementById('mobGeoStatus').textContent = "GPS joylashuv aniqlandi";
+        },
+        e => document.getElementById('mobGeoStatus').textContent = "GPS ruxsat berilmadi"
+    );
+}
+
+async function mobCapture() {
+    mobCanvas.width = mobVideo.videoWidth || 480;
+    mobCanvas.height = mobVideo.videoHeight || 480;
+    const ctx = mobCanvas.getContext('2d');
+    ctx.drawImage(mobVideo, 0, 0, mobCanvas.width, mobCanvas.height);
+    const dataUrl = mobCanvas.toDataURL('image/jpeg', 0.85);
+
+    const fd = new FormData();
+    fd.append('image', dataUrl);
+    {% if user.is_authenticated %}
+    fd.append('user_id', '{{ user.id }}');
+    {% endif %}
+    if (mobLat) fd.append('latitude', mobLat);
+    if (mobLon) fd.append('longitude', mobLon);
+    fd.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+
+    try {
+        const resp = await fetch("{% url 'face_id_verify_api' %}", { method: 'POST', body: fd });
+        const res = await resp.json();
+        mobAlert.classList.remove('d-none');
+        if (res.success) {
+            mobAlert.className = 'alert alert-success mt-3 rounded-4';
+            mobAlert.innerHTML = `<b>Muvaffaqiyatli!</b> ${res.message}<br><small>Xodim: ${res.staff_name} (${res.role})</small>`;
+        } else {
+            mobAlert.className = 'alert alert-danger mt-3 rounded-4';
+            mobAlert.innerHTML = `<b>Xatolik!</b> ${res.message}`;
+        }
+    } catch (e) {
+        alert("Xatolik: " + e.message);
+    }
+}
+</script>
+{% endblock %}

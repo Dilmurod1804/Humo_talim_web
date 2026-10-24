@@ -141,34 +141,36 @@ def generate_payments_excel(payments_data, title="O'quvchilar To'lovlar Jadvali"
         st_code = item.get('status_code', 'unpaid')
         is_ovd = item.get('is_overdue', False)
         delay_days = item.get('delay_days', 0)
+        is_mahalla = bool(item.get('is_local') or item.get('is_mahalla') or ('mahalla' in str(item.get('amount_paid', '')).lower()))
 
-        if st_code == 'paid':
+        st_name = item.get('student_name', '-')
+        if is_mahalla:
+            st_name = f"{st_name} [Mahalladan]"
+
+        debt_f = item.get('debt_formatted', '')
+        if is_mahalla:
+            # Mahalla o'quvchilari qarzdorlar soniga (unpaid_count) MUTLAQO sanalmasin!
+            if num_paid > 0:
+                paid_count += 1
+                status_txt = f"To'langan ({num_paid:,} so'm)"
+            else:
+                status_txt = "Mahalla"
+            delay_txt = "Mahalla"
+        elif st_code == 'paid':
             paid_count += 1
+            status_txt = "To'langan"
+            delay_txt = "To'langan"
+        elif st_code == 'partial':
+            unpaid_count += 1
+            status_txt = f"Qisman (Qarz: {debt_f} so'm)"
+            delay_txt = f"⚠️ {delay_days} kun kechikdi" if is_ovd else "Muddati kelmadi"
         else:
             unpaid_count += 1
             if is_ovd:
                 overdue_count += 1
-
-        st_name = item.get('student_name', '-')
-        if item.get('is_local'):
-            st_name = f"{st_name} [Mahalladan]"
-
-        debt_f = item.get('debt_formatted', '')
-        if st_code == 'paid':
-            status_txt = "To'langan"
-        elif st_code == 'partial':
-            status_txt = f"Qisman (Qarz: {debt_f} so'm)"
-        else:
             rate_f = item.get('payment_rate_formatted', '')
             status_txt = f"Qarzdor ({rate_f} so'm)"
-
-        # Kechikish matni
-        if is_ovd:
-            delay_txt = f"⚠️ {delay_days} kun kechikdi"
-        elif st_code == 'paid':
-            delay_txt = "To'langan"
-        else:
-            delay_txt = "Muddati kelmadi"
+            delay_txt = f"⚠️ {delay_days} kun kechikdi" if is_ovd else "Muddati kelmadi"
 
         # Ustun qiymatlari
         values = [
@@ -219,7 +221,10 @@ def generate_payments_excel(payments_data, title="O'quvchilar To'lovlar Jadvali"
 
             # Holat ustuni (col 11)
             if col_idx == 11:
-                if st_code == 'paid':
+                if is_mahalla:
+                    cell.fill = PatternFill(start_color="E0F2FE", end_color="E0F2FE", fill_type="solid")
+                    cell.font = Font(name="Arial", size=10, bold=True, color="0369A1")
+                elif st_code == 'paid':
                     cell.fill = PatternFill(start_color=c_paid_bg, end_color=c_paid_bg, fill_type="solid")
                     cell.font = Font(name="Arial", size=10, bold=True, color=c_paid_text)
                 elif st_code == 'partial':

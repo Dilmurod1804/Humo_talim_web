@@ -1,0 +1,150 @@
+{% extends 'base.html' %}
+{% block title %}Tizim Tarixi (Audit Log) — HummoKids Admin{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3 mb-4">
+    <div>
+        <h2 class="text-white fw-black mb-1" style="letter-spacing:-1px; text-shadow:0 2px 10px rgba(0,0,0,0.2);">
+            <i class="bi bi-clock-history me-2 text-warning"></i>Tizim Tarixi (Audit Log / History)
+        </h2>
+        <p class="text-white mb-0 opacity-75">
+            Face ID qaydlari, bolalar davomati, shtraflar, bonuslar va to'lovlarning to'liq tarixi
+        </p>
+    </div>
+
+    <div class="d-flex gap-2 flex-wrap">
+        {% if is_admin %}
+        <a href="{% url 'admin_salary_report' %}" class="btn btn-outline-light rounded-pill px-3 fw-semibold">
+            <i class="bi bi-cash-stack me-1"></i> Oyliklar & Bonuslar
+        </a>
+        {% endif %}
+        <a href="{% url 'admin_face_id_logs' %}" class="btn btn-outline-light rounded-pill px-3 fw-semibold">
+            <i class="bi bi-person-bounding-box me-1"></i> Face ID Jurnali
+        </a>
+    </div>
+</div>
+
+<!-- ══════ FILTR VA QIDIRUV ══════ -->
+<div class="glass-card p-3 p-md-4 mb-4" style="background: rgba(255,255,255,0.96);">
+    <form method="get" class="row g-3 align-items-center">
+        <!-- Harakat turi -->
+        <div class="col-md-4">
+            <label class="form-label small fw-bold text-muted mb-1"><i class="bi bi-funnel me-1"></i>Harakat Turi:</label>
+            <select name="action" class="form-select rounded-pill" onchange="this.form.submit()">
+                <option value="all" {% if filter_action == 'all' or not filter_action %}selected{% endif %}>Barcha Harakatlar</option>
+                <option value="face_id" {% if filter_action == 'face_id' %}selected{% endif %}>Face ID Keldi-Ketdi</option>
+                <option value="fine" {% if filter_action == 'fine' %}selected{% endif %}>Ushlab qolingan Shtraflar</option>
+                <option value="bonus" {% if filter_action == 'bonus' %}selected{% endif %}>Berilgan Bonuslar</option>
+                <option value="attendance" {% if filter_action == 'attendance' %}selected{% endif %}>Bolalar Davomati</option>
+                <option value="payment" {% if filter_action == 'payment' %}selected{% endif %}>Qilingan To'lovlar</option>
+            </select>
+        </div>
+
+        <!-- Sana filtri -->
+        <div class="col-md-3">
+            <label class="form-label small fw-bold text-muted mb-1"><i class="bi bi-calendar3 me-1"></i>Sana:</label>
+            <input type="date" name="date" class="form-control rounded-pill" value="{{ filter_date }}" onchange="this.form.submit()">
+        </div>
+
+        <!-- Qidiruv -->
+        <div class="col-md-5">
+            <label class="form-label small fw-bold text-muted mb-1"><i class="bi bi-search me-1"></i>Qidiruv (Xodim, Bola, Guruh):</label>
+            <div class="input-group">
+                <input type="text" name="q" class="form-control rounded-pill-start" placeholder="Qidirish..." value="{{ search_q }}">
+                <button type="submit" class="btn btn-primary rounded-pill-end px-3">
+                    <i class="bi bi-search"></i>
+                </button>
+                {% if filter_action != 'all' or filter_date or search_q %}
+                <a href="{% url 'admin_audit_logs' %}" class="btn btn-outline-secondary rounded-pill ms-2" title="Filtrni tozalash">
+                    <i class="bi bi-x-circle"></i>
+                </a>
+                {% endif %}
+            </div>
+        </div>
+    </form>
+</div>
+
+<!-- ══════ AUDIT LOG JADVALI ══════ -->
+<div class="glass-card" style="overflow:hidden; background: rgba(255,255,255,0.96);">
+    <div class="p-3 border-bottom d-flex align-items-center justify-content-between">
+        <h5 class="fw-bold mb-0 text-dark">
+            <i class="bi bi-journal-text me-2 text-primary"></i>Tarixiy Qaydlar Ro'yxati
+        </h5>
+        <span class="badge bg-secondary rounded-pill px-3 py-1">{{ logs|length }} ta qayd ko'rsatilmoqda</span>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead class="table-light text-uppercase small text-muted" style="font-size:0.75rem;">
+                <tr>
+                    <th class="ps-4">Vaqti</th>
+                    <th>Turi</th>
+                    <th>Foydalanuvchi / Xodim</th>
+                    <th>Amal / Sarlavha</th>
+                    <th class="pe-4">Batafsil ma'lumot</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in logs %}
+                <tr>
+                    <td class="ps-4 text-nowrap">
+                        <div class="fw-bold text-dark">{{ log.created_at|date:"d.m.Y" }}</div>
+                        <small class="text-muted">{{ log.created_at|time:"H:i:s" }}</small>
+                    </td>
+
+                    <td>
+                        {% if log.action_type == 'fine' %}
+                        <span class="badge bg-danger bg-opacity-15 text-danger border border-danger border-opacity-30 rounded-pill px-3 py-1 fw-bold">
+                            <i class="bi bi-exclamation-triangle-fill me-1"></i>Shtraf
+                        </span>
+                        {% elif log.action_type == 'bonus' %}
+                        <span class="badge bg-primary bg-opacity-15 text-primary border border-primary border-opacity-30 rounded-pill px-3 py-1 fw-bold">
+                            <i class="bi bi-gift-fill me-1"></i>Bonus
+                        </span>
+                        {% elif log.action_type == 'face_id' %}
+                        <span class="badge bg-info bg-opacity-15 text-info border border-info border-opacity-30 rounded-pill px-3 py-1 fw-bold">
+                            <i class="bi bi-person-bounding-box me-1"></i>Face ID
+                        </span>
+                        {% elif log.action_type == 'attendance' %}
+                        <span class="badge bg-success bg-opacity-15 text-success border border-success border-opacity-30 rounded-pill px-3 py-1 fw-bold">
+                            <i class="bi bi-calendar-check-fill me-1"></i>Davomat
+                        </span>
+                        {% elif log.action_type == 'payment' %}
+                        <span class="badge bg-warning bg-opacity-15 text-warning border border-warning border-opacity-30 rounded-pill px-3 py-1 fw-bold">
+                            <i class="bi bi-wallet2 me-1"></i>To'lov
+                        </span>
+                        {% else %}
+                        <span class="badge bg-secondary rounded-pill px-3 py-1">{{ log.get_action_type_display }}</span>
+                        {% endif %}
+                    </td>
+
+                    <td>
+                        {% if log.actor %}
+                        <div class="fw-bold text-dark">{{ log.actor_name|default:log.actor.username }}</div>
+                        <small class="text-muted">{{ log.actor.get_role_display }}</small>
+                        {% else %}
+                        <span class="text-muted">{{ log.actor_name|default:"Tizim" }}</span>
+                        {% endif %}
+                    </td>
+
+                    <td>
+                        <div class="fw-bold text-dark">{{ log.title }}</div>
+                    </td>
+
+                    <td class="pe-4 text-muted small">
+                        {{ log.details|default:"-" }}
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="5" class="text-center py-5">
+                        <i class="bi bi-clock-history text-muted" style="font-size:3rem; opacity:0.3;"></i>
+                        <h6 class="fw-bold mt-2 text-dark">Ushbu filtr bo'yicha tarixiy yozuvlar topilmadi</h6>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

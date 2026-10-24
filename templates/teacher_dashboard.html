@@ -14,11 +14,17 @@
     </div>
 
     <div class="d-flex flex-wrap align-items-center gap-2">
+        <a href="{% url 'staff_my_face_logs' %}" class="btn text-white fw-bold d-flex align-items-center gap-2 shadow-sm" style="background: linear-gradient(135deg, #06b6d4, #0891b2); border:none; border-radius:10px;">
+            <i class="bi bi-person-bounding-box"></i> Mening Davomatim & Oyligim
+        </a>
+        <a href="{% url 'face_id_check_in' %}" target="_blank" class="btn text-white fw-bold d-flex align-items-center gap-2 shadow-sm" style="background: linear-gradient(135deg, #6366f1, #8b5cf6); border:none; border-radius:10px;">
+            <i class="bi bi-camera-fill"></i> Face ID Kirish
+        </a>
         <a href="{% url 'teacher_export_excel' %}" class="btn text-white fw-bold d-flex align-items-center gap-2" style="background: linear-gradient(135deg,#10b981,#059669); border:none; border-radius:10px;">
-            <i class="bi bi-file-earmark-excel-fill"></i> Excel Yuklab Olish
+            <i class="bi bi-file-earmark-excel-fill"></i> Excel
         </a>
         <a href="{% url 'teacher_chat' %}" class="btn text-white fw-bold d-flex align-items-center gap-2" style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.4); border-radius:10px;">
-            <i class="bi bi-chat-dots-fill"></i> Admin bilan chat
+            <i class="bi bi-chat-dots-fill"></i> Chat
         </a>
         <form method="get" class="d-flex align-items-center gap-2 m-0">
             <label class="text-white fw-bold mb-0 d-none d-sm-block">Oy:</label>
@@ -149,10 +155,19 @@
                         
                         {% for item in student.attendance_matrix %}
                             {% if item.is_lesson %}
-                            <td class="cell-att {% if item.status == 'present' %}present{% elif item.status == 'absent' %}absent{% endif %}"
-                                data-sid="{{ student.id }}" data-day="{{ item.day }}" title="{{ item.date_str }} - Davomat belgilash">
-                                {% if item.status == 'present' %}+{% elif item.status == 'absent' %}-{% else %}&nbsp;{% endif %}
-                            </td>
+                                {% if item.is_today %}
+                                <td class="cell-att cell-today active-today {% if item.status == 'present' %}present{% elif item.status == 'absent' %}absent{% endif %}"
+                                    data-sid="{{ student.id }}" data-day="{{ item.day }}" data-date="{{ item.date_str }}" data-today="true"
+                                    title="Bugungi sana: {{ item.date_str }} — Davomat belgilash uchun bosing">
+                                    {% if item.status == 'present' %}+{% elif item.status == 'absent' %}-{% else %}&nbsp;{% endif %}
+                                </td>
+                                {% else %}
+                                <td class="cell-att cell-locked disabled {% if item.status == 'present' %}present-locked{% elif item.status == 'absent' %}absent-locked{% endif %}"
+                                    data-sid="{{ student.id }}" data-day="{{ item.day }}" data-date="{{ item.date_str }}" data-today="false"
+                                    title="{% if item.is_past %}O'tgan kun ({{ item.date_str }}) — Yo'qlama qulflangan{% else %}Kelgusi kun ({{ item.date_str }}) — Yo'qlama qulflangan{% endif %}">
+                                    {% if item.status == 'present' %}+{% elif item.status == 'absent' %}-{% else %}&nbsp;{% endif %}
+                                </td>
+                                {% endif %}
                             {% else %}
                             <td class="cell-not-lesson" title="{{ item.date_str }} - Dars kuni emas">
                                 <span class="no-lesson-dot">—</span>
@@ -411,11 +426,16 @@
     });
 
     document.querySelectorAll('.cell-att').forEach(cell => {
-        cell.addEventListener('click', function() {
+        cell.addEventListener('click', function(e) {
+            const isToday = this.dataset.today === 'true';
+            if (!isToday) {
+                e.preventDefault();
+                alert("O'tgan yoki kelgusi kunlar uchun yo'qlama qilib bo'lmaydi! Faqatgina bugungi kun uchun davomat belgilash mumkin.");
+                return;
+            }
+
             const sid = this.dataset.sid;
-            const day = this.dataset.day;
-            const dayStr = day.toString().padStart(2, '0');
-            const dateStr = currentMonth + '-' + dayStr;
+            const dateStr = this.dataset.date || (currentMonth + '-' + this.dataset.day.toString().padStart(2, '0'));
 
             let currentStatus = '';
             if (this.classList.contains('present')) currentStatus = 'present';

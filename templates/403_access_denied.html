@@ -1,0 +1,45 @@
+{% extends 'base.html' %}
+{% block title %}403 - Ruxsat Berilmagan (Access Denied){% endblock %}
+
+{% block content %}
+<div class="row justify-content-center py-5">
+    <div class="col-12 col-md-8 col-lg-6">
+        <div class="glass-card p-4 p-md-5 text-center text-dark" style="background: rgba(255, 255, 255, 0.95); border: 2px solid rgba(239, 68, 68, 0.4); box-shadow: 0 20px 45px rgba(0, 0, 0, 0.25);">
+            <!-- Icon -->
+            <div class="mb-3">
+                <div style="width: 80px; height: 80px; margin: 0 auto; border-radius: 50%; background: linear-gradient(135deg, #ef4444, #b91c1c); display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 25px rgba(239, 68, 68, 0.35);">
+                    <i class="bi bi-shield-slash-fill text-white" style="font-size: 2.4rem;"></i>
+                </div>
+            </div>
+
+            <!-- Error Code & Title -->
+            <span class="badge bg-danger bg-opacity-15 text-danger border border-danger border-opacity-30 rounded-pill px-3 py-1 fw-bold mb-2">
+                HTTP 403 • ACCESS DENIED
+            </span>
+            <h2 class="fw-black text-dark mb-2" style="letter-spacing: -0.5px;">
+                Ruxsat Berilmagan!
+            </h2>
+
+            <!-- Message -->
+            <p class="text-secondary mb-4 px-md-3" style="font-size: 0.95rem; line-height: 1.6;">
+                {{ message|default:"Face ID tizimini boshqarish (geolokatsiya va masofa chegarasi sozlamalari) faqat Markaz Rahbari (Admin) uchun ruxsat etilgan. Menejer ushbu bo'limni o'zgartira olmaydi." }}
+            </p>
+
+            <!-- Action buttons -->
+            <div class="d-flex flex-column flex-sm-row justify-content-center gap-2 pt-2">
+                <button onclick="history.back()" class="btn btn-outline-secondary rounded-pill px-4 fw-semibold">
+                    <i class="bi bi-arrow-left me-1"></i> Ortga Qaytish
+                </button>
+                {% if user.role == 'manager' %}
+                <a href="{% url 'manager_dashboard' %}" class="btn btn-warning rounded-pill px-4 fw-bold text-dark shadow-sm">
+                    <i class="bi bi-briefcase-fill me-1"></i> Menejer Kabinetiga
+                </a>
+                {% endif %}
+                <a href="{% url 'admin_dashboard' %}" class="btn btn-primary rounded-pill px-4 fw-semibold shadow-sm" style="background: linear-gradient(135deg, #6366f1, #8b5cf6); border: none;">
+                    <i class="bi bi-grid-1x2-fill me-1"></i> Boshqaruv Paneli
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

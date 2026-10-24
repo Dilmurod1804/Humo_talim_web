@@ -1,0 +1,1488 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>HUMO Face ID Davomat Kiosk Terminali</title>
+    
+    <!-- Google Fonts & Bootstrap Icons -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <style>
+        :root {
+            --kiosk-bg: #070c18;
+            --kiosk-cyan: #06b6d4;
+            --kiosk-blue: #3b82f6;
+            --kiosk-emerald: #10b981;
+            --kiosk-amber: #f59e0b;
+            --kiosk-rose: #f43f5e;
+            --kiosk-card-bg: rgba(15, 23, 42, 0.75);
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: var(--kiosk-bg);
+            font-family: 'Plus Jakarta Sans', 'Outfit', sans-serif;
+            color: #ffffff;
+        }
+
+        /* ══════ KIOSK AMBIENT BACKGROUND GLOW ══════ */
+        .kiosk-viewport {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            background: 
+                radial-gradient(circle at 50% 25%, rgba(6, 182, 212, 0.16) 0%, transparent 55%),
+                radial-gradient(circle at 85% 85%, rgba(59, 130, 246, 0.12) 0%, transparent 45%),
+                radial-gradient(circle at 15% 85%, rgba(16, 185, 129, 0.10) 0%, transparent 45%),
+                #070c18;
+            padding: 20px 24px;
+        }
+
+        .kiosk-grid-overlay {
+            position: absolute;
+            inset: 0;
+            background-image: 
+                linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+            background-size: 50px 50px;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        /* ══════ TOP HEADER BAR ══════ */
+        .kiosk-header {
+            position: relative;
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            width: 100%;
+            padding-bottom: 12px;
+        }
+
+        .kiosk-back-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 20px;
+            border-radius: 50px;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 0.92rem;
+            font-weight: 700;
+            text-decoration: none;
+            backdrop-filter: blur(12px);
+            transition: all 0.25s ease;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            cursor: pointer;
+        }
+        .kiosk-back-btn:hover {
+            color: #ffffff;
+            background: rgba(255, 255, 255, 0.18);
+            border-color: rgba(6, 182, 212, 0.6);
+            transform: translateX(-3px);
+            box-shadow: 0 6px 20px rgba(6, 182, 212, 0.25);
+        }
+
+        .kiosk-brand {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            text-align: center;
+        }
+        .kiosk-logo-badge {
+            width: 48px;
+            height: 48px;
+            border-radius: 16px;
+            background: linear-gradient(135deg, var(--kiosk-cyan), var(--kiosk-blue));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            color: #ffffff;
+            box-shadow: 0 0 25px rgba(6, 182, 212, 0.5);
+            animation: pulse-glow 3s infinite alternate;
+        }
+        .kiosk-brand-title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.35rem;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            background: linear-gradient(135deg, #ffffff, #93c5fd);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            line-height: 1.1;
+        }
+        .kiosk-brand-sub {
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: var(--kiosk-cyan);
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        .kiosk-clock-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 18px;
+            border-radius: 50px;
+            background: rgba(15, 23, 42, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            font-size: 0.95rem;
+            font-weight: 700;
+            font-monospace;
+            backdrop-filter: blur(10px);
+        }
+        .kiosk-clock-time {
+            color: #38bdf8;
+            font-variant-numeric: tabular-nums;
+            letter-spacing: 1px;
+        }
+        .kiosk-clock-date {
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 0.8rem;
+            font-weight: 500;
+            border-left: 1px solid rgba(255, 255, 255, 0.2);
+            padding-left: 8px;
+        }
+
+        .kiosk-icon-btn {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .kiosk-icon-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: scale(1.08);
+        }
+
+        /* ══════ CENTER BIOMETRIC SCANNER STAGE ══════ */
+        .kiosk-stage {
+            position: relative;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            flex: 1 1 auto;
+            width: 100%;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        /* Futuristic Oval/Rounded Camera Viewport Frame */
+        .kiosk-camera-frame {
+            position: relative;
+            width: min(440px, 82vw);
+            height: min(440px, 54vh);
+            border-radius: 46px;
+            overflow: hidden;
+            background: #020617;
+            box-shadow: 
+                0 0 0 3px rgba(6, 182, 212, 0.4),
+                0 0 50px rgba(6, 182, 212, 0.25),
+                inset 0 0 40px rgba(0, 0, 0, 0.8);
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Scanner States */
+        .kiosk-camera-frame.state-idle {
+            box-shadow: 0 0 0 3.5px rgba(6, 182, 212, 0.5), 0 0 45px rgba(6, 182, 212, 0.25);
+        }
+        .kiosk-camera-frame.state-scanning {
+            box-shadow: 0 0 0 4px var(--kiosk-cyan), 0 0 70px rgba(6, 182, 212, 0.55);
+        }
+        .kiosk-camera-frame.state-success {
+            box-shadow: 0 0 0 5px var(--kiosk-emerald), 0 0 90px rgba(16, 185, 129, 0.65);
+        }
+        .kiosk-camera-frame.state-late {
+            box-shadow: 0 0 0 5px var(--kiosk-amber), 0 0 90px rgba(245, 158, 11, 0.65);
+        }
+        .kiosk-camera-frame.state-error {
+            box-shadow: 0 0 0 4px var(--kiosk-rose), 0 0 60px rgba(244, 63, 94, 0.5);
+        }
+
+        /* Video element - mirrored for natural mirror camera effect */
+        .kiosk-video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+            display: block;
+            background: #020617;
+        }
+
+        /* ══════ IN-CAMERA PROMPT / ERROR / PERMISSION OVERLAY ══════ */
+        .kiosk-camera-prompt {
+            position: absolute;
+            inset: 0;
+            background: rgba(7, 12, 24, 0.94);
+            backdrop-filter: blur(14px);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            text-align: center;
+            z-index: 30;
+            transition: opacity 0.3s ease;
+        }
+        .kiosk-camera-prompt.hidden {
+            display: none !important;
+        }
+
+        .prompt-icon-box {
+            width: 72px;
+            height: 72px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.4rem;
+            margin-bottom: 12px;
+        }
+        .prompt-icon-box.warning {
+            background: rgba(245, 158, 11, 0.18);
+            border: 2px solid var(--kiosk-amber);
+            color: var(--kiosk-amber);
+            box-shadow: 0 0 30px rgba(245, 158, 11, 0.4);
+        }
+        .prompt-icon-box.danger {
+            background: rgba(244, 63, 94, 0.18);
+            border: 2px solid var(--kiosk-rose);
+            color: var(--kiosk-rose);
+            box-shadow: 0 0 30px rgba(244, 63, 94, 0.4);
+        }
+        .prompt-icon-box.info {
+            background: rgba(6, 182, 212, 0.18);
+            border: 2px solid var(--kiosk-cyan);
+            color: var(--kiosk-cyan);
+            box-shadow: 0 0 30px rgba(6, 182, 212, 0.4);
+        }
+
+        /* Biometric HUD Reticle & Laser Sweep */
+        .kiosk-hud-reticle {
+            position: absolute;
+            inset: 22px;
+            pointer-events: none;
+            border-radius: 36px;
+            border: 1.5px dashed rgba(6, 182, 212, 0.35);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+        }
+
+        .hud-corner {
+            position: absolute;
+            width: 32px;
+            height: 32px;
+            border-color: var(--kiosk-cyan);
+            border-style: solid;
+            transition: all 0.3s;
+        }
+        .hud-corner.tl { top: -2px; left: -2px; border-width: 4px 0 0 4px; border-top-left-radius: 16px; }
+        .hud-corner.tr { top: -2px; right: -2px; border-width: 4px 4px 0 0; border-top-right-radius: 16px; }
+        .hud-corner.bl { bottom: -2px; left: -2px; border-width: 0 0 4px 4px; border-bottom-left-radius: 16px; }
+        .hud-corner.br { bottom: -2px; right: -2px; border-width: 0 4px 4px 0; border-bottom-right-radius: 16px; }
+
+        .kiosk-camera-frame.state-success .hud-corner { border-color: var(--kiosk-emerald); }
+        .kiosk-camera-frame.state-late .hud-corner { border-color: var(--kiosk-amber); }
+        .kiosk-camera-frame.state-error .hud-corner { border-color: var(--kiosk-rose); }
+
+        /* Laser Sweep Beam */
+        .kiosk-laser-line {
+            position: absolute;
+            left: 5%;
+            right: 5%;
+            height: 3px;
+            background: linear-gradient(90deg, transparent, var(--kiosk-cyan), #ffffff, var(--kiosk-cyan), transparent);
+            box-shadow: 0 0 15px var(--kiosk-cyan), 0 0 30px var(--kiosk-blue);
+            top: 20%;
+            animation: laser-sweep 2.2s ease-in-out infinite alternate;
+            opacity: 0.9;
+        }
+        .kiosk-camera-frame.state-success .kiosk-laser-line,
+        .kiosk-camera-frame.state-late .kiosk-laser-line {
+            display: none;
+        }
+
+        /* Dotted Face Oval Target */
+        .kiosk-face-oval-guide {
+            width: 65%;
+            height: 75%;
+            border: 2px dashed rgba(255, 255, 255, 0.25);
+            border-radius: 50%;
+            pointer-events: none;
+            position: absolute;
+            transition: border-color 0.3s;
+        }
+        .kiosk-camera-frame.state-scanning .kiosk-face-oval-guide {
+            border-color: rgba(6, 182, 212, 0.7);
+        }
+
+        /* ══════ SUCCESS & FEEDBACK OVERLAY BANNER ══════ */
+        .kiosk-result-overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(7, 12, 24, 0.95);
+            backdrop-filter: blur(14px);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            text-align: center;
+            opacity: 0;
+            pointer-events: none;
+            transform: scale(0.92);
+            transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+            z-index: 20;
+        }
+        .kiosk-result-overlay.active {
+            opacity: 1;
+            pointer-events: auto;
+            transform: scale(1);
+        }
+
+        .result-icon-ring {
+            width: 86px;
+            height: 86px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 3rem;
+            margin-bottom: 16px;
+            animation: bounce-in 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        .result-icon-ring.success {
+            background: rgba(16, 185, 129, 0.18);
+            border: 3px solid var(--kiosk-emerald);
+            color: var(--kiosk-emerald);
+            box-shadow: 0 0 35px rgba(16, 185, 129, 0.5);
+        }
+        .result-icon-ring.late {
+            background: rgba(245, 158, 11, 0.18);
+            border: 3px solid var(--kiosk-amber);
+            color: var(--kiosk-amber);
+            box-shadow: 0 0 35px rgba(245, 158, 11, 0.5);
+        }
+        .result-icon-ring.error {
+            background: rgba(244, 63, 94, 0.18);
+            border: 3px solid var(--kiosk-rose);
+            color: var(--kiosk-rose);
+            box-shadow: 0 0 35px rgba(244, 63, 94, 0.5);
+        }
+
+        .result-staff-name {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.7rem;
+            font-weight: 800;
+            margin-bottom: 4px;
+            letter-spacing: -0.5px;
+        }
+        .result-action-title {
+            font-size: 1.05rem;
+            font-weight: 700;
+            margin-bottom: 12px;
+        }
+        .result-details-pills {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            justify-content: center;
+            margin-bottom: 16px;
+        }
+        .result-pill {
+            padding: 6px 14px;
+            border-radius: 50px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            font-size: 0.82rem;
+            font-weight: 600;
+        }
+
+        .result-countdown-bar-wrap {
+            width: 100%;
+            max-width: 260px;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 10px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+        .result-countdown-bar {
+            height: 100%;
+            width: 100%;
+            background: linear-gradient(90deg, var(--kiosk-cyan), var(--kiosk-emerald));
+            border-radius: 10px;
+            transform-origin: left;
+        }
+
+        /* ══════ IN-FRAME LIVE SCAN STATUS BADGE ══════ */
+        .kiosk-status-badge-wrap {
+            margin-top: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .kiosk-live-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 24px;
+            border-radius: 50px;
+            background: rgba(15, 23, 42, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            font-size: 0.95rem;
+            font-weight: 700;
+            letter-spacing: 0.2px;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.35);
+            backdrop-filter: blur(12px);
+            transition: all 0.3s;
+        }
+        .pulsing-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--kiosk-cyan);
+            box-shadow: 0 0 12px var(--kiosk-cyan);
+            animation: pulse-ring 1.8s infinite;
+        }
+
+        /* ══════ BOTTOM STATUS FOOTER BAR ══════ */
+        .kiosk-footer {
+            position: relative;
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            width: 100%;
+            padding-top: 14px;
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .kiosk-pills-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .kiosk-info-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            padding: 7px 16px;
+            border-radius: 50px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            font-size: 0.82rem;
+            font-weight: 600;
+            color: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(8px);
+        }
+
+        /* Manual Fallback Accordion / Toggle */
+        .manual-toggle-link {
+            color: rgba(255, 255, 255, 0.45);
+            text-decoration: none;
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: color 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .manual-toggle-link:hover {
+            color: #ffffff;
+        }
+
+        #manualPickerDrawer {
+            position: absolute;
+            bottom: 75px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: min(440px, 90vw);
+            background: rgba(15, 23, 42, 0.96);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            border-radius: 24px;
+            padding: 16px;
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(16px);
+            z-index: 50;
+            display: none;
+        }
+
+        /* ══════ KEYFRAME ANIMATIONS ══════ */
+        @keyframes laser-sweep {
+            0% { top: 15%; opacity: 0.4; }
+            50% { opacity: 1; }
+            100% { top: 82%; opacity: 0.4; }
+        }
+        @keyframes pulse-ring {
+            0% { transform: scale(0.9); opacity: 0.7; }
+            50% { transform: scale(1.35); opacity: 1; box-shadow: 0 0 18px var(--kiosk-cyan); }
+            100% { transform: scale(0.9); opacity: 0.7; }
+        }
+        @keyframes pulse-glow {
+            0% { box-shadow: 0 0 15px rgba(6, 182, 212, 0.4); }
+            100% { box-shadow: 0 0 35px rgba(6, 182, 212, 0.85); }
+        }
+        @keyframes bounce-in {
+            0% { transform: scale(0.3); opacity: 0; }
+            60% { transform: scale(1.15); opacity: 1; }
+            100% { transform: scale(1); }
+        }
+
+        /* Responsive Mobile Styles */
+        @media (max-width: 600px) {
+            .kiosk-viewport { padding: 14px 16px; }
+            .kiosk-brand-title { font-size: 1.15rem; }
+            .kiosk-brand-sub { font-size: 0.68rem; }
+            .kiosk-camera-frame { border-radius: 36px; }
+            .kiosk-back-btn span { display: none; }
+            .kiosk-back-btn { padding: 8px 12px; }
+            .kiosk-clock-date { display: none; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="kiosk-viewport">
+    <div class="kiosk-grid-overlay"></div>
+
+    <!-- ══════════════════════════════════════════════════════════════ -->
+    <!-- 1. TOP HEADER BAR: Back Button + Brand Logo + Live Clock      -->
+    <!-- ══════════════════════════════════════════════════════════════ -->
+    <header class="kiosk-header">
+        <!-- Corner: Tizimga qaytish (Har bir rol uchun mos panelga qaytadi) -->
+        {% if request.user.is_authenticated %}
+            {% if request.user.role == 'admin' or request.session.admin_authenticated %}
+                <a href="{% url 'admin_dashboard' %}" class="kiosk-back-btn" title="Admin boshqaruv paneliga qaytish">
+                    <i class="bi bi-arrow-left fs-5"></i>
+                    <span>← Tizimga qaytish</span>
+                </a>
+            {% elif request.user.role == 'manager' %}
+                <a href="{% url 'manager_dashboard' %}" class="kiosk-back-btn" title="Menejer paneliga qaytish">
+                    <i class="bi bi-arrow-left fs-5"></i>
+                    <span>← Tizimga qaytish</span>
+                </a>
+            {% elif request.user.role == 'teacher' %}
+                <a href="{% url 'teacher_dashboard' %}" class="kiosk-back-btn" title="O'qituvchi kabinetiga qaytish">
+                    <i class="bi bi-arrow-left fs-5"></i>
+                    <span>← Tizimga qaytish</span>
+                </a>
+            {% else %}
+                <a href="{% url 'staff_my_face_logs' %}" class="kiosk-back-btn" title="Xodim kabinetiga qaytish">
+                    <i class="bi bi-arrow-left fs-5"></i>
+                    <span>← Tizimga qaytish</span>
+                </a>
+            {% endif %}
+        {% else %}
+            <a href="{% url 'home' %}" onclick="if (history.length > 1) { history.back(); return false; }" class="kiosk-back-btn" title="Bosh sahifaga qaytish">
+                <i class="bi bi-arrow-left fs-5"></i>
+                <span>← Tizimga qaytish</span>
+            </a>
+        {% endif %}
+
+        <!-- Center: Markaz Brand Logotipi -->
+        <div class="kiosk-brand">
+            <div class="kiosk-logo-badge">
+                <i class="bi bi-person-bounding-box"></i>
+            </div>
+            <div>
+                <div class="kiosk-brand-title">HUMO O'QUV MARKAZI</div>
+                <div class="kiosk-brand-sub">Face ID Biometrik Terminal</div>
+            </div>
+        </div>
+
+        <!-- Right: Digital Clock & Fullscreen Toggle -->
+        <div class="d-flex align-items-center gap-2">
+            <div class="kiosk-clock-pill">
+                <i class="bi bi-clock-fill text-info me-1"></i>
+                <span class="kiosk-clock-time" id="kioskClock">00:00:00</span>
+                <span class="kiosk-clock-date" id="kioskDate">Bugun</span>
+            </div>
+            <button class="kiosk-icon-btn" onclick="toggleKioskFullscreen()" title="To'liq ekranni yoqish/o'chirish">
+                <i class="bi bi-arrows-fullscreen"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- ══════════════════════════════════════════════════════════════ -->
+    <!-- 2. CENTER STAGE: Large Oval Biometric Camera Viewport         -->
+    <!-- ══════════════════════════════════════════════════════════════ -->
+    <main class="kiosk-stage">
+        
+        <!-- Oval Camera Box -->
+        <div class="kiosk-camera-frame state-idle" id="cameraFrame">
+            <!-- Live WebCam Video (Mirrored) -->
+            <video id="videoFeed" class="kiosk-video" autoplay playsinline webkit-playsinline muted></video>
+            <canvas id="captureCanvas" style="display:none;"></canvas>
+
+            <!-- CAMERA INITIALIZING & ERROR / PERMISSION HELPER OVERLAY -->
+            <div class="kiosk-camera-prompt" id="cameraPromptOverlay">
+                <div class="prompt-icon-box info" id="promptIconBox">
+                    <div class="spinner-border text-info" style="width: 2.8rem; height: 2.8rem; border-width: 3.5px;" role="status"></div>
+                </div>
+                <h4 class="fw-bold text-white mb-2" id="promptTitle">Kamera ishga tushirilmoqda...</h4>
+                <p class="text-white-50 small mb-3" style="max-width: 320px; line-height: 1.45;" id="promptDesc">
+                    Biometrik datchiklar va video qurilmasi tekshirilmoqda
+                </p>
+                <div id="promptActionBtnBox"></div>
+            </div>
+
+            <!-- Biometric Scanning HUD & Laser Line -->
+            <div class="kiosk-hud-reticle" id="hudReticle">
+                <div class="hud-corner tl"></div>
+                <div class="hud-corner tr"></div>
+                <div class="hud-corner bl"></div>
+                <div class="hud-corner br"></div>
+                <div class="kiosk-face-oval-guide"></div>
+                <div class="kiosk-laser-line" id="laserBeam"></div>
+            </div>
+
+            <!-- SUCCESS / LATE / ERROR RESULT OVERLAY -->
+            <div class="kiosk-result-overlay" id="resultOverlay">
+                <div class="result-icon-ring" id="resultIcon">
+                    <i class="bi bi-check-lg"></i>
+                </div>
+                <h3 class="result-staff-name text-white" id="resultStaffName">Xodim Ismi</h3>
+                <div class="result-action-title text-success" id="resultActionTitle">Kelish qayd etildi!</div>
+                
+                <div class="result-details-pills" id="resultPills">
+                    <!-- Dynamic badges: Vaqt, Lavozim, Jarima -->
+                </div>
+
+                <!-- Auto-Reset Progress Bar -->
+                <div class="small text-white-50 mt-1 mb-2">Keyingi xodim kutilmoqda...</div>
+                <div class="result-countdown-bar-wrap">
+                    <div class="result-countdown-bar" id="countdownBar"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- In-Frame Real-Time Status Pill -->
+        <div class="kiosk-status-badge-wrap">
+            <div class="kiosk-live-badge" id="liveStatusBadge">
+                <span class="pulsing-indicator" id="statusDot"></span>
+                <span id="statusText">Yuz kutilmoqda (Hands-free)</span>
+            </div>
+        </div>
+    </main>
+
+    <!-- ══════════════════════════════════════════════════════════════ -->
+    <!-- 3. BOTTOM FOOTER BAR: Status Indicators & Minimal Controls   -->
+    <!-- ══════════════════════════════════════════════════════════════ -->
+    <footer class="kiosk-footer">
+        <div class="kiosk-pills-row">
+            <!-- GPS Status Pill -->
+            <div class="kiosk-info-pill" id="gpsPill">
+                <i class="bi bi-geo-alt-fill text-success" id="gpsIcon"></i>
+                <span id="gpsText">GPS: Bino tekshirilmoqda...</span>
+            </div>
+
+            <!-- Auto-scan Mode Pill -->
+            <div class="kiosk-info-pill">
+                <i class="bi bi-robot text-cyan"></i>
+                <span>Avto-skanerlash: <b>Yoniq (1.5s)</b></span>
+            </div>
+
+            <!-- AI Engine Indicator -->
+            <div class="kiosk-info-pill">
+                <i class="bi bi-shield-check text-info"></i>
+                <span>Biometrika: <b>Qat'iy xavfsiz</b></span>
+            </div>
+        </div>
+
+        <!-- Manual selection trigger (discreet toggle) -->
+        <div class="d-flex align-items-center gap-3">
+            <a class="manual-toggle-link" onclick="toggleManualPicker()">
+                <i class="bi bi-sliders"></i>
+                <span>Qo'lda tanlash</span>
+            </a>
+        </div>
+    </footer>
+
+    <!-- OPTIONAL MANUAL SELECTION DRAWER -->
+    <div id="manualPickerDrawer">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <span class="fw-bold small text-white"><i class="bi bi-person-badge me-1"></i>Xodimni qo'lda tanlash:</span>
+            <button type="button" class="btn-close btn-close-white small" onclick="toggleManualPicker()"></button>
+        </div>
+        <select id="manualStaffSelect" class="form-select form-select-sm bg-dark text-white border-secondary mb-2">
+            <option value="">🤖 Yuzni avtomatik aniqlash (Barcha xodimlar)</option>
+            <optgroup label="Menejerlar">
+                {% for m in managers %}
+                <option value="{{ m.user.id }}">{{ m.first_name }} {{ m.last_name }} (Menejer)</option>
+                {% endfor %}
+            </optgroup>
+            <optgroup label="O'qituvchilar">
+                {% for t in teachers %}
+                <option value="{{ t.user.id }}">{{ t.first_name }} {{ t.last_name }} (O'qituvchi)</option>
+                {% endfor %}
+            </optgroup>
+        </select>
+        <button type="button" class="btn btn-sm btn-info w-100 fw-bold text-white rounded-pill" onclick="triggerManualVerification()">
+            <i class="bi bi-camera-fill me-1"></i> Tanlangan xodimni tekshirish
+        </button>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!-- 4. REAL-TIME HANDS-FREE RECOGNITION & CAMERA ENGINE            -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<script>
+    // 1. TIZIM VA GEOLOKATSIYA SOZLAMALARI
+    const centerLat = {{ settings.latitude|default:"41.311081" }};
+    const centerLon = {{ settings.longitude|default:"69.240562" }};
+    const allowedRadius = {{ settings.allowed_radius_meters|default:"100" }};
+    const isGeofencingEnabled = {{ settings.is_geofencing_enabled|yesno:"true,false" }};
+    const verifyApiUrl = "{% url 'face_id_verify_api' %}";
+    const csrfToken = "{{ csrf_token }}";
+
+    // HTTPS & Secure Context tekshiruvi
+    // Lokal tarmoq (LAN) IP lari ham xavfsiz deb hisoblanadi (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
+    const hostname = location.hostname;
+    const isLocalhost = ['localhost', '127.0.0.1', '::1'].includes(hostname);
+    const isLanIP = /^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)/.test(hostname);
+    const isKioskTrusted = isLocalhost || isLanIP;
+    // window.isSecureContext - brauzer o'zi HTTPS/localhost aniqlaydi
+    // Bizning override: LAN IP larni ham ishonchli deb qabul qilamiz
+    const kioskSecureMode = window.isSecureContext || isKioskTrusted;
+
+    let currentLat = null;
+    let currentLon = null;
+    let currentDistance = null;
+
+    // DOM Elementlari
+    const video = document.getElementById('videoFeed');
+    const canvas = document.getElementById('captureCanvas');
+    const cameraFrame = document.getElementById('cameraFrame');
+    const cameraPromptOverlay = document.getElementById('cameraPromptOverlay');
+    const promptIconBox = document.getElementById('promptIconBox');
+    const promptTitle = document.getElementById('promptTitle');
+    const promptDesc = document.getElementById('promptDesc');
+    const promptActionBtnBox = document.getElementById('promptActionBtnBox');
+
+    const resultOverlay = document.getElementById('resultOverlay');
+    const resultIcon = document.getElementById('resultIcon');
+    const resultStaffName = document.getElementById('resultStaffName');
+    const resultActionTitle = document.getElementById('resultActionTitle');
+    const resultPills = document.getElementById('resultPills');
+    const countdownBar = document.getElementById('countdownBar');
+    const liveStatusBadge = document.getElementById('liveStatusBadge');
+    const statusDot = document.getElementById('statusDot');
+    const statusText = document.getElementById('statusText');
+    const gpsPill = document.getElementById('gpsPill');
+    const gpsText = document.getElementById('gpsText');
+    const gpsIcon = document.getElementById('gpsIcon');
+
+    // STATE MACHINE
+    let scannerState = 'IDLE'; 
+    let autoScanInterval = null;
+    let autoScanEnabled = true;
+    let lastScanTime = 0;
+    let activeMediaStream = null;
+    const SCAN_INTERVAL_MS = 1400; // Har 1.4 soniyada bir kadr tekshiriladi
+    const COOLDOWN_DURATION_MS = 3800; // Muvaffaqiyatdan so'ng 3.8 soniya kutish
+
+    // ══════ SMART BACK NAVIGATION ══════
+    function handleKioskBack() {
+        {% if request.user.is_authenticated %}
+            {% if request.user.role == 'admin' or request.session.admin_authenticated %}
+                window.location.href = "{% url 'admin_dashboard' %}";
+            {% elif request.user.role == 'manager' %}
+                window.location.href = "{% url 'manager_dashboard' %}";
+            {% elif request.user.role == 'teacher' %}
+                window.location.href = "{% url 'teacher_dashboard' %}";
+            {% else %}
+                window.location.href = "{% url 'staff_my_face_logs' %}";
+            {% endif %}
+        {% else %}
+            if (history.length > 1) {
+                history.back();
+            } else {
+                window.location.href = "{% url 'home' %}";
+            }
+        {% endif %}
+    }
+
+    // ══════ PROMPT / OVERLAY HELPER FUNKSIYALARI ══════
+    function showCameraPrompt(type, title, desc, actionHtml = '') {
+        cameraPromptOverlay.classList.remove('hidden');
+        promptTitle.textContent = title;
+        promptDesc.textContent = desc;
+        promptActionBtnBox.innerHTML = actionHtml;
+
+        if (type === 'loading') {
+            promptIconBox.className = 'prompt-icon-box info';
+            promptIconBox.innerHTML = '<div class="spinner-border text-info" style="width: 2.8rem; height: 2.8rem; border-width: 3.5px;" role="status"></div>';
+        } else if (type === 'warning') {
+            promptIconBox.className = 'prompt-icon-box warning';
+            promptIconBox.innerHTML = '<i class="bi bi-camera-video-off-fill text-warning"></i>';
+        } else if (type === 'https_required') {
+            promptIconBox.className = 'prompt-icon-box warning';
+            promptIconBox.innerHTML = '<i class="bi bi-shield-lock-fill text-warning"></i>';
+        } else if (type === 'danger') {
+            promptIconBox.className = 'prompt-icon-box danger';
+            promptIconBox.innerHTML = '<i class="bi bi-exclamation-octagon-fill text-danger"></i>';
+        }
+    }
+
+    function hideCameraPrompt() {
+        cameraPromptOverlay.classList.add('hidden');
+    }
+
+    // ══════ WEB AUDIO API & SPEECH SYNTHESIS ══════
+    let audioCtx = null;
+    function playKioskChime(type) {
+        try {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const now = audioCtx.currentTime;
+
+            if (type === 'success') {
+                const notes = [523.25, 659.25, 783.99, 1046.50];
+                notes.forEach((freq, idx) => {
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(freq, now + idx * 0.07);
+                    gain.gain.setValueAtTime(0.12, now + idx * 0.07);
+                    gain.gain.exponentialRampToValueAtTime(0.0001, now + idx * 0.07 + 0.35);
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.start(now + idx * 0.07);
+                    osc.stop(now + idx * 0.07 + 0.35);
+                });
+            } else if (type === 'late') {
+                [440.0, 554.37].forEach((freq, idx) => {
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(freq, now + idx * 0.12);
+                    gain.gain.setValueAtTime(0.14, now + idx * 0.12);
+                    gain.gain.exponentialRampToValueAtTime(0.0001, now + idx * 0.12 + 0.45);
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.start(now + idx * 0.12);
+                    osc.stop(now + idx * 0.12 + 0.45);
+                });
+            }
+        } catch (e) {}
+    }
+
+    function speakGreeting(name, isLate, actionType) {
+        if (!('speechSynthesis' in window)) return;
+        try {
+            window.speechSynthesis.cancel();
+            let text = "";
+            if (actionType === 'ketish') {
+                text = `Xayr, ${name}. Yaxshi dam oling!`;
+            } else if (isLate) {
+                text = `Diqqat, ${name}. Kechikish qayd etildi.`;
+            } else {
+                text = `Xush kelibsiz, ${name}!`;
+            }
+
+            const utter = new SpeechSynthesisUtterance(text);
+            utter.rate = 1.0;
+            utter.pitch = 1.05;
+            utter.lang = 'uz-UZ';
+            window.speechSynthesis.speak(utter);
+        } catch (e) {}
+    }
+
+    // ══════ CLOCK & DATE ══════
+    function updateKioskClock() {
+        const now = new Date();
+        document.getElementById('kioskClock').textContent = now.toLocaleTimeString('uz-UZ', { hour12: false });
+        
+        const days = ['Yakshanba', 'Dushanba', 'Seshanba', 'Chorshanba', 'Payshanba', 'Juma', 'Shanba'];
+        const months = ['Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun', 'Iyul', 'Avgust', 'Sentyabr', 'Oktyabr', 'Noyabr', 'Dekabr'];
+        const dayName = days[now.getDay()];
+        const dateStr = `${now.getDate()}-${months[now.getMonth()]}`;
+        document.getElementById('kioskDate').textContent = `${dayName}, ${dateStr}`;
+    }
+    setInterval(updateKioskClock, 1000);
+    updateKioskClock();
+
+    function toggleKioskFullscreen() {
+        if (!document.fullscreenElement) {
+            document.documentElement.requestFullscreen().catch(() => {});
+        } else {
+            if (document.exitFullscreen) {
+                document.exitFullscreen().catch(() => {});
+            }
+        }
+    }
+
+    // ══════ MULTI-TIER ROBUST CAMERA LOADER WITH TIMEOUT (3-5s) ══════
+    function callWithTimeout(promise, ms, errorName = 'TimeoutError') {
+        let timer = null;
+        const timeoutPromise = new Promise((_, reject) => {
+            timer = setTimeout(() => {
+                const err = new Error("Kamerani ochish vaqti tugadi (Timeout)");
+                err.name = errorName;
+                reject(err);
+            }, ms);
+        });
+        return Promise.race([promise, timeoutPromise]).finally(() => {
+            if (timer) clearTimeout(timer);
+        });
+    }
+
+    async function acquireCameraStream() {
+        // Erta tekshiruv: navigator.mediaDevices mavjud emas (HTTP insecure context)
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            // Legacy API bor-yo'qligini tekshir
+            const legacyGUM = navigator.getUserMedia || navigator.webkitGetUserMedia ||
+                              navigator.mozGetUserMedia || navigator.msGetUserMedia;
+            if (!legacyGUM) {
+                // Sabab: HTTP + tashqi IP da brauzer mediaDevices ni o'chiradi
+                const reason = (location.protocol === 'http:' && !isKioskTrusted)
+                    ? 'HTTP_EXTERNAL'
+                    : 'BROWSER_UNSUPPORTED';
+                throw Object.assign(new Error(reason), { name: reason });
+            }
+            // Legacy API bilan urinib ko'r (3.5 soniya timeout)
+            const constraints = { video: true, audio: false };
+            return callWithTimeout(
+                new Promise((res, rej) => legacyGUM.call(navigator, constraints, res, rej)),
+                3500,
+                'TimeoutError'
+            );
+        }
+
+        // Har bir getUserMedia so'rovi uchun 3.5 soniyalik cheklov
+        const getMedia = (constraints) => callWithTimeout(
+            navigator.mediaDevices.getUserMedia(constraints),
+            3500,
+            'TimeoutError'
+        );
+
+        // 1-bosqich: Old kamera (user facing) ideal o'lchamlar bilan
+        try {
+            return await getMedia({
+                video: { facingMode: "user", width: { ideal: 1280, min: 480 }, height: { ideal: 720, min: 360 } },
+                audio: false
+            });
+        } catch (err1) {
+            console.warn("1-bosqich kamera so'rovi o'tmadi, 2-bosqichga o'tilmoqda:", err1);
+            if (err1.name === 'NotAllowedError' || err1.name === 'PermissionDeniedError' || err1.name === 'TimeoutError') throw err1;
+        }
+
+        // 2-bosqich: Oddiy user-facing kamera (mobil qurilmalar)
+        try {
+            return await getMedia({
+                video: { facingMode: "user" },
+                audio: false
+            });
+        } catch (err2) {
+            console.warn("2-bosqich kamera so'rovi o'tmadi, 3-bosqichga o'tilmoqda:", err2);
+            if (err2.name === 'NotAllowedError' || err2.name === 'PermissionDeniedError' || err2.name === 'TimeoutError') throw err2;
+        }
+
+        // 3-bosqich: Har qanday mavjud video qurilma
+        return await getMedia({
+            video: true,
+            audio: false
+        });
+    }
+
+    async function initKioskCamera() {
+        showCameraPrompt(
+            'loading',
+            'Kamera ishga tushirilmoqda...',
+            'Brauzer kamera ruxsatini kutmoqda — iltimos "Ruxsat berish" tugmasini bosing',
+            ''
+        );
+
+        // Agar tashqi domen orqali HTTP da ochilgan bo'lsa (localhost/LAN IP bundan mustasno)
+        if (!kioskSecureMode && location.protocol === 'http:' && !isKioskTrusted) {
+            const httpsUrl = location.href.replace('http:', 'https:');
+            showCameraPrompt(
+                'https_required',
+                'Xavfsiz ulanish (HTTPS) zarur',
+                'Brauzer xavfsizlik qoidalariga ko\'ra kamera va GPS faqat HTTPS (SSL) protokoli orqali ishlaydi. Iltimos saytni HTTPS orqali oching.',
+                `<a href="${httpsUrl}" class="btn btn-primary rounded-pill px-4 py-2 fw-bold shadow"><i class="bi bi-shield-lock-fill me-1"></i> HTTPS rejimiga o'tish</a>`
+            );
+            statusText.textContent = "HTTPS ulanish talab qilinadi";
+            statusDot.style.background = "var(--kiosk-amber)";
+            return;
+        }
+
+        let cameraStarted = false;
+
+        // ──── 4 SONIYALIK QAT'IY FOYDALANUVCHI TIMEOUTI (3-5 soniya talabi bo'yicha) ────
+        // Agar kamera 4 soniya ichida ochilmasa, abadiy qolib ketmasdan tushunarli xabar chiqariladi
+        const cameraTimeoutId = setTimeout(() => {
+            if (!cameraStarted) {
+                console.warn('Kamera 4 soniya ichida ochilmadi — Timeout ishga tushdi');
+                if (activeMediaStream) {
+                    try { activeMediaStream.getTracks().forEach(t => t.stop()); } catch(e) {}
+                    activeMediaStream = null;
+                }
+                cameraFrame.className = "kiosk-camera-frame state-error";
+                statusDot.style.background = "var(--kiosk-rose)";
+                statusText.textContent = "Kamerani ochib bo'lmadi";
+                showCameraPrompt(
+                    'danger',
+                    'Kamerani ochib bo\'lmadi. Brauzer ruxsatlarini tekshiring',
+                    'Kamera 4 soniya ichida javob bermadi. Brauzer manzil satridagi qulf 🔒 belgisini bosib kameraga ruxsat berilganligini tekshiring yoki kamera boshqa dastur (Zoom, Teams va h.k.) tomonidan band emasligiga ishonch hosil qiling.',
+                    `<div class="d-flex flex-wrap gap-2 justify-content-center">
+                        <button class="btn btn-warning text-dark rounded-pill px-4 py-2 fw-bold shadow" onclick="initKioskCamera()">
+                            <i class="bi bi-arrow-clockwise me-1"></i> Qayta urinish
+                        </button>
+                        <button class="btn btn-outline-light rounded-pill px-3 py-2 fw-bold" onclick="location.reload()">
+                            <i class="bi bi-arrow-repeat me-1"></i> Sahifani yangilash
+                        </button>
+                    </div>`
+                );
+            }
+        }, 4000);
+
+        try {
+            // Avvalgi streamni to'xtatish
+            if (activeMediaStream) {
+                activeMediaStream.getTracks().forEach(track => track.stop());
+                activeMediaStream = null;
+            }
+            // video ni tozalash
+            video.srcObject = null;
+
+            const stream = await acquireCameraStream();
+            activeMediaStream = stream;
+            video.srcObject = stream;
+            video.muted = true;
+            video.setAttribute('playsinline', '');
+            video.setAttribute('webkit-playsinline', '');
+            video.setAttribute('autoplay', '');
+
+            // ──── Video ishga tushirish funksiyasi ────
+            async function startVideoPlayback() {
+                if (cameraStarted) return;
+                cameraStarted = true;
+                clearTimeout(cameraTimeoutId);
+                try {
+                    await video.play();
+                    hideCameraPrompt();
+                    cameraFrame.className = 'kiosk-camera-frame state-idle';
+                    statusDot.style.background = 'var(--kiosk-cyan)';
+                    statusText.textContent = 'Yuz kutilmoqda (Hands-free)';
+                    startHandsFreeScanner();
+                } catch (playErr) {
+                    console.warn('Video autoplay bloklandi:', playErr);
+                    showCameraPrompt(
+                        'warning',
+                        'Kamerani faollashtiring',
+                        'Brauzer avtomatik ijroni to\'xtatdi. Kamerani yoqish uchun quyidagi tugmani bosing:',
+                        `<button class="btn btn-info rounded-pill px-4 py-2 fw-bold text-white shadow"
+                             onclick="video.play().then(()=>{hideCameraPrompt();startHandsFreeScanner();}).catch(()=>{})">
+                             <i class="bi bi-play-circle-fill me-1"></i> Kamerani Yoqish
+                         </button>`
+                    );
+                }
+            }
+
+            // Barcha video hodisalariga tinglovchilar
+            video.onloadedmetadata = () => startVideoPlayback();
+            video.onloadeddata      = () => startVideoPlayback();
+            video.oncanplay         = () => startVideoPlayback();
+            video.oncanplaythrough  = () => startVideoPlayback();
+            video.addEventListener('playing', () => {
+                if (!cameraStarted) startVideoPlayback();
+            }, { once: true });
+
+            // Firefox/Safari uchun load()
+            try { video.load(); } catch(e) {}
+
+        } catch (err) {
+            clearTimeout(cameraTimeoutId);
+            console.error("Camera init error:", err.name, err.message);
+            cameraFrame.className = "kiosk-camera-frame state-error";
+            statusDot.style.background = "var(--kiosk-rose)";
+            
+            const errName = err.name || err.message || '';
+
+            if (errName === 'HTTP_EXTERNAL') {
+                const httpsUrl = location.href.replace('http:', 'https:');
+                showCameraPrompt(
+                    'https_required',
+                    'Kamera uchun HTTPS zarur',
+                    `Brauzer (${hostname}) dan HTTP orqali kameraga ruxsat bermaydi. Saytni HTTPS orqali oching yoki mahalliy tarmoq (192.168.x.x) IP dan foydalaning.`,
+                    `<a href="${httpsUrl}" class="btn btn-primary rounded-pill px-4 py-2 fw-bold shadow me-2"><i class="bi bi-shield-lock-fill me-1"></i> HTTPS ga o'tish</a>
+                     <button class="btn btn-outline-light rounded-pill px-4 py-2 fw-bold shadow" onclick="initKioskCamera()"><i class="bi bi-arrow-clockwise me-1"></i> Qayta</button>`
+                );
+                statusText.textContent = "HTTPS ulanish zarur";
+            } else if (errName === 'TimeoutError') {
+                showCameraPrompt(
+                    'danger',
+                    'Kamerani ochib bo\'lmadi. Brauzer ruxsatlarini tekshiring',
+                    'Kamera 4 soniya ichida ishga tushmadi. Brauzer ruxsatlarini tekshiring yoki kamera boshqa dastur tomonidan band bo\'lishi mumkin.',
+                    `<div class="d-flex flex-wrap gap-2 justify-content-center">
+                        <button class="btn btn-warning text-dark rounded-pill px-4 py-2 fw-bold shadow" onclick="initKioskCamera()">
+                            <i class="bi bi-arrow-clockwise me-1"></i> Qayta urinish
+                        </button>
+                        <button class="btn btn-outline-light rounded-pill px-3 py-2 fw-bold" onclick="location.reload()">
+                            <i class="bi bi-arrow-repeat me-1"></i> Sahifani yangilash
+                        </button>
+                    </div>`
+                );
+                statusText.textContent = "Kamera ochilmadi (Timeout)";
+            } else if (errName === 'BROWSER_UNSUPPORTED') {
+                showCameraPrompt(
+                    'danger',
+                    'Kamera API qo\'llab-quvvatlanmaydi',
+                    'Bu brauzer kamera API ni qo\'llab-quvvatlamaydi. Iltimos Chrome, Firefox, yoki Edge brauzerlaridan foydalaning.',
+                    `<button class="btn btn-outline-light rounded-pill px-4 py-2 fw-bold shadow" onclick="location.reload()"><i class="bi bi-arrow-clockwise me-1"></i> Sahifani yangilash</button>`
+                );
+                statusText.textContent = "Brauzer qo'llab-quvvatlamaydi";
+            } else if (errName === 'NotAllowedError' || errName === 'PermissionDeniedError') {
+                showCameraPrompt(
+                    'danger',
+                    'Kamerani ochib bo\'lmadi. Brauzer ruxsatlarini tekshiring',
+                    'Kameraga kirishga ruxsat berilmadi. Brauzer manzil satridagi qulf 🔒 yoki kamera belgisini bosing va "Ruxsat berish" (Allow) ni tanlang.',
+                    `<button class="btn btn-warning text-dark rounded-pill px-4 py-2 fw-bold shadow" onclick="initKioskCamera()"><i class="bi bi-arrow-clockwise me-1"></i> Qayta urinish</button>`
+                );
+                statusText.textContent = "Kameraga ruxsat berilmagan";
+            } else if (errName === 'NotFoundError' || errName === 'DevicesNotFoundError') {
+                showCameraPrompt(
+                    'danger',
+                    'Kamerani ochib bo\'lmadi',
+                    'Qurilmangizda kamera topilmadi yoki ulanmagan. Iltimos qurilma kamerasini tekshiring.',
+                    `<button class="btn btn-outline-light rounded-pill px-4 py-2 fw-bold shadow" onclick="initKioskCamera()"><i class="bi bi-arrow-clockwise me-1"></i> Qayta tekshirish</button>`
+                );
+                statusText.textContent = "Kamera topilmadi";
+            } else if (errName === 'NotReadableError' || errName === 'TrackStartError') {
+                showCameraPrompt(
+                    'danger',
+                    'Kamerani ochib bo\'lmadi',
+                    'Kamera boshqa dastur (Zoom, Teams, Skype va h.k.) tomonidan band qilingan. Ularni yopib qayta urinib ko\'ring.',
+                    `<button class="btn btn-warning text-dark rounded-pill px-4 py-2 fw-bold shadow" onclick="initKioskCamera()"><i class="bi bi-arrow-clockwise me-1"></i> Qayta urinish</button>`
+                );
+                statusText.textContent = "Kamera band yoki o'qilmadi";
+            } else {
+                showCameraPrompt(
+                    'danger',
+                    'Kamerani ochib bo\'lmadi. Brauzer ruxsatlarini tekshiring',
+                    `Kamerani ochishda xatolik: ${errName}. Brauzer ruxsatlarini va kamera ulanishini tekshiring.`,
+                    `<button class="btn btn-warning text-dark rounded-pill px-4 py-2 fw-bold shadow" onclick="initKioskCamera()"><i class="bi bi-arrow-clockwise me-1"></i> Qayta urinish</button>`
+                );
+                statusText.textContent = "Kamera xatoligi";
+            }
+        }
+    }
+
+    // ══════ GEOLOKATSIYA MONITORINGI (XAVFSIZ VA BARQAROR) ══════
+    function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
+        const R = 6371000;
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLon = (lon2 - lon1) * Math.PI / 180;
+        const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                  Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                  Math.sin(dLon/2) * Math.sin(dLon/2);
+        return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
+    }
+
+    if (navigator.geolocation && kioskSecureMode) {
+        navigator.geolocation.watchPosition(
+            (pos) => {
+                currentLat = pos.coords.latitude;
+                currentLon = pos.coords.longitude;
+                currentDistance = calculateDistanceMeters(currentLat, currentLon, centerLat, centerLon);
+
+                if (isGeofencingEnabled && currentDistance > allowedRadius) {
+                    gpsPill.style.borderColor = "rgba(244, 63, 94, 0.5)";
+                    gpsPill.style.background = "rgba(244, 63, 94, 0.15)";
+                    gpsIcon.className = "bi bi-exclamation-triangle-fill text-danger";
+                    gpsText.innerHTML = `GPS: <b>${currentDistance} m</b> (Hududdan tashqarida!)`;
+                } else {
+                    gpsPill.style.borderColor = "rgba(16, 185, 129, 0.35)";
+                    gpsPill.style.background = "rgba(16, 185, 129, 0.12)";
+                    gpsIcon.className = "bi bi-geo-alt-fill text-success";
+                    gpsText.innerHTML = `GPS: <b>Bino ichida (${currentDistance} m)</b>`;
+                }
+            },
+            (err) => {
+                gpsIcon.className = "bi bi-geo-alt text-warning";
+                gpsText.innerHTML = "GPS: <i>Signali cheklangan (ixtiyoriy)</i>";
+            },
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+        );
+    } else {
+        gpsIcon.className = "bi bi-geo-alt text-muted";
+        gpsText.innerHTML = kioskSecureMode ? "GPS: Qidirilmoqda..." : "GPS: <i>HTTPS zarur (LAN ruxsat berilgan)</i>";
+    }
+
+    // ══════ HANDS-FREE REAL-TIME AVTO-SKANERLASH SIKLI ══════
+    function startHandsFreeScanner() {
+        if (autoScanInterval) clearInterval(autoScanInterval);
+        
+        autoScanInterval = setInterval(() => {
+            if (!autoScanEnabled) return;
+            if (scannerState !== 'IDLE') return;
+            if (video.readyState < 2 || video.paused) return;
+
+            const now = Date.now();
+            if (now - lastScanTime < SCAN_INTERVAL_MS) return;
+
+            performAutoScanCycle();
+        }, 300);
+    }
+
+    async function performAutoScanCycle(targetUserId = null) {
+        if (scannerState !== 'IDLE') return;
+        scannerState = 'SCANNING';
+        lastScanTime = Date.now();
+
+        cameraFrame.className = 'kiosk-camera-frame state-scanning';
+        statusDot.style.background = "var(--kiosk-cyan)";
+        statusText.textContent = "Yuz tahlil qilinmoqda...";
+
+        // Kadrni olish (Optimal o'lcham 480x360 tezkor uzatish uchun)
+        const vw = video.videoWidth || 640;
+        const vh = video.videoHeight || 480;
+        canvas.width = 480;
+        canvas.height = Math.round(480 * (vh / vw));
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+
+        const formData = new FormData();
+        formData.append('image', dataUrl);
+        if (targetUserId) {
+            formData.append('user_id', targetUserId);
+        }
+        if (currentLat) formData.append('latitude', currentLat);
+        if (currentLon) formData.append('longitude', currentLon);
+        formData.append('csrfmiddlewaretoken', csrfToken);
+
+        try {
+            const resp = await fetch(verifyApiUrl, {
+                method: 'POST',
+                body: formData
+            });
+
+            // HTTP Status Xatoliklarini tutish (403, 404, 500)
+            if (!resp.ok) {
+                console.error(`Face ID API xatoligi: HTTP ${resp.status} ${resp.statusText}`);
+                let errorMsg = `Server xatoligi (${resp.status})`;
+                try {
+                    const errData = await resp.json();
+                    if (errData && errData.message) {
+                        errorMsg = errData.message;
+                    }
+                } catch(e) {}
+
+                if (resp.status === 403) {
+                    showApiError(
+                        'Ruxsat berilmadi (403 Forbidden)',
+                        errorMsg || 'Ushbu operatsiyani bajarish uchun profilingizda ruxsat yo\'q. Iltimos, tizimga qayta kiring.'
+                    );
+                    return;
+                } else if (resp.status === 500) {
+                    showApiError(
+                        'Serverda xatolik (500 Error)',
+                        errorMsg || 'Biometrik tahlil serverida xatolik yuz berdi. Iltimos qayta urinib ko\'ring.'
+                    );
+                    return;
+                } else if (resp.status === 404) {
+                    showApiError(
+                        'API topilmadi (404 Not Found)',
+                        'Face ID tekshirish manzili topilmadi. Tizim sozlamalarini tekshiring.'
+                    );
+                    return;
+                } else {
+                    // Masalan 400 — "Yuz aniqlanmadi" oddiy skanerlash sikli
+                    handleRecognitionNoMatch(errorMsg);
+                    return;
+                }
+            }
+
+            const data = await resp.json();
+
+            if (data.success) {
+                handleRecognitionSuccess(data);
+            } else {
+                handleRecognitionNoMatch(data.message || "Yuz aniqlanmadi");
+            }
+        } catch (err) {
+            console.error("Face ID API tarmoq yoki fetch xatoligi:", err);
+            handleRecognitionNoMatch("Tarmoq xatoligi");
+        }
+    }
+
+    let apiErrorTimeout = null;
+    function showApiError(title, desc) {
+        if (scannerState === 'SUCCESS' || scannerState === 'LATE') return;
+        scannerState = 'API_ERROR';
+        cameraFrame.className = 'kiosk-camera-frame state-error';
+        statusDot.style.background = "var(--kiosk-rose)";
+        statusText.textContent = title;
+        showCameraPrompt(
+            'danger',
+            title,
+            desc,
+            `<button class="btn btn-warning text-dark rounded-pill px-4 py-2 fw-bold shadow" onclick="hideCameraPrompt(); resetKioskToIdle();">
+                <i class="bi bi-arrow-clockwise me-1"></i> Davom ettirish
+            </button>`
+        );
+        if (apiErrorTimeout) clearTimeout(apiErrorTimeout);
+        apiErrorTimeout = setTimeout(() => {
+            hideCameraPrompt();
+            resetKioskToIdle();
+        }, 4000);
+    }
+
+    function handleRecognitionSuccess(data) {
+        const isLate = !!data.is_late;
+        const actionType = data.action_type || 'kelish';
+        const isCheckout = (actionType === 'ketish');
+        scannerState = isLate ? 'LATE' : 'SUCCESS';
+
+        cameraFrame.className = `kiosk-camera-frame ${isLate ? 'state-late' : 'state-success'}`;
+        resultOverlay.classList.add('active');
+
+        if (isCheckout) {
+            // ── KETISH ──
+            playKioskChime('success');
+            resultIcon.className = "result-icon-ring success";
+            resultIcon.innerHTML = '<i class="bi bi-box-arrow-right"></i>';
+            resultActionTitle.className = "result-action-title text-info";
+            resultActionTitle.textContent = "Ketish Qayd Etildi! 👋";
+        } else if (isLate) {
+            // ── KECHIKISH BILAN KELISH ──
+            playKioskChime('late');
+            resultIcon.className = "result-icon-ring late";
+            resultIcon.innerHTML = '<i class="bi bi-clock-history"></i>';
+            resultActionTitle.className = "result-action-title text-warning";
+            resultActionTitle.textContent = "Kechikish Qayd Etildi!";
+        } else {
+            // ── O'Z VAQTIDA KELISH ──
+            playKioskChime('success');
+            resultIcon.className = "result-icon-ring success";
+            resultIcon.innerHTML = '<i class="bi bi-check-lg"></i>';
+            resultActionTitle.className = "result-action-title text-success";
+            resultActionTitle.textContent = "Kelish Qayd Etildi! ✅";
+        }
+
+        resultStaffName.textContent = data.staff_name || "Xodim";
+        speakGreeting(data.staff_name || "", isLate, actionType);
+
+        // Vaqtni to'g'ri ko'rsatish
+        const displayTime = isCheckout
+            ? (data.check_out_time || "Hozir")
+            : (data.check_in_time || "Hozir");
+        const timeLabel = isCheckout ? "Ketish" : "Kelish";
+
+        resultPills.innerHTML = `
+            <span class="result-pill"><i class="bi bi-briefcase-fill text-info me-1"></i>${data.role || "Xodim"}</span>
+            <span class="result-pill"><i class="bi bi-${isCheckout ? 'door-open' : 'door-closed'} me-1"></i>${timeLabel}: <b>${displayTime}</b></span>
+            ${isLate && !isCheckout ? `<span class="result-pill" style="background:rgba(245,158,11,0.2);border-color:rgba(245,158,11,0.5);color:#fde047;"><i class="bi bi-percent me-1"></i>Jarima: -${data.fine_percent}% (${Number(data.fine_amount).toLocaleString()} so'm)</span>` : ''}
+            ${!isCheckout && data.check_out_time ? `<span class="result-pill" style="color:#67e8f9;"><i class="bi bi-clock-history me-1"></i>Avvalgi ketish: ${data.check_out_time}</span>` : ''}
+            <span class="result-pill"><i class="bi bi-shield-check text-success me-1"></i>O'xshashlik: ${data.match_score || 95}%</span>
+        `;
+
+        statusDot.style.background = isLate ? "var(--kiosk-amber)" : (isCheckout ? "var(--kiosk-blue)" : "var(--kiosk-emerald)");
+        statusText.textContent = `${data.staff_name} — ${isCheckout ? 'Ketish' : 'Kelish'} qayd etildi!`;
+
+        countdownBar.style.transition = 'none';
+        countdownBar.style.transform = 'scaleX(1)';
+        setTimeout(() => {
+            countdownBar.style.transition = `transform ${COOLDOWN_DURATION_MS - 200}ms linear`;
+            countdownBar.style.transform = 'scaleX(0)';
+        }, 50);
+
+        setTimeout(() => {
+            resetKioskToIdle();
+        }, COOLDOWN_DURATION_MS);
+    }
+
+    function handleRecognitionNoMatch() {
+        if (scannerState === 'SUCCESS' || scannerState === 'LATE') return;
+
+        cameraFrame.className = 'kiosk-camera-frame state-idle';
+        statusDot.style.background = "var(--kiosk-cyan)";
+        statusText.textContent = "Yuz kutilmoqda (Hands-free)";
+        scannerState = 'IDLE';
+    }
+
+    function resetKioskToIdle() {
+        resultOverlay.classList.remove('active');
+        cameraFrame.className = 'kiosk-camera-frame state-idle';
+        statusDot.style.background = "var(--kiosk-cyan)";
+        statusText.textContent = "Yuz kutilmoqda (Hands-free)";
+        scannerState = 'IDLE';
+        lastScanTime = Date.now();
+    }
+
+    // ══════ QO'LDA TANLASH (MANUAL DRAWER) ══════
+    function toggleManualPicker() {
+        const d = document.getElementById('manualPickerDrawer');
+        d.style.display = (d.style.display === 'block') ? 'none' : 'block';
+    }
+
+    function triggerManualVerification() {
+        const sel = document.getElementById('manualStaffSelect').value;
+        toggleManualPicker();
+        performAutoScanCycle(sel || null);
+    }
+
+    // Sahifa yuklanganda kamerani ishonchli ishga tushirish (Bootstrap)
+    function bootstrapKiosk() {
+        if (location.protocol === 'http:' && !isKioskTrusted) {
+            console.log("Tashqi domen HTTP orqali ulanmoqda, HTTPS ga o'tilmoqda...");
+            location.href = location.href.replace('http:', 'https:');
+            return;
+        }
+        console.log(`Kiosk mode: ${kioskSecureMode ? 'Xavfsiz' : 'Cheklangan'} | Host: ${hostname} | Protocol: ${location.protocol}`);
+        initKioskCamera();
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', bootstrapKiosk);
+    } else {
+        bootstrapKiosk();
+    }
+</script>
+
+</body>
+</html>

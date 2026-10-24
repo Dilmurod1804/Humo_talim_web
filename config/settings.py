@@ -12,19 +12,33 @@ SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-humo-change-in-prod')
 DEBUG = os.getenv('DEBUG', 'True') == 'True'
 ALLOWED_HOSTS = ['*']
 
+# ── SSL & HTTPS Proxy Sozlamalari ─────────────────────────────────────────────
+# Nginx / Cloudflare / Caddy yoki tunnel orqali HTTPS kelganda Django request.is_secure() ni to'g'ri bilishi uchun:
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+USE_X_FORWARDED_HOST = True
+USE_X_FORWARDED_PORT = True
+
 # ── CSRF Sozlamalari ───────────────────────────────────────────────────────────
-# Barcha HTTP/HTTPS manzillar, mahalliy server va tarmoqdagi qurilmalarni
-# ishonchli manzillar ro'yxatiga qo'shish (403 Forbidden xatoligini oldini olish)
 CSRF_TRUSTED_ORIGINS = [
     'http://localhost:8000',
     'http://127.0.0.1:8000',
     'http://0.0.0.0:8000',
-    # Tarmoqdagi haqiqiy IP manzillar (lokal tarmoqdan kiruvchilar uchun)
-    'http://192.168.1.65:8000',   # Asosiy Wi-Fi IP
-    'http://192.168.56.1:8000',   # VirtualBox Host-Only
+    'https://localhost:8000',
+    'https://127.0.0.1:8000',
+    'http://192.168.1.65:8000',
+    'https://192.168.1.65:8000',
+    'http://192.168.56.1:8000',
+    'https://192.168.56.1:8000',
     'http://192.168.1.1:8000',
+    'https://192.168.1.1:8000',
     'http://10.0.0.1:8000',
+    'https://10.0.0.1:8000',
 ]
+
+# Agar muhitda domen berilgan bo'lsa (masalan https://humo.uz)
+_env_origins = os.getenv('CSRF_TRUSTED_ORIGINS', '')
+if _env_origins:
+    CSRF_TRUSTED_ORIGINS.extend([x.strip() for x in _env_origins.split(',') if x.strip()])
 
 # CSRF cookie - barcha so'rovlarda uzatiladigan qiling
 CSRF_COOKIE_HTTPONLY = False   # JS dan o'qish uchun False bo'lishi shart
@@ -68,6 +82,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'core.context_processors.auth_roles',
             ],
         },
     },

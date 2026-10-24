@@ -1,0 +1,88 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Menejer Kirish - HUMO O'quv Markazi{% endblock %}
+
+{% block content %}
+<div class="auth-wrapper">
+    <!-- Floating Background Glass Orbs -->
+    <div class="auth-bg-blob auth-blob-1" style="background: radial-gradient(circle, #f59e0b, #d97706);"></div>
+    <div class="auth-bg-blob auth-blob-2" style="background: radial-gradient(circle, #f97316, #ea580c);"></div>
+    <div class="auth-bg-blob auth-blob-3" style="background: radial-gradient(circle, #fbbf24, #f59e0b);"></div>
+
+    <div class="glass-auth-card text-center">
+        <!-- Manager Badge Icon -->
+        <div class="auth-icon-badge" style="background: linear-gradient(135deg, #f59e0b, #d97706); box-shadow: 0 10px 25px rgba(245,158,11,0.4);">
+            <i class="bi bi-briefcase-fill text-white"></i>
+        </div>
+
+        <h2 class="auth-title">Menejer Paneli</h2>
+        <p class="auth-subtitle">Admin taqdim etgan login va parol bilan tizimga kiring</p>
+
+        {% if error %}
+        <div class="alert alert-danger d-flex align-items-center gap-2 text-start mb-4 rounded-4 shadow-sm border-0"
+             style="background: rgba(254, 226, 226, 0.9); color: #991b1b; backdrop-filter: blur(8px);">
+            <i class="bi bi-exclamation-octagon-fill fs-5 flex-shrink-0"></i>
+            <div class="small fw-semibold">{{ error }}</div>
+        </div>
+        {% endif %}
+
+        <form action="{% url 'manager_login' %}" method="POST" autocomplete="off">
+            {% csrf_token %}
+
+            <div class="auth-input-group">
+                <label for="manager_login_input">Menejer Logini</label>
+                <div class="auth-input-wrapper">
+                    <i class="bi bi-person-badge-fill auth-input-icon text-warning"></i>
+                    <input type="text" id="manager_login_input" name="login" class="auth-input" 
+                           placeholder="Masalan: m_jas_123" required autofocus>
+                </div>
+            </div>
+
+            <div class="auth-input-group">
+                <label for="manager_pwd_input">Parol</label>
+                <div class="auth-input-wrapper">
+                    <i class="bi bi-shield-lock-fill auth-input-icon text-warning"></i>
+                    <input type="password" id="manager_pwd_input" name="password" class="auth-input" 
+                           placeholder="••••••••" required>
+                    <button type="button" class="auth-toggle-pwd" onclick="togglePassword('manager_pwd_input', this)" title="Parolni ko'rsatish">
+                        <i class="bi bi-eye-fill"></i>
+                    </button>
+                </div>
+            </div>
+
+            <button type="submit" class="auth-submit-btn" style="background: linear-gradient(135deg, #f59e0b, #d97706); box-shadow: 0 8px 24px rgba(245,158,11,0.35);">
+                <i class="bi bi-box-arrow-in-right fs-5"></i>
+                <span>Tizimga Kirish</span>
+            </button>
+        </form>
+
+        <div class="auth-footer-divider">
+            <span>YOKI</span>
+        </div>
+
+        <div class="d-flex flex-column gap-2">
+            <a href="{% url 'teacher_login' %}" class="btn btn-outline-light rounded-pill py-2 small fw-semibold">
+                <i class="bi bi-person-workspace me-1 text-success"></i> O'qituvchi sifatida kirish
+            </a>
+            <a href="{% url 'admin_login' %}" class="btn btn-outline-light rounded-pill py-2 small fw-semibold">
+                <i class="bi bi-shield-lock-fill me-1 text-warning"></i> Admin sifatida kirish
+            </a>
+        </div>
+    </div>
+</div>
+
+<script>
+function togglePassword(inputId, btn) {
+    const input = document.getElementById(inputId);
+    const icon = btn.querySelector('i');
+    if (input.type === 'password') {
+        input.type = 'text';
+        icon.className = 'bi bi-eye-slash-fill';
+    } else {
+        input.type = 'password';
+        icon.className = 'bi bi-eye-fill';
+    }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,223 @@
+{% extends 'base.html' %}
+{% block title %}Menejer Kabineti - HUMO{% endblock %}
+
+{% block content %}
+<!-- Page Header -->
+<div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3 mb-4">
+    <div class="d-flex align-items-center gap-3">
+        {% if manager.photo %}
+        <img src="{{ manager.photo.url }}" alt="{{ manager.first_name }}" style="width: 58px; height: 58px; border-radius: 18px; object-fit: cover; border: 3px solid #f59e0b; box-shadow: 0 6px 20px rgba(245,158,11,0.3);">
+        {% else %}
+        <div style="background:linear-gradient(135deg,#f59e0b,#d97706);border-radius:18px;width:58px;height:58px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:bold;font-size:1.4rem;box-shadow:0 6px 20px rgba(245,158,11,0.3);">
+            {{ manager.last_name|slice:":1" }}{{ manager.first_name|slice:":1" }}
+        </div>
+        {% endif %}
+        <div>
+            <div class="d-flex align-items-center gap-2">
+                <h2 class="text-white fw-black mb-0" style="letter-spacing:-1px;">
+                    {{ manager.first_name }} {{ manager.last_name }}
+                </h2>
+                <span class="badge bg-warning text-dark rounded-pill px-3 py-1 fw-bold">Menejer</span>
+            </div>
+            <p class="text-white opacity-75 mb-0 small">
+                <i class="bi bi-telephone me-1"></i>{{ manager.phone|default:"Telefon kiritilmagan" }} •
+                Login: <b class="font-monospace text-warning">{{ manager.generated_login }}</b> •
+                Ish vaqti: <b class="text-white">{{ manager.work_start_time|time:"H:i" }}–{{ manager.work_end_time|time:"H:i" }}</b>
+            </p>
+        </div>
+    </div>
+
+    <div class="d-flex gap-2 flex-wrap">
+        <a href="{% url 'admin_dashboard' %}" class="btn btn-primary rounded-pill px-3 fw-semibold shadow-sm" style="background:linear-gradient(135deg, #6366f1, #8b5cf6); border:none;">
+            <i class="bi bi-grid-1x2-fill me-1"></i> Boshqaruv Paneli
+        </a>
+        <a href="{% url 'admin_payments_all' %}" class="btn btn-warning text-dark fw-bold rounded-pill px-3 shadow-sm">
+            <i class="bi bi-wallet2 me-1"></i> To'lovlar
+        </a>
+        {% if is_admin %}
+        <a href="{% url 'admin_salary_report' %}" class="btn btn-success rounded-pill px-3 fw-semibold shadow-sm" style="background:linear-gradient(135deg, #10b981, #059669); border:none;">
+            <i class="bi bi-cash-stack me-1"></i> Oyliklar
+        </a>
+        {% endif %}
+        <a href="{% url 'admin_face_id_logs' %}" class="btn btn-info text-white rounded-pill px-3 fw-semibold shadow-sm" style="background:linear-gradient(135deg, #06b6d4, #0891b2); border:none;">
+            <i class="bi bi-person-bounding-box me-1"></i> Face ID Jurnali
+        </a>
+        <a href="{% url 'face_id_check_in' %}" target="_blank" class="btn btn-outline-light rounded-pill px-3 fw-semibold shadow-sm">
+            <i class="bi bi-camera-fill me-1"></i> Davomat Qilish
+        </a>
+        <a href="{% url 'staff_my_face_logs' %}" class="btn btn-outline-light rounded-pill px-3 fw-semibold">
+            <i class="bi bi-calendar-check-fill me-1"></i> Mening Tarixim
+        </a>
+    </div>
+</div>
+
+<!-- ══════ BUGUNGI DAVOMAT VA OYLIK HISOB-KITOB ══════ -->
+<div class="row g-3 mb-4">
+    <!-- Bugungi Status -->
+    <div class="col-12 col-md-6 col-lg-3">
+        <div class="glass-card p-3 p-md-4 text-center h-100" style="background:rgba(255,255,255,0.95);">
+            <div class="text-muted small fw-semibold mb-1">
+                <i class="bi bi-calendar2-day text-primary me-1"></i> Bugungi Davomat
+            </div>
+            {% if today_log %}
+                {% if today_log.is_late %}
+                <h4 class="fw-black text-danger mb-0">Kechikdi (+{{ today_log.late_minutes }}m)</h4>
+                <small class="text-muted">Keldi: {{ today_log.check_in_time|time:"H:i" }} | Ketdi: {{ today_log.check_out_time|time:"H:i"|default:"—" }}</small>
+                {% else %}
+                <h4 class="fw-black text-success mb-0">O'z vaqtida</h4>
+                <small class="text-muted">Keldi: {{ today_log.check_in_time|time:"H:i" }} | Ketdi: {{ today_log.check_out_time|time:"H:i"|default:"—" }}</small>
+                {% endif %}
+            {% else %}
+            <h5 class="fw-bold text-muted mb-0">Hali qayd etilmadi</h5>
+            <small class="text-danger"><i class="bi bi-exclamation-circle me-1"></i>Face ID dan o'ting</small>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Oylik Stavka -->
+    <div class="col-6 col-lg-3">
+        <div class="glass-card p-3 p-md-4 text-center h-100" style="background:rgba(255,255,255,0.95);">
+            <div class="text-muted small fw-semibold mb-1">
+                <i class="bi bi-wallet2 text-info me-1"></i> Asosiy Oylik
+            </div>
+            <h4 class="fw-black text-dark mb-0">{{ salary_summary.base_salary|floatformat:0 }} <small class="fs-6 text-muted font-normal">so'm</small></h4>
+            <small class="text-muted">Ish vaqti: {{ manager.work_start_time|time:"H:i" }}–{{ manager.work_end_time|time:"H:i" }}</small>
+        </div>
+    </div>
+
+    <!-- Kechikish Jarimalari -->
+    <div class="col-6 col-lg-3">
+        <div class="glass-card p-3 p-md-4 text-center h-100" style="background:rgba(255,255,255,0.95);">
+            <div class="text-danger small fw-semibold mb-1">
+                <i class="bi bi-percent text-danger me-1"></i> Kechikish Jarimasi
+            </div>
+            <h4 class="fw-black text-danger mb-0">-{{ salary_summary.total_fine_amount|floatformat:0 }} <small class="fs-6 text-muted font-normal">so'm</small></h4>
+            <small class="text-muted">{{ salary_summary.total_late_count }} marta ({{ salary_summary.total_fine_percent }}%)</small>
+        </div>
+    </div>
+
+    <!-- Qo'lga Tegadigan Oylik -->
+    <div class="col-12 col-md-6 col-lg-3">
+        <div class="glass-card p-3 p-md-4 text-center h-100" style="background:rgba(255,255,255,0.95); border: 2px solid #10b981;">
+            <div class="text-success small fw-semibold mb-1">
+                <i class="bi bi-check-circle-fill me-1"></i> Joriy Toza Maosh
+            </div>
+            <h4 class="fw-black text-success mb-0">{{ salary_summary.net_salary|floatformat:0 }} <small class="fs-6 text-muted font-normal">so'm</small></h4>
+            <small class="text-muted">{{ salary_summary.total_days }} kun ishlangan</small>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4">
+    <!-- ══════ SHAXSIY FACE ID JURNALI ══════ -->
+    <div class="col-lg-6">
+        <div class="glass-card h-100" style="overflow:hidden; background: rgba(255,255,255,0.96);">
+            <div class="p-3 border-bottom d-flex align-items-center justify-content-between">
+                <h5 class="fw-bold mb-0 text-dark">
+                    <i class="bi bi-person-bounding-box me-2 text-primary"></i>Mening Face ID Davomat Tarixim
+                </h5>
+                <span class="badge bg-light text-muted border rounded-pill">{{ face_logs|length }} ta yozuv</span>
+            </div>
+
+            <div class="table-responsive" style="max-height: 480px; overflow-y: auto;">
+                <table class="table table-hover align-middle mb-0 small">
+                    <thead class="table-light text-muted">
+                        <tr>
+                            <th class="ps-3">Sana</th>
+                            <th>Kelgan</th>
+                            <th>Ketgan</th>
+                            <th>Holati</th>
+                            <th>Jarima</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for log in face_logs %}
+                        <tr>
+                            <td class="ps-3 fw-bold text-dark">{{ log.date|date:"d.m.Y" }}</td>
+                            <td>
+                                {% if log.check_in_time %}
+                                <span class="badge bg-dark rounded-pill">{{ log.check_in_time|time:"H:i:s" }}</span>
+                                {% else %}—{% endif %}
+                            </td>
+                            <td>
+                                {% if log.check_out_time %}
+                                <span class="badge bg-dark rounded-pill">{{ log.check_out_time|time:"H:i:s" }}</span>
+                                {% else %}<span class="text-muted">—</span>{% endif %}
+                            </td>
+                            <td>
+                                {% if log.is_late %}
+                                <span class="badge bg-danger bg-opacity-15 text-danger border border-danger border-opacity-30 rounded-pill px-2 py-1">
+                                    +{{ log.late_minutes }}m kechikdi
+                                </span>
+                                {% else %}
+                                <span class="badge bg-success bg-opacity-15 text-success border border-success border-opacity-30 rounded-pill px-2 py-1">
+                                    O'z vaqtida
+                                </span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if log.fine_amount_deducted %}
+                                <span class="text-danger fw-bold">-{{ log.fine_amount_deducted|floatformat:0 }} so'm</span>
+                                {% else %}
+                                <span class="text-muted">0</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="5" class="text-center py-4 text-muted">
+                                Hozircha davomat yozuvlari mavjud emas.
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ══════ MARKAZ GURUHLARI VA O'QUV JARAYONI ══════ -->
+    <div class="col-lg-6">
+        <div class="glass-card h-100" style="overflow:hidden; background: rgba(255,255,255,0.96);">
+            <div class="p-3 border-bottom d-flex align-items-center justify-content-between flex-wrap gap-2">
+                <div class="d-flex align-items-center gap-2">
+                    <h5 class="fw-bold mb-0 text-dark">
+                        <i class="bi bi-collection-fill me-2 text-success"></i>O'quv Markazi Guruhlari
+                    </h5>
+                    <span class="badge bg-success bg-opacity-10 text-success rounded-pill">{{ groups|length }} ta</span>
+                </div>
+                <div class="d-flex align-items-center gap-1">
+                    <a href="{% url 'admin_group_create' %}" class="btn btn-sm btn-success rounded-pill px-3 fw-semibold">
+                        <i class="bi bi-plus-lg me-1"></i>Guruh Qo'shish
+                    </a>
+                </div>
+            </div>
+
+            <div class="p-3" style="max-height: 480px; overflow-y: auto;">
+                {% for group in groups %}
+                <div class="p-3 mb-2 rounded-3 bg-light border d-flex align-items-center justify-content-between flex-wrap gap-2">
+                    <div>
+                        <div class="fw-bold text-dark fs-6">{{ group.name }}</div>
+                        <small class="text-muted">
+                            <i class="bi bi-person-badge me-1"></i>O'qituvchi: {{ group.teacher|default:"O'qituvchisiz" }}
+                        </small>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 rounded-pill px-2 py-1 fw-semibold">
+                            {{ group.time_slots.count }} soat
+                        </span>
+                        <a href="{% url 'admin_group_detail' group.id %}" class="btn btn-sm btn-primary rounded-pill px-3 fw-semibold" style="font-size:0.8rem;">
+                            <i class="bi bi-journal-check me-1"></i>Jurnal
+                        </a>
+                    </div>
+                </div>
+                {% empty %}
+                <div class="text-center py-4 text-muted">
+                    Guruhlar mavjud emas.
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

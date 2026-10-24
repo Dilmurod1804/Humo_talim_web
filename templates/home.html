@@ -49,34 +49,51 @@
             <h5 class="fw-bold text-dark mb-1 fs-5">Tizimga kirish</h5>
             <p class="text-muted small mb-3 mb-md-4">O'z rolingizni tanlang</p>
 
-            <div class="row g-2 g-sm-3 justify-content-center">
+            <div class="row g-2 justify-content-center">
                 <!-- Admin -->
-                <div class="col-4">
+                <div class="col-3">
                     <a href="{% url 'admin_login' %}" class="role-btn-wrap text-decoration-none d-block">
                         <div class="role-icon-box"
                              style="background:linear-gradient(135deg,#667eea,#764ba2);">🛡️</div>
-                        <span class="role-label text-dark fw-bold mt-2 d-block">Admin</span>
-                        <span class="text-muted d-block small" style="font-size:.68rem;">Boshqarish</span>
+                        <span class="role-label text-dark fw-bold mt-2 d-block" style="font-size:0.8rem;">Admin</span>
+                        <span class="text-muted d-block small" style="font-size:.65rem;">Boshqarish</span>
+                    </a>
+                </div>
+                <!-- Manager -->
+                <div class="col-3">
+                    <a href="{% url 'manager_login' %}" class="role-btn-wrap text-decoration-none d-block">
+                        <div class="role-icon-box"
+                             style="background:linear-gradient(135deg,#f59e0b,#d97706);">💼</div>
+                        <span class="role-label text-dark fw-bold mt-2 d-block" style="font-size:0.8rem;">Menejer</span>
+                        <span class="text-muted d-block small" style="font-size:.65rem;">Nazorat</span>
                     </a>
                 </div>
                 <!-- Teacher -->
-                <div class="col-4">
+                <div class="col-3">
                     <a href="{% url 'teacher_login' %}" class="role-btn-wrap text-decoration-none d-block">
                         <div class="role-icon-box"
                              style="background:linear-gradient(135deg,#11998e,#38ef7d);">📚</div>
-                        <span class="role-label text-dark fw-bold mt-2 d-block">O'qituvchi</span>
-                        <span class="text-muted d-block small" style="font-size:.68rem;">Davomat</span>
+                        <span class="role-label text-dark fw-bold mt-2 d-block" style="font-size:0.8rem;">O'qituvchi</span>
+                        <span class="text-muted d-block small" style="font-size:.65rem;">Davomat</span>
                     </a>
                 </div>
                 <!-- Parent -->
-                <div class="col-4">
+                <div class="col-3">
                     <a href="{% url 'parent_view' %}" class="role-btn-wrap text-decoration-none d-block">
                         <div class="role-icon-box"
                              style="background:linear-gradient(135deg,#f2994a,#f2c94c);">👨‍👧</div>
-                        <span class="role-label text-dark fw-bold mt-2 d-block">Ota-ona</span>
-                        <span class="text-muted d-block small" style="font-size:.68rem;">Kuzatish</span>
+                        <span class="role-label text-dark fw-bold mt-2 d-block" style="font-size:0.8rem;">Ota-ona</span>
+                        <span class="text-muted d-block small" style="font-size:.65rem;">Kuzatish</span>
                     </a>
                 </div>
+            </div>
+
+            <!-- Face ID Terminal Quick Link -->
+            <div class="mt-3">
+                <a href="{% url 'face_id_terminal' %}" target="_blank" class="btn btn-sm w-100 rounded-pill fw-bold text-white shadow-sm py-2"
+                   style="background: linear-gradient(135deg, #06b6d4, #3b82f6); border:none;">
+                    <i class="bi bi-person-bounding-box me-1"></i> Face ID Terminali (Biometrik Davomat)
+                </a>
             </div>
 
             <!-- Color legend -->
