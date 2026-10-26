@@ -90,32 +90,78 @@ const scanLaser = document.getElementById('scanLaser');
 
 let currentCoords = null;
 let mediaStream = null;
+const GPS_TIMEOUT_MS = 3500; // 3.5 soniya qat'iy GPS vaqt chegarasi
 
-// 1. KAMERANI YOQISH
-async function initCamera() {
-    try {
-        mediaStream = await navigator.mediaDevices.getUserMedia({
-            video: {
-                facingMode: "user",
-                width: { ideal: 640 },
-                height: { ideal: 480 }
-            },
-            audio: false
-        });
-        mobVideo.srcObject = mediaStream;
-        mobVideo.onloadedmetadata = () => {
-            camLoading.style.display = 'none';
-        };
-    } catch (err) {
-        camLoading.innerHTML = `<span class="text-danger"><i class="bi bi-camera-video-off"></i> Kamera ochilmadi: ${err.message}</span>`;
-        showAlert('danger', 'Kamera ruxsati berilmadi. Iltimos, brauzer sozlamalaridan kameraga ruxsat bering.');
+// ══════════════════════════════════════════════════════════════
+// 1. KAMERANI DARHOL VA MUSTAQIL ISHGA TUSHIRISH (PARALLEL)
+// ══════════════════════════════════════════════════════════════
+function hideCameraLoading() {
+    if (camLoading) {
+        camLoading.style.display = 'none';
     }
 }
-initCamera();
 
-// 2. HAVERSINE MASOFASINI CLIENT-SIDE DA HAM HISOB-KITOB QILISH (LIVE FEEDBACK UCHUN)
+async function initCamera() {
+    if (camLoading) {
+        camLoading.innerHTML = '<span class="spinner-border spinner-border-sm me-1 text-info"></span> Kamera yoqilmoqda...';
+        camLoading.style.display = 'block';
+    }
+
+    // Bosqichma-bosqich kamera so'rovlari (mobil va kompyuter uchun)
+    const constraintsList = [
+        { video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }, audio: false },
+        { video: { facingMode: "user" }, audio: false },
+        { video: true, audio: false }
+    ];
+
+    let stream = null;
+    let lastErr = null;
+
+    for (const constraints of constraintsList) {
+        try {
+            stream = await navigator.mediaDevices.getUserMedia(constraints);
+            if (stream) break;
+        } catch (err) {
+            lastErr = err;
+        }
+    }
+
+    if (!stream) {
+        if (camLoading) {
+            camLoading.innerHTML = `<span class="text-danger"><i class="bi bi-camera-video-off"></i> Kamera ochilmadi</span>`;
+        }
+        showAlert('danger', `<b>Kamerani ochib bo'lmadi:</b> ${lastErr ? lastErr.message : 'Ruxsat berilmadi'}. Iltimos, brauzer sozlamalaridan kameraga ruxsat bering.`);
+        return;
+    }
+
+    mediaStream = stream;
+    mobVideo.srcObject = stream;
+    mobVideo.setAttribute('playsinline', '');
+    mobVideo.setAttribute('webkit-playsinline', '');
+    mobVideo.muted = true;
+
+    // Kamera kadr kelishi bilan loading yozuvini darhol yashirish
+    mobVideo.onloadedmetadata = () => {
+        mobVideo.play().catch(() => {});
+        hideCameraLoading();
+    };
+    mobVideo.onloadeddata = hideCameraLoading;
+    mobVideo.oncanplay = hideCameraLoading;
+    mobVideo.onplaying = hideCameraLoading;
+
+    try {
+        await mobVideo.play();
+        hideCameraLoading();
+    } catch (e) {
+        setTimeout(hideCameraLoading, 500);
+    }
+}
+
+// ══════════════════════════════════════════════════════════════
+// 2. HAVERSINE MASOFASINI CLIENT-SIDE DA HISOBLASH
+// ══════════════════════════════════════════════════════════════
 function calculateHaversineMeters(lat1, lon1, lat2, lon2) {
-    const R = 6371000; // Yer radiusi (metr)
+    const R = 6371000;
     const toRad = deg => (deg * Math.PI) / 180;
     const dLat = toRad(lat2 - lat1);
     const dLon = toRad(lon2 - lon1);
@@ -127,30 +173,52 @@ function calculateHaversineMeters(lat1, lon1, lat2, lon2) {
     return Math.round(R * c);
 }
 
-// 3. JORIY GPS KOORDINATALARINI OLISH (PROMISE BILAN)
-function getFreshGPSPosition() {
-    return new Promise((resolve, reject) => {
+// ══════════════════════════════════════════════════════════════
+// 3. ASINXRON VA NON-BLOCKING GPS OLISH (3.5s TIMEOUT BILAN)
+// ══════════════════════════════════════════════════════════════
+function getFreshGPSPosition(timeoutMs = GPS_TIMEOUT_MS) {
+    return new Promise((resolve) => {
         if (!navigator.geolocation) {
-            reject(new Error("Brauzeringiz geolokatsiyani qo'llab-quvvatlamaydi."));
+            resolve({ success: false, error: 'NO_GEOLOCATION', message: "Brauzer GPS qo'llab-quvvatlamaydi" });
             return;
         }
 
-        const options = {
-            enableHighAccuracy: true, // GPS chipini ishlatish
-            timeout: 10000,           // 10 soniya maksimal kutish
-            maximumAge: 0             // Keshdagi eski nuqtani qabul qilmaslik
-        };
+        let finished = false;
+        const timer = setTimeout(() => {
+            if (!finished) {
+                finished = true;
+                resolve({ success: false, error: 'TIMEOUT', message: "GPS javob berish vaqti tugadi (Timeout)" });
+            }
+        }, timeoutMs);
 
         navigator.geolocation.getCurrentPosition(
-            pos => resolve(pos),
-            err => reject(err),
-            options
+            (pos) => {
+                if (!finished) {
+                    finished = true;
+                    clearTimeout(timer);
+                    resolve({ success: true, coords: pos.coords });
+                }
+            },
+            (err) => {
+                if (!finished) {
+                    finished = true;
+                    clearTimeout(timer);
+                    resolve({ success: false, error: err.code || 'ERR', message: err.message || "GPS xatoligi" });
+                }
+            },
+            {
+                enableHighAccuracy: false, // Bino ichida Wi-Fi/Tarmoq orqali tezkor aniqlash
+                timeout: timeoutMs,
+                maximumAge: 60000          // So'nggi 1 daqiqadagi kesh koordinatasini qabul qilish
+            }
         );
     });
 }
 
-// 4. SAHIFA YUKLANGANDA DASTLABKI JOY LASHUVNI TEKSHIRISH
-async function checkInitialLocation() {
+// ══════════════════════════════════════════════════════════════
+// 4. ORQA FONDA ASINXRON JOY LASHUVNI TEKSHIRISH (KAMERAGA XALAQIT BERMAYDI)
+// ══════════════════════════════════════════════════════════════
+async function checkBackgroundLocation() {
     if (!IS_GEOFENCING_ENABLED) {
         geoStatusBadge.className = "badge bg-info rounded-pill px-2 py-1";
         geoStatusBadge.textContent = "Geofence o'chirilgan";
@@ -158,119 +226,99 @@ async function checkInitialLocation() {
         return;
     }
 
-    try {
-        const pos = await getFreshGPSPosition();
-        currentCoords = pos.coords;
+    geoStatusBadge.className = "badge bg-secondary rounded-pill px-2 py-1";
+    geoStatusBadge.textContent = "GPS qidirilmoqda...";
+    geoDetails.innerHTML = '<span class="text-muted"><i class="bi bi-broadcast me-1"></i>Joylashuv orqa fonda tekshirilmoqda...</span>';
+
+    const res = await getFreshGPSPosition(GPS_TIMEOUT_MS);
+
+    if (res.success && res.coords) {
+        currentCoords = res.coords;
         const dist = calculateHaversineMeters(currentCoords.latitude, currentCoords.longitude, CENTER_LAT, CENTER_LON);
 
         if (dist <= ALLOWED_RADIUS) {
             geoStatusBadge.className = "badge bg-success rounded-pill px-2 py-1";
             geoStatusBadge.innerHTML = '<i class="bi bi-check-circle-fill me-1"></i>Hududdasiz';
-            geoDetails.innerHTML = `Bino markazigacha: <b>${dist} metr</b> (Ruxsat: ${ALLOWED_RADIUS}m) · GPS aniqligi: ±${Math.round(currentCoords.accuracy)}m`;
+            geoDetails.innerHTML = `Bino markazigacha masofa: <b>${dist} metr</b> (Ruxsat: ${ALLOWED_RADIUS}m)`;
         } else {
             geoStatusBadge.className = "badge bg-danger rounded-pill px-2 py-1";
             geoStatusBadge.innerHTML = '<i class="bi bi-exclamation-triangle-fill me-1"></i>Hududdan tashqarida';
             geoDetails.innerHTML = `<span class="text-danger fw-bold">Siz markazdan ${dist}m masofadasiz</span> (Ruxsat etilgan: ${ALLOWED_RADIUS}m)`;
         }
-    } catch (err) {
-        handleGpsError(err);
-    }
-}
-checkInitialLocation();
-
-// GPS XATOLIKLARINI TUSHUNARLI QILIB KO'RSATISH
-function handleGpsError(err) {
-    geoStatusBadge.className = "badge bg-danger rounded-pill px-2 py-1";
-    let message = "";
-
-    if (err.code === 1) { // PERMISSION_DENIED
-        geoStatusBadge.textContent = "Ruxsat berilmadi";
-        message = "GPS/Geolokatsiyadan foydalanishga ruxsat berilmadi. Iltimos, brauzer sozlamalaridan GPS/Joylashuvga ruxsat bering va sahifani yangilang.";
-    } else if (err.code === 2) { // POSITION_UNAVAILABLE
-        geoStatusBadge.textContent = "Aniqlab bo'lmadi";
-        message = "GPS joylashuvingizni aniqlab bo'lmadi. Telefoningizda GPS (Joylashuv) yoqilganligini tekshiring.";
-    } else if (err.code === 3) { // TIMEOUT
-        geoStatusBadge.textContent = "Kutish vaqti tugadi";
-        message = "GPS signalini olish vaqti tugadi. Qaytadan urinib ko'ring.";
     } else {
-        geoStatusBadge.textContent = "Xatolik";
-        message = err.message || "GPS xatoligi yuz berdi.";
+        // Bino ichida yoki GPS vaqti tugaganda: QOTIB QOLMAYDI!
+        geoStatusBadge.className = "badge bg-warning text-dark rounded-pill px-2 py-1";
+        geoStatusBadge.innerHTML = '<i class="bi bi-geo-alt me-1"></i>Bino ichida (GPS sust)';
+        geoDetails.innerHTML = `<span class="text-muted">Bino ichida sun'iy yo'ldosh signali sust, lekin davomat kadr tahlili davom etaveradi.</span>`;
     }
-
-    geoDetails.innerHTML = `<span class="text-danger">${message}</span>`;
-    return message;
 }
 
-// 5. DAVOMATNI QAYD ETISH TUGMASI BOSILGANDA (ASOSIY WORKFLOW)
+// ══════════════════════════════════════════════════════════════
+// 5. PARALLEL ISHGA TUSHIRISH (KAMERA VA GPS BIR-BIRINI KUTMAYDI)
+// ══════════════════════════════════════════════════════════════
+// 1. Kamera darhol ochiladi (hech narsa uni to'sib qo'ymaydi)
+initCamera();
+
+// 2. GPS orqa fonda parallel tekshiriladi (3.5 soniya timeout bilan)
+checkBackgroundLocation();
+
+// ══════════════════════════════════════════════════════════════
+// 6. DAVOMATNI QAYD ETISH TUGMASI BOSILGANDA (NON-BLOCKING WORKFLOW)
+// ══════════════════════════════════════════════════════════════
 async function startCheckInProcess() {
     mobAlert.classList.add('d-none');
-    scanLaser.style.display = 'block';
 
-    mobCheckInBtn.disabled = true;
-    mobCheckInBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span> GPS & Yuz tekshirilmoqda...';
-
-    // 1-QADAM: MAJBURIY RAVISHDA YANGI GPS KOORDINATALARINI OLISH
-    let lat = null;
-    let lon = null;
-
-    if (IS_GEOFENCING_ENABLED) {
-        try {
-            geoStatusBadge.className = "badge bg-warning text-dark rounded-pill px-2 py-1";
-            geoStatusBadge.textContent = "GPS olinmoqda...";
-            geoDetails.textContent = "Ayni paytdagi yuqori aniqlikdagi GPS koordinatalari olinmoqda...";
-
-            const pos = await getFreshGPSPosition();
-            currentCoords = pos.coords;
-            lat = currentCoords.latitude;
-            lon = currentCoords.longitude;
-
-            const dist = calculateHaversineMeters(lat, lon, CENTER_LAT, CENTER_LON);
-            if (dist > ALLOWED_RADIUS) {
-                scanLaser.style.display = 'none';
-                mobCheckInBtn.disabled = false;
-                mobCheckInBtn.innerHTML = '<i class="bi bi-camera-fill me-2"></i> Davomatni Qayd Etish';
-
-                geoStatusBadge.className = "badge bg-danger rounded-pill px-2 py-1";
-                geoStatusBadge.textContent = "Hududdan tashqarida";
-                geoDetails.innerHTML = `<span class="text-danger fw-bold">Masofa: ${dist} metr (Ruxsat: ${ALLOWED_RADIUS}m)</span>`;
-
-                showAlert(
-                    'danger',
-                    `<b>Siz markaz hududida emassiz!</b><br>` +
-                    `Siz bino markazidan <b>${dist} metr</b> uzoqlikdasiz (Ruxsat etilgan chegara: ${ALLOWED_RADIUS} metr).<br>` +
-                    `<small class="text-muted">Iltimos, o'quv markazi binosi ichiga kirib davomatdan o'ting.</small>`
-                );
-                return;
-            }
-
-            geoStatusBadge.className = "badge bg-success rounded-pill px-2 py-1";
-            geoStatusBadge.innerHTML = '<i class="bi bi-check-circle-fill me-1"></i>Hududdasiz';
-            geoDetails.innerHTML = `Bino markazigacha: <b>${dist} metr</b> · GPS aniqligi: ±${Math.round(currentCoords.accuracy)}m`;
-
-        } catch (err) {
-            scanLaser.style.display = 'none';
-            mobCheckInBtn.disabled = false;
-            mobCheckInBtn.innerHTML = '<i class="bi bi-camera-fill me-2"></i> Davomatni Qayd Etish';
-            const msg = handleGpsError(err);
-            showAlert('danger', `<b>Geolokatsiya xatosi:</b> ${msg}`);
-            return;
-        }
-    }
-
-    // 2-QADAM: KADRNI SURATGA OLISH (SNAPSHOT)
+    // 1-QADAM: KADRNI TEZKOR SURATGA OLISH (SNAPSHOT)
     if (!mobVideo.videoWidth) {
-        scanLaser.style.display = 'none';
-        mobCheckInBtn.disabled = false;
-        mobCheckInBtn.innerHTML = '<i class="bi bi-camera-fill me-2"></i> Davomatni Qayd Etish';
-        showAlert('danger', 'Kamera kadrini olib bo\'lmadi. Sahifani yangilang.');
+        showAlert('danger', 'Kamera kadrini olib bo\'lmadi. Sahifani yangilang yoki kameraga ruxsat bering.');
         return;
     }
+
+    scanLaser.style.display = 'block';
+    mobCheckInBtn.disabled = true;
+    mobCheckInBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span> Yuz tahlil qilinmoqda...';
 
     mobCanvas.width = 480;
     mobCanvas.height = Math.round(480 * (mobVideo.videoHeight / mobVideo.videoWidth));
     const ctx = mobCanvas.getContext('2d');
     ctx.drawImage(mobVideo, 0, 0, mobCanvas.width, mobCanvas.height);
-    const dataUrl = mobCanvas.toDataURL('image/jpeg', 0.88);
+    const dataUrl = mobCanvas.toDataURL('image/jpeg', 0.85);
+
+    // 2-QADAM: KOORDINATALARNI TEKSHIRISH (NON-BLOCKING)
+    let lat = currentCoords ? currentCoords.latitude : null;
+    let lon = currentCoords ? currentCoords.longitude : null;
+    let bypassGeo = false;
+
+    // Agar GPS koordinatalari hali olinmagan bo'lsa, juda tez (1.5s) urinib ko'rish
+    if (IS_GEOFENCING_ENABLED && (!lat || !lon)) {
+        const quickPos = await getFreshGPSPosition(1500);
+        if (quickPos.success && quickPos.coords) {
+            currentCoords = quickPos.coords;
+            lat = currentCoords.latitude;
+            lon = currentCoords.longitude;
+        } else {
+            // Bino ichida GPS olinmasa, bloklab qo'ymasdan davom etish
+            bypassGeo = true;
+        }
+    }
+
+    // Agar koordinatalar aniqlangan bo'lsa va chegara masofasidan katta bo'lsa:
+    if (lat && lon && IS_GEOFENCING_ENABLED) {
+        const dist = calculateHaversineMeters(lat, lon, CENTER_LAT, CENTER_LON);
+        if (dist > ALLOWED_RADIUS) {
+            scanLaser.style.display = 'none';
+            mobCheckInBtn.disabled = false;
+            mobCheckInBtn.innerHTML = '<i class="bi bi-camera-fill me-2"></i> Davomatni Qayd Etish';
+
+            showAlert(
+                'danger',
+                `<b>Siz markaz hududida emassiz! ⛔</b><br>` +
+                `Siz bino markazidan <b>${dist} metr</b> uzoqlikdasiz (Ruxsat etilgan chegara: ${ALLOWED_RADIUS} metr).<br>` +
+                `<small class="text-muted">Iltimos, o'quv markazi binosi ichiga kirib davomatdan o'ting.</small>`
+            );
+            return;
+        }
+    }
 
     // 3-QADAM: SERVERGA FORMDATA BILAN YUBORISH
     const fd = new FormData();
@@ -280,6 +328,8 @@ async function startCheckInProcess() {
     {% endif %}
     if (lat) fd.append('latitude', lat);
     if (lon) fd.append('longitude', lon);
+    if (bypassGeo) fd.append('bypass_geo', '1');
+    fd.append('is_kiosk', '0');
     fd.append('csrfmiddlewaretoken', CSRF_TOKEN);
 
     try {
@@ -294,14 +344,18 @@ async function startCheckInProcess() {
         mobCheckInBtn.innerHTML = '<i class="bi bi-camera-fill me-2"></i> Davomatni Qayd Etish';
 
         if (res.success) {
+            const isAlready = (res.action_type === 'already_checked_in' || res.action_type === 'already_checked_out');
+            const alertClass = isAlready ? 'info' : 'success';
+            const actionLabel = res.action_type === 'ketish' ? 'Ishdan ketish 👋' : (isAlready ? 'Allaqachon qayd etilgan ✅' : 'Ishga kelish 🏢');
+
             showAlert(
-                'success',
-                `<b>Muvaffaqiyatli qayd etildi! ✅</b><br>` +
-                `<b>Xodim:</b> ${res.staff_name} (${res.role})<br>` +
-                `<b>Amal:</b> ${res.action_type === 'ketish' ? 'Ishdan ketish 👋' : 'Ishga kelish 🏢'}<br>` +
-                `<b>Vaqt:</b> ${res.check_in_time || res.check_out_time}<br>` +
-                `${res.is_late ? `<span class="text-danger fw-bold">⚠ Kechikish: +${res.late_minutes} daqiqa (Jarima: -${res.fine_percent}% | ${Number(res.fine_amount).toLocaleString()} so'm)</span><br>` : ''}` +
-                `<small class="text-muted">Masofa: ${res.distance ? Math.round(res.distance) + ' metr' : 'Aniqlandi'} · O'xshashlik: ${res.match_score || 95}%</small>`
+                alertClass,
+                `<b>${res.message || 'Muvaffaqiyatli qayd etildi! ✅'}</b><br>` +
+                `<b>Xodim:</b> ${res.staff_name || ''} (${res.role || 'Xodim'})<br>` +
+                `<b>Amal:</b> ${actionLabel}<br>` +
+                `<b>Vaqt:</b> ${res.check_in_time || res.check_out_time || 'Hozir'}<br>` +
+                `${res.is_late && res.action_type === 'kelish' ? `<span class="text-danger fw-bold">⚠ Kechikish: +${res.late_minutes} daqiqa (Jarima: -${res.fine_percent}% | ${Number(res.fine_amount).toLocaleString()} so'm)</span><br>` : ''}` +
+                `<small class="text-muted">AI Aniqlik: ${res.match_score || 95}% ${res.distance ? '· Masofa: ' + Math.round(res.distance) + 'm' : ''}</small>`
             );
         } else {
             if (res.is_geo_error) {
@@ -327,7 +381,7 @@ async function startCheckInProcess() {
 }
 
 function showAlert(type, htmlContent) {
-    mobAlert.classList.remove('d-none', 'alert-success', 'alert-danger', 'alert-warning');
+    mobAlert.classList.remove('d-none', 'alert-success', 'alert-danger', 'alert-warning', 'alert-info');
     mobAlert.classList.add(`alert-${type}`);
     mobAlert.innerHTML = htmlContent;
 }

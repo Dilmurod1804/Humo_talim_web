@@ -1248,7 +1248,7 @@
                 gpsIcon.className = "bi bi-geo-alt text-warning";
                 gpsText.innerHTML = "GPS: <i>Signali cheklangan (Kiosk faol)</i>";
             },
-            { enableHighAccuracy: true, timeout: 3000, maximumAge: 30000 }
+            { enableHighAccuracy: false, timeout: 3500, maximumAge: 60000 }
         );
     } else {
         gpsIcon.className = "bi bi-geo-alt text-muted";
