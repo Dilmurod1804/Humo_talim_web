@@ -41,10 +41,11 @@ def _send_otp(email: str, otp: str, subject: str = "HUMO O'quv markazi \u2013 OT
 
 
 # ─────────────────────────────────────────────
-# Admin auth decorator & helper
+# Admin & Role-based Auth Decorators & Helpers
 # ─────────────────────────────────────────────
 
 def is_admin_user(request):
+    """Foydalanuvchi Markaz Rahbari (Superuser yoki role='admin') ekanligini aniqlash."""
     if not request:
         return False
     return bool(
@@ -54,6 +55,7 @@ def is_admin_user(request):
 
 
 def is_manager_user(request):
+    """Foydalanuvchi Menejer ekanligini aniqlash."""
     if not request:
         return False
     return bool(
@@ -61,28 +63,71 @@ def is_manager_user(request):
     )
 
 
+def is_teacher_user(request):
+    """Foydalanuvchi O'qituvchi ekanligini aniqlash."""
+    if not request:
+        return False
+    return bool(
+        getattr(request, 'user', None) and request.user.is_authenticated and getattr(request.user, 'role', '') == 'teacher'
+    )
+
+
 def is_admin_or_manager(request):
+    """Admin yoki Menejer ekanligini tekshirish."""
     return is_admin_user(request) or is_manager_user(request)
 
 
-def admin_required(view_func):
+def render_403(request, message=None):
+    """Foydalanuvchiga 403 Access Denied sahifasini ko'rsatish."""
+    return render(request, '403_access_denied.html', {
+        'title': "403 - Ruxsat Berilmagan (Access Denied)",
+        'message': message or "Ushbu sahifaga kirish huquqingiz cheklangan. Ushbu maxsus bo'lim faqat Markaz Rahbari (Admin) uchun ruxsat etilgan."
+    }, status=403)
+
+
+def admin_only_required(view_func):
     """
-    Admin va Menejerlar uchun ruxsat beruvchi dekorator.
-    (Face ID sozlamalaridan tashqari markaz boshqaruvining barcha funksiyalariga ruxsat).
+    QAT'IY ADMIN DEKORATORI:
+    Faqat va faqat Markaz Rahbari (Admin / Superuser) uchun ruxsat beradi.
+    Menejer yoki O'qituvchi kirishga urinsa, qat'iy 403 Forbidden sahifasini qaytaradi.
+    """
+    @wraps(view_func)
+    def _wrapped_view(request, *args, **kwargs):
+        if not getattr(request, 'user', None) or not request.user.is_authenticated:
+            if not request.session.get('admin_authenticated'):
+                return redirect('admin_login')
+        if not is_admin_user(request):
+            return render_403(
+                request,
+                "Face ID Boshqaruvi, Xodimlar Jurnali, Oyliklar va Tizim Sozlamalari faqat Markaz Rahbari (Admin) uchun ruxsat etilgan. Menejer yoki O'qituvchi hisobida ushbu sahifani ko'rish huquqi mavjud emas."
+            )
+        return view_func(request, *args, **kwargs)
+    return _wrapped_view
+
+
+def manager_or_admin_required(view_func):
+    """
+    Admin va Menejerlar uchun operatsion boshqaruv sahifalariga ruxsat beruvchi dekorator.
+    (Guruhlar, o'quvchilar, yo'qlama, to'lovlar).
+    Oddiy o'qituvchi kirsa, o'zining teacher dashboardiga yo'naltiriladi.
     """
     @wraps(view_func)
     def _wrapped_view(request, *args, **kwargs):
         if not is_admin_or_manager(request):
             if not getattr(request, 'user', None) or not request.user.is_authenticated:
                 return redirect('admin_login')
+            if getattr(request.user, 'role', '') == 'teacher':
+                return redirect('teacher_dashboard')
             return redirect('home')
         return view_func(request, *args, **kwargs)
     return _wrapped_view
 
 
+# Backward compatibility aliases:
+admin_required = manager_or_admin_required
 def _admin_only(request):
-    """Admin yoki Menejer uchun ruxsat tekshiruvi."""
-    return is_admin_or_manager(request)
+    """DIQQAT: _admin_only endi FAQAT haqiqiy Adminni tekshiradi!"""
+    return is_admin_user(request)
 
 
 # ─────────────────────────────────────────────

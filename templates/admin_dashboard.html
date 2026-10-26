@@ -12,6 +12,7 @@
     </div>
     
     <div class="d-flex gap-2 header-actions-wrap flex-wrap">
+        {% if is_admin %}
         <a href="{% url 'admin_face_id_logs' %}" class="btn fw-semibold px-3 py-2 shadow-sm text-white"
            style="background:linear-gradient(135deg, #06b6d4, #0891b2); border:1px solid rgba(255,255,255,0.3); backdrop-filter:blur(8px);">
             <i class="bi bi-person-bounding-box me-1"></i> Face ID Jurnali
@@ -19,7 +20,6 @@
             <span class="badge bg-white text-dark rounded-pill ms-1" style="font-size:0.72rem;">{{ face_stats.total_scans }}</span>
             {% endif %}
         </a>
-        {% if is_admin %}
         <a href="{% url 'admin_face_id_settings' %}" class="btn fw-semibold px-3 py-2 shadow-sm text-white"
            style="background:linear-gradient(135deg, #6366f1, #8b5cf6); border:1px solid rgba(255,255,255,0.3); backdrop-filter:blur(8px);">
             <i class="bi bi-sliders me-1"></i> Face ID Boshqaruvi
@@ -283,12 +283,14 @@
                     <small class="text-muted">Menejerlar: <b>{{ managers|length }}</b> | O'qituvchilar: <b>{{ teachers|length }}</b></small>
                 </div>
                 <div class="d-flex gap-2 flex-wrap">
+                    {% if is_admin %}
                     <a href="{% url 'admin_manager_create' %}" class="btn btn-warning text-dark fw-bold px-3 py-2 d-flex align-items-center gap-1 shadow-sm" style="border-radius:10px;">
                         <i class="bi bi-person-badge-fill"></i> + Menejer
                     </a>
                     <a href="{% url 'admin_teacher_create' %}" class="btn btn-success fw-semibold px-3 py-2 d-flex align-items-center gap-1 shadow-sm" style="border-radius:10px;">
                         <i class="bi bi-person-plus-fill"></i> + O'qituvchi
                     </a>
+                    {% endif %}
                     <a href="{% url 'admin_chat_list' %}" class="btn btn-outline-primary px-3 py-2 d-flex align-items-center gap-1 shadow-sm" style="border-radius:10px;">
                         <i class="bi bi-chat-dots-fill"></i>
                     </a>
@@ -339,6 +341,7 @@
                                 </div>
                             </div>
 
+                            {% if is_admin %}
                             <div class="d-flex gap-1">
                                 <a href="{% url 'admin_manager_edit' manager.id %}" class="btn btn-sm btn-outline-primary btn-icon-circle" title="Tahrirlash va Yuz rasmini yuklash">
                                     <i class="bi bi-pencil-fill"></i>
@@ -347,6 +350,7 @@
                                     <i class="bi bi-trash-fill"></i>
                                 </button>
                             </div>
+                            {% endif %}
                         </div>
 
                         <!-- Login & Parol -->
@@ -441,6 +445,7 @@
                                 </div>
                             </div>
 
+                            {% if is_admin %}
                             <div class="d-flex gap-1">
                                 <a href="{% url 'admin_teacher_edit' teacher.id %}" class="btn btn-sm btn-outline-primary btn-icon-circle" title="Tahrirlash va Yuz rasmini yuklash">
                                     <i class="bi bi-pencil-fill"></i>
@@ -449,6 +454,7 @@
                                     <i class="bi bi-trash-fill"></i>
                                 </button>
                             </div>
+                            {% endif %}
                         </div>
 
                         <!-- Login & Parol -->
@@ -486,12 +492,14 @@
                                 <i class="bi {% if teacher.can_edit_students %}bi-check-circle-fill text-success{% else %}bi-x-circle text-muted{% endif %} me-1"></i>
                                 O'quvchini tahrirlash: {% if teacher.can_edit_students %}Yoqilgan{% else %}O'chirilgan{% endif %}
                             </span>
+                            {% if is_admin %}
                             <form action="{% url 'admin_teacher_toggle_edit' teacher.id %}" method="post" class="m-0">
                                 {% csrf_token %}
                                 <button type="submit" class="btn btn-sm {% if teacher.can_edit_students %}btn-success{% else %}btn-outline-secondary{% endif %} rounded-pill px-2 py-0" style="font-size:0.75rem;">
                                     {% if teacher.can_edit_students %}O'chirish{% else %}Yoqish{% endif %}
                                 </button>
                             </form>
+                            {% endif %}
                         </div>
                     </div>
                     {% empty %}
@@ -575,6 +583,7 @@
 </div>
 {% endfor %}
 
+{% if is_admin %}
 <!-- 3. Teacher Delete Modals -->
 {% for teacher in teachers %}
 <div class="modal fade" id="deleteTeacherModal{{ teacher.id }}" tabindex="-1" aria-hidden="true">
@@ -636,5 +645,6 @@
     </div>
 </div>
 {% endfor %}
+{% endif %}
 
 {% endblock %}

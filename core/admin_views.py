@@ -43,7 +43,8 @@ from .services import optimize_student_photo
 from .validators import contains_cyrillic
 from .auth_views import (
     admin_required, _admin_only,
-    is_admin_user, is_manager_user, is_admin_or_manager
+    is_admin_user, is_manager_user, is_admin_or_manager,
+    admin_only_required, render_403
 )
 from .schedule_helper import parse_schedule_weekdays
 from .payment_excel import generate_payments_excel
@@ -179,10 +180,8 @@ def admin_group_delete(request, id):
     return redirect('admin_dashboard')
 
 
-@admin_required
+@admin_only_required
 def admin_teacher_create(request):
-    if not _admin_only(request):
-        return redirect('home')
     settings_obj = FaceIDSettings.get_settings()
     if request.method == 'POST':
         first_name = request.POST.get('first_name', '').strip()
@@ -241,10 +240,8 @@ def admin_teacher_create(request):
     })
 
 
-@admin_required
+@admin_only_required
 def admin_teacher_delete(request, id):
-    if not _admin_only(request):
-        return redirect('home')
     teacher = get_object_or_404(Teacher, id=id)
     if request.method == 'POST':
         user = teacher.user
@@ -256,11 +253,9 @@ def admin_teacher_delete(request, id):
     return redirect('admin_dashboard')
 
 
-@admin_required
+@admin_only_required
 def admin_teacher_toggle_edit(request, id):
     """Admin o'qituvchiga o'quvchini tahrirlash ruxsatini yoqadi/o'chiradi (toggle)."""
-    if not _admin_only(request):
-        return redirect('home')
     teacher = get_object_or_404(Teacher, id=id)
     teacher.can_edit_students = not bool(teacher.can_edit_students)
     teacher.save(update_fields=['can_edit_students'])
@@ -269,11 +264,9 @@ def admin_teacher_toggle_edit(request, id):
     return redirect('admin_dashboard')
 
 
-@admin_required
+@admin_only_required
 def admin_teacher_toggle_all_edit(request):
     """Barcha o'qituvchilar uchun tahrirlash ruxsatini bir yo'la yoqish/o'chirish (GLOBAL TOGGLE)."""
-    if not _admin_only(request):
-        return redirect('home')
     if request.method != 'POST':
         return redirect('admin_dashboard')
     action = request.POST.get('action', 'off')
@@ -1708,10 +1701,8 @@ def admin_chat_detail(request, teacher_id):
 # 10. MENAJERLAR VA XODIMLAR BOSHQARUVI
 # ─────────────────────────────────────────────
 
-@admin_required
+@admin_only_required
 def admin_manager_create(request):
-    if not _admin_only(request):
-        return redirect('home')
     if request.method == 'POST':
         first_name = request.POST.get('first_name', '').strip()
         last_name = request.POST.get('last_name', '').strip()
@@ -1762,10 +1753,8 @@ def admin_manager_create(request):
     })
 
 
-@admin_required
+@admin_only_required
 def admin_manager_edit(request, id):
-    if not _admin_only(request):
-        return redirect('home')
     manager = get_object_or_404(Manager, id=id)
 
     if request.method == 'POST':
@@ -1809,10 +1798,8 @@ def admin_manager_edit(request, id):
     return render(request, 'admin_manager_edit.html', {'manager': manager})
 
 
-@admin_required
+@admin_only_required
 def admin_manager_delete(request, id):
-    if not _admin_only(request):
-        return redirect('home')
     manager = get_object_or_404(Manager, id=id)
     if request.method == 'POST':
         user = manager.user
@@ -1825,10 +1812,8 @@ def admin_manager_delete(request, id):
     return redirect('admin_dashboard')
 
 
-@admin_required
+@admin_only_required
 def admin_teacher_edit(request, id):
-    if not _admin_only(request):
-        return redirect('home')
     teacher = get_object_or_404(Teacher, id=id)
 
     if request.method == 'POST':
@@ -1878,13 +1863,10 @@ def admin_teacher_edit(request, id):
 # 11. FACE ID JURNALI VA SOZLAMALARI (Faqat Admin)
 # ─────────────────────────────────────────────
 
-@admin_required
+@admin_only_required
 def admin_face_id_logs(request):
     """Barcha xodimlarning Face ID davomat jurnali (kelish-ketish va kechikishlar).
-    Moslashuvchan sana filtrlari: Bugun, Shu oy, Barcha sanalar, yoki Aniq sana."""
-    if not _admin_only(request):
-        return redirect('home')
-
+    Faqat Markaz Rahbari (Admin) uchun ruxsat etilgan."""
     filter_period = request.GET.get('period', 'today')
     filter_date_str = request.GET.get('date', '')
     filter_role = request.GET.get('role', 'all')
@@ -2008,12 +1990,9 @@ def admin_face_id_logs(request):
     })
 
 
-@admin_required
+@admin_only_required
 def admin_face_id_sync_staff(request):
     """Barcha mavjud xodimlarni Face ID ga bir marta bosish bilan sinxronlash."""
-    if not _admin_only(request):
-        return redirect('home')
-
     settings_obj = FaceIDSettings.get_settings()
     synced_count = 0
     created_profiles = 0
@@ -2073,12 +2052,9 @@ def admin_face_id_sync_staff(request):
     return redirect('admin_face_id_logs')
 
 
-@admin_required
+@admin_only_required
 def admin_face_id_upload_photo(request, role, id):
     """Admin orqali xodimga Face ID yuz fotosuratini biriktirish (fayl yoki veb-kamera snapshot orqali)."""
-    if not _admin_only(request):
-        return JsonResponse({'success': False, 'message': 'Ruxsat berilmagan'}, status=403)
-
     staff = None
     if role == 'teacher':
         staff = get_object_or_404(Teacher, id=id)
@@ -2140,7 +2116,7 @@ def admin_face_id_upload_photo(request, role, id):
     return redirect('admin_face_id_logs')
 
 
-@admin_required
+@admin_only_required
 def admin_face_id_settings(request):
     """
     Faqat Admin uchun Face ID sozlamalari paneli:
@@ -2149,12 +2125,6 @@ def admin_face_id_settings(request):
     - Kechikish jarima foizi (Phone Volume Slider yordamida)
     DIQQAT: Menejer uchun qat'iy taqiqlangan (403 Access Denied)!
     """
-    if not is_admin_user(request):
-        return render(request, '403_access_denied.html', {
-            'title': "403 - Ruxsat Berilmagan (Access Denied)",
-            'message': "Face ID tizimi sozlamalari va geolokatsiya boshqaruv paneli faqat Markaz Rahbari (Admin) uchun ruxsat etilgan. Menejer hisobida ushbu sahifani ko'rish yoki o'zgartirish huquqi mavjud emas."
-        }, status=403)
-
     settings_obj = FaceIDSettings.get_settings()
 
     if request.method == 'POST':
@@ -2193,18 +2163,12 @@ def admin_face_id_settings(request):
 # 12. OYLIK VA KECHIKISH JARIMALARI HISOBLASH
 # ─────────────────────────────────────────────
 
-@admin_required
+@admin_only_required
 def admin_salary_report(request):
     """
     Barcha xodimlarning oyligi, Face ID kechikish jarimalari va tasdiqlangan avanslarini avtomatik hisoblash sahifasi.
-    DIQQAT: Menejer uchun qat'iy cheklangan (Faqat Markaz Rahbari / Admin ko'ra oladi)!
+    DIQQAT: Faqat Markaz Rahbari / Admin ko'ra oladi (Menejer va O'qituvchi kira olmaydi)!
     """
-    if not is_admin_user(request):
-        return render(request, '403_access_denied.html', {
-            'title': "403 - Ruxsat Berilmagan (Access Denied)",
-            'message': "Xodimlarning oylik maoshlari va jarimalari boshqaruvi faqat Markaz Rahbari (Admin) uchun ruxsat etilgan. Menejer hisobida ushbu sahifani ko'rish yoki tahrirlash huquqi cheklangan."
-        }, status=403)
-
     month_str = request.GET.get('month', date.today().strftime('%Y-%m'))
     try:
         year, month = map(int, month_str.split('-'))
@@ -2260,15 +2224,9 @@ def admin_salary_report(request):
     })
 
 
-@admin_required
+@admin_only_required
 def admin_bonus_save(request):
     """Direktor tomonidan xodimga bonus qo'shish (Faqat Admin)."""
-    if not is_admin_user(request):
-        return render(request, '403_access_denied.html', {
-            'title': "403 - Ruxsat Berilmagan",
-            'message': "Bonus berish faqat Markaz Rahbari (Admin) uchun ruxsat etilgan."
-        }, status=403)
-
     if request.method == 'POST':
         user_id = request.POST.get('user_id')
         month = request.POST.get('month', date.today().strftime('%Y-%m'))
@@ -2305,15 +2263,9 @@ def admin_bonus_save(request):
 
 
 
-@admin_required
+@admin_only_required
 def admin_bonus_delete(request, id):
     """Berilgan bonusni bekor qilish (Faqat Admin)."""
-    if not is_admin_user(request):
-        return render(request, '403_access_denied.html', {
-            'title': "403 - Ruxsat Berilmagan",
-            'message': "Bonuslarni o'chirish faqat Markaz Rahbari (Admin) uchun ruxsat etilgan."
-        }, status=403)
-
     bonus = get_object_or_404(StaffBonus, id=id)
     u_name = bonus.user.staff_full_name
     amt = bonus.amount
@@ -2331,20 +2283,12 @@ def admin_bonus_delete(request, id):
     return redirect(request.META.get('HTTP_REFERER', '/admin/salary/report/'))
 
 
-@admin_required
+@admin_only_required
 def admin_audit_logs(request):
     """
     Tizim Tarixi (Audit Log / History):
-    - Face ID keldi-ketdi vaqtlari
-    - Bolalar davomati tarixi
-    - Ushlab qolingan shtraflar
-    - Berilgan bonuslar
-    - Xodim avanslari
-    - Qilingan to'lovlar
+    Faqat Markaz Rahbari (Admin) uchun ruxsat etilgan.
     """
-    if not _admin_only(request):
-        return redirect('home')
-
     filter_action = request.GET.get('action', 'all')
     filter_date = request.GET.get('date', '')
     search_q = request.GET.get('q', '').strip()
@@ -2378,14 +2322,9 @@ def admin_audit_logs(request):
     })
 
 
-@admin_required
+@admin_only_required
 def admin_salary_export_excel(request):
     """Oylik va jarimalar hisobini Excel (.xlsx) faylga eksport qilish (Faqat Admin)."""
-    if not is_admin_user(request):
-        return render(request, '403_access_denied.html', {
-            'title': "403 - Ruxsat Berilmagan",
-            'message': "Oyliklar eksporti faqat Markaz Rahbari (Admin) uchun ruxsat etilgan."
-        }, status=403)
 
     month_str = request.GET.get('month', date.today().strftime('%Y-%m'))
     try:
