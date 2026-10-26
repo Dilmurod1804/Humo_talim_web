@@ -2406,8 +2406,12 @@ def face_id_check_in(request):
 
 @csrf_exempt
 def face_id_verify_api(request):
-    """Face ID tasvirini qabul qilib tekshirish va kelish/ketishni qayd etish REST API.
-    Barcha xodimlar (Teacher, Manager, Admin, Staff) uchun to'liq ruxsat bilan ishlaydi."""
+    """
+    Hands-Free Face ID AI avtomatik skanerlash REST API:
+    - Yuqori aniqlikdagi Deep Learning (YuNet & SFace) orqali kadrni tezkor tekshirish
+    - Kelish va Ketishni aqlli farqlash
+    - Non-blocking geolokatsiya (Kiosk rejimida GPS kechikishi kamerani to'xtatmaydi)
+    """
     if request.method != 'POST':
         return JsonResponse({'success': False, 'message': "Faqat POST so'rovi qabul qilinadi"}, status=405)
 
@@ -2416,7 +2420,8 @@ def face_id_verify_api(request):
     user_id = request.POST.get('user_id')
     lat = request.POST.get('latitude')
     lon = request.POST.get('longitude')
-    bypass_geo = request.POST.get('bypass_geo') == '1'
+    is_kiosk = request.POST.get('is_kiosk') == '1'
+    bypass_geo = (request.POST.get('bypass_geo') == '1') or (is_kiosk and (lat in (None, '', 'null', 'undefined') or lon in (None, '', 'null', 'undefined')))
 
     # Rasm obyekti
     scan_file = None
@@ -2435,25 +2440,29 @@ def face_id_verify_api(request):
         return JsonResponse({'success': False, 'message': "Tasvir topilmadi! Iltimos qaytadan skanerlang."}, status=400)
 
     target_user = None
+    similarity_score = 0.0
+
     if user_id:
         try:
             target_user = CustomUser.objects.get(id=user_id)
         except CustomUser.DoesNotExist:
             return JsonResponse({'success': False, 'message': "Tanlangan xodim topilmadi."}, status=404)
     else:
-        # Avtomatik yuz qidirish (barcha faol menejer va o'qituvchilar)
+        # Avtomatik AI yuz qidirish (barcha faol menejer va o'qituvchilar 128-D embedding bo'yicha)
         match = match_staff_by_face(scan_file)
         if match:
             role, staff, score, dist = match
             target_user = staff.user
+            similarity_score = score
 
     # Agar match topilmasa, lekin tizimga kirgan foydalanuvchi xodim (menejer, o'qituvchi, admin) bo'lsa
     if not target_user and request.user.is_authenticated and getattr(request.user, 'role', '') in ('manager', 'teacher', 'admin'):
         staff_obj = getattr(request.user, 'manager_profile', None) or getattr(request.user, 'teacher_profile', None)
         if staff_obj and staff_obj.photo and os.path.exists(staff_obj.photo.path):
             score, is_match, dist = compare_two_faces(staff_obj.photo.path, scan_file)
-            if is_match and score >= 60.0 and dist <= 0.40:
+            if is_match and score >= 60.0:
                 target_user = request.user
+                similarity_score = score
 
     if not target_user:
         return JsonResponse({
@@ -2469,6 +2478,17 @@ def face_id_verify_api(request):
             lon=lon,
             bypass_geo=bypass_geo
         )
+        if similarity_score > 0 and 'match_score' not in res:
+            res['match_score'] = similarity_score
+
+        # Profil fotosurati URL ni qo'shish
+        staff_obj = getattr(target_user, 'manager_profile', None) or getattr(target_user, 'teacher_profile', None)
+        if staff_obj and staff_obj.photo:
+            try:
+                res['photo_url'] = staff_obj.photo.url
+            except Exception:
+                pass
+
         return JsonResponse(res)
     except Exception as e:
         print(f"process_face_check_in error: {e}")

@@ -60,11 +60,16 @@ class Teacher(models.Model):
     generated_password = models.CharField(max_length=50)
     can_edit_students = models.BooleanField(default=False, help_text="O'qituvchiga o'quvchilarni tahrirlash ruxsati")
     photo = models.ImageField(upload_to='staff_photos/', blank=True, null=True, help_text="Face ID yuz rasmi")
+    face_embedding = models.TextField(blank=True, default='', help_text="AI Yuz biometrik vektori (JSON)")
     monthly_salary = models.DecimalField(max_digits=12, decimal_places=2, default=0, help_text="Oylik maosh stavkasi (so'm)")
     late_fine_rate = models.DecimalField(max_digits=5, decimal_places=2, default=2.0, help_text="Kechikish jarima foizi (%)")
     work_start_time = models.TimeField(default="08:00", help_text="Ish/Dars boshlanish vaqti")
     work_end_time = models.TimeField(default="18:00", help_text="Ish/Dars tugash vaqti")
     is_active = models.BooleanField(default=True)
+
+    @property
+    def has_face_embedding(self):
+        return bool(self.face_embedding and len(self.face_embedding) > 10)
 
     @property
     def can_edit(self):
@@ -89,12 +94,17 @@ class Manager(models.Model):
     generated_login = models.CharField(max_length=50)
     generated_password = models.CharField(max_length=50)
     photo = models.ImageField(upload_to='staff_photos/', blank=True, null=True, help_text="Face ID yuz rasmi")
+    face_embedding = models.TextField(blank=True, default='', help_text="AI Yuz biometrik vektori (JSON)")
     monthly_salary = models.DecimalField(max_digits=12, decimal_places=2, default=0, help_text="Oylik maosh stavkasi (so'm)")
     late_fine_rate = models.DecimalField(max_digits=5, decimal_places=2, default=2.0, help_text="Kechikish jarima foizi (%)")
     work_start_time = models.TimeField(default="08:00", help_text="Ish boshlanish vaqti")
     work_end_time = models.TimeField(default="18:00", help_text="Ish tugash vaqti")
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    @property
+    def has_face_embedding(self):
+        return bool(self.face_embedding and len(self.face_embedding) > 10)
 
     @property
     def role_title(self):

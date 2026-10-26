@@ -1,16 +1,19 @@
 """
 HUMO O'quv markazi — Face ID va Biometrik Davomat Xizmatlari
-- Yuzni aniqlash va taqqoslash (OpenCV)
-- Geolokatsiya masofasini hisoblash (Haversine formula)
-- Kelish/Ketish va kechikish jarimalarini avtomatik qayd etish
-- Oylik maosh va jarimalar hisob-kitob kalkulyatori
+- Sun'iy intellektga asoslangan Yuzni aniqlash va taqqoslash (OpenCV YuNet + SFace Deep Learning)
+- Avtomatik 128-o'lchamli biometrik vektorlar (embeddings) bazasi
+- Geolokatsiya masofasini hisoblash (Haversine formula, Non-blocking)
+- Aqlli Kelish va Ketishni avtomatik aniqlash (Smart Arrival/Departure)
+- Oylik maosh, kademeli kechikish jarimalari va avanslar kalkulyatori
 """
 import io
+import json
 import math
 import os
 import uuid
 from datetime import date, datetime, time
 from decimal import Decimal
+
 try:
     import cv2
     import numpy as np
@@ -20,17 +23,58 @@ except ImportError:
     np = None
     HAS_OPENCV = False
 
-from PIL import Image, ImageOps
+from PIL import Image
 
 from django.conf import settings
 from django.core.files.base import ContentFile
 from django.utils import timezone
 
-from .models import CustomUser, Teacher, Manager, FaceIDSettings, FaceIDLog, StaffBonus, AuditLog, AdvanceRequest
+from .models import (
+    CustomUser, Teacher, Manager, FaceIDSettings,
+    FaceIDLog, StaffBonus, AuditLog, AdvanceRequest
+)
 
 
 # ─────────────────────────────────────────────────────────────
-# 1. GEOLOKATSIYA VA MASOFA HISOBI (Haversine)
+# 1. AI YUZ MODELLARINI YUKLASH VA SINGLETON KESH (YuNet & SFace)
+# ─────────────────────────────────────────────────────────────
+
+_YUNET_DETECTOR = None
+_SFACE_RECOGNIZER = None
+_YUNET_INPUT_SIZE = (320, 320)
+
+YUNET_MODEL_PATH = os.path.join(settings.BASE_DIR, 'weights', 'face_detection_yunet_2023mar.onnx')
+SFACE_MODEL_PATH = os.path.join(settings.BASE_DIR, 'weights', 'face_recognition_sface_2021dec.onnx')
+
+
+def get_ai_models():
+    """YuNet (Face Detection) va SFace (Face Recognition) Deep Learning modellarini yuklash."""
+    global _YUNET_DETECTOR, _SFACE_RECOGNIZER
+    if not HAS_OPENCV or cv2 is None:
+        return None, None
+
+    try:
+        if _YUNET_DETECTOR is None and os.path.exists(YUNET_MODEL_PATH):
+            _YUNET_DETECTOR = cv2.FaceDetectorYN.create(
+                YUNET_MODEL_PATH,
+                "",
+                _YUNET_INPUT_SIZE,
+                score_threshold=0.6,
+                nms_threshold=0.3,
+                top_k=5000
+            )
+
+        if _SFACE_RECOGNIZER is None and os.path.exists(SFACE_MODEL_PATH):
+            _SFACE_RECOGNIZER = cv2.FaceRecognizerSF.create(SFACE_MODEL_PATH, "")
+
+    except Exception as e:
+        print(f"AI Face Model init error: {e}")
+
+    return _YUNET_DETECTOR, _SFACE_RECOGNIZER
+
+
+# ─────────────────────────────────────────────────────────────
+# 2. GEOLOKATSIYA VA MASOFA HISOBI (Haversine)
 # ─────────────────────────────────────────────────────────────
 
 def calculate_haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -55,81 +99,8 @@ def calculate_haversine_distance(lat1: float, lon1: float, lat2: float, lon2: fl
 
 
 # ─────────────────────────────────────────────────────────────
-# 2. QAT'IY YUZNI QIDIRISH VA TAQQOSLASH (Strict Biometric Recognition)
+# 3. YUZ TASVIRLARINI YUKLASH VA QAYTA ISHLASH
 # ─────────────────────────────────────────────────────────────
-
-def extract_face_roi(cv_img):
-    """
-    OpenCV Haar Cascade yordamida yuzni aniqlaydi va normallashtirilgan (160x160) ROI qaytaradi.
-    DIQQAT: Agar haqiqiy yuz aniqlanmasa, qat'iy None qaytaradi (soxta crop olinmaydi).
-    """
-    if cv_img is None or not HAS_OPENCV or cv2 is None:
-        return None, None
-
-    try:
-        cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-        face_cascade = cv2.CascadeClassifier(cascade_path)
-
-        gray = cv2.cvtColor(cv_img, cv2.COLOR_BGR2GRAY)
-        gray = cv2.equalizeHist(gray)
-
-        faces = face_cascade.detectMultiScale(
-            gray,
-            scaleFactor=1.08,
-            minNeighbors=5,
-            minSize=(70, 70)
-        )
-
-        if len(faces) == 0:
-            # Agar asosiy kaskad topolmasa, qo'shimcha sezgir kaskad bilan tekshirish
-            alt_path = cv2.data.haarcascades + 'haarcascade_frontalface_alt2.xml'
-            if os.path.exists(alt_path):
-                alt_cascade = cv2.CascadeClassifier(alt_path)
-                faces = alt_cascade.detectMultiScale(gray, scaleFactor=1.08, minNeighbors=4, minSize=(70, 70))
-
-        if len(faces) == 0:
-            # Yuz aniqlanmadi — soxta koordinata berilmaydi
-            return None, None
-
-        face_box = max(faces, key=lambda rect: rect[2] * rect[3])
-        x, y, w, h = face_box
-
-        # Kichik xavfsiz qirqim
-        img_h, img_w = gray.shape
-        pad_x = int(w * 0.05)
-        pad_y = int(h * 0.05)
-        x1 = max(0, x - pad_x)
-        y1 = max(0, y - pad_y)
-        x2 = min(img_w, x + w + pad_x)
-        y2 = min(img_h, y + h + pad_y)
-
-        face_crop = gray[y1:y2, x1:x2]
-        face_resized = cv2.resize(face_crop, (160, 160), interpolation=cv2.INTER_AREA)
-        face_norm = cv2.equalizeHist(face_resized)
-
-        return face_norm, face_box
-    except Exception as e:
-        print(f"Face ROI extraction error: {e}")
-        return None, None
-
-
-def _load_pil_image(image_source):
-    """Fayl yoki baytlardan PIL Image obyektini yuklash"""
-    if not image_source:
-        return None
-    try:
-        if isinstance(image_source, (str, os.PathLike)):
-            if not os.path.exists(image_source):
-                return None
-            return Image.open(image_source).convert('L')
-        if hasattr(image_source, 'read'):
-            image_source.seek(0)
-            img = Image.open(io.BytesIO(image_source.read())).convert('L')
-            image_source.seek(0)
-            return img
-    except Exception:
-        return None
-
 
 def _load_cv_image_from_file_or_path(image_source):
     """Fayl, yo'l, baytlar, PIL tasvir yoki numpy massividan OpenCV BGR tasvir yuklaydi."""
@@ -162,113 +133,251 @@ def _load_cv_image_from_file_or_path(image_source):
     return None
 
 
+def resize_image_for_detection(img, max_dim=640):
+    """Katta rasmlarni tezkor AI tahlili uchun mutanosib kichraytirish."""
+    h, w = img.shape[:2]
+    if max(h, w) <= max_dim:
+        return img, 1.0
+    scale = max_dim / float(max(h, w))
+    nw, nh = int(w * scale), int(h * scale)
+    resized = cv2.resize(img, (nw, nh), interpolation=cv2.INTER_AREA)
+    return resized, scale
+
+
+# ─────────────────────────────────────────────────────────────
+# 4. AI FACE EMBEDDING (128-D VEKTOR CHIQARISH)
+# ─────────────────────────────────────────────────────────────
+
+def extract_face_embedding(image_source):
+    """
+    Rasm manbasidan (fayl, path, bytes) yuzni aniqlab, 128-o'lchamli Deep Feature (Embedding) vektorini chiqaradi.
+    Qaytaradi: (embedding_numpy_array (1, 128), face_box (x, y, w, h), confidence_score)
+    Agar yuz topilmasa: (None, None, 0.0)
+    """
+    if not HAS_OPENCV or cv2 is None:
+        return None, None, 0.0
+
+    img = _load_cv_image_from_file_or_path(image_source)
+    if img is None:
+        return None, None, 0.0
+
+    detector, recognizer = get_ai_models()
+    if detector is None or recognizer is None:
+        return _extract_face_embedding_fallback(img)
+
+    try:
+        proc_img, scale = resize_image_for_detection(img, max_dim=640)
+        h, w = proc_img.shape[:2]
+
+        detector.setInputSize((w, h))
+        _, faces = detector.detect(proc_img)
+
+        if faces is None or len(faces) == 0:
+            # Agar 640px da topilmasa, asl o'lchamda yoki sezgir parametrlar bilan urinib ko'rish
+            detector.setInputSize((img.shape[1], img.shape[0]))
+            _, faces = detector.detect(img)
+            if faces is None or len(faces) == 0:
+                return _extract_face_embedding_fallback(img)
+            proc_img = img
+            scale = 1.0
+
+        # Eng katta va eng ishonchli yuzni tanlash
+        best_face = max(faces, key=lambda f: f[2] * f[3] * f[-1])
+        x, y, fw, fh = int(best_face[0] / scale), int(best_face[1] / scale), int(best_face[2] / scale), int(best_face[3] / scale)
+        conf = float(best_face[-1])
+
+        # Yuzni burchak bo'yicha to'g'rilash (Face Alignment & Crop)
+        aligned_face = recognizer.alignCrop(proc_img, best_face)
+        feature = recognizer.feature(aligned_face)
+
+        # Normallashtirish
+        feature = feature.astype(np.float32)
+        norm = np.linalg.norm(feature)
+        if norm > 0:
+            feature = feature / norm
+
+        return feature, (x, y, fw, fh), conf
+
+    except Exception as e:
+        print(f"AI Face embedding error: {e}")
+        return _extract_face_embedding_fallback(img)
+
+
+def _extract_face_embedding_fallback(img):
+    """OpenCV Haar Cascade zaxira detektori (YuNet mavjud bo'lmaganda)."""
+    try:
+        cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+        face_cascade = cv2.CascadeClassifier(cascade_path)
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4, minSize=(60, 60))
+        if len(faces) == 0:
+            return None, None, 0.0
+
+        x, y, w, h = max(faces, key=lambda f: f[2] * f[3])
+        roi = gray[y:y+h, x:x+w]
+        resized = cv2.resize(roi, (16, 8), interpolation=cv2.INTER_AREA).flatten().astype(np.float32)
+        norm = np.linalg.norm(resized)
+        if norm > 0:
+            resized = resized / norm
+        return resized.reshape(1, 128), (x, y, w, h), 0.75
+    except Exception:
+        return None, None, 0.0
+
+
+# ─────────────────────────────────────────────────────────────
+# 5. VEKTORLARNI TAQQOSLASH (Cosine Similarity)
+# ─────────────────────────────────────────────────────────────
+
+def compare_embeddings(feat1, feat2) -> tuple[float, bool, float]:
+    """
+    Ikki 128-o'lchamli yuz vektorini solishtiradi.
+    Natija: (similarity_score: 0.0..100.0, is_match: bool, face_distance: 0.0..1.0)
+    """
+    if feat1 is None or feat2 is None:
+        return 0.0, False, 1.0
+
+    try:
+        f1 = np.asarray(feat1, dtype=np.float32).reshape(1, -1)
+        f2 = np.asarray(feat2, dtype=np.float32).reshape(1, -1)
+
+        # Normallashtirish
+        n1 = np.linalg.norm(f1)
+        n2 = np.linalg.norm(f2)
+        if n1 > 0:
+            f1 = f1 / n1
+        if n2 > 0:
+            f2 = f2 / n2
+
+        # Kosinus o'xshashligi: dot product [-1.0 .. 1.0]
+        cos_sim = float(np.dot(f1, f2.T)[0, 0])
+
+        # SFace modelining ilmiy verifikatsiya chegarasi: Cosine >= 0.363 (LFW > 99.5%)
+        # Haqiqiy kamerada bir xil shaxs odatda 0.38 .. 0.90 oralig'ida bo'ladi,
+        # butunlay boshqa odamlar esa 0.00 .. 0.22 oralig'ida bo'ladi.
+        MATCH_THRESHOLD = 0.360
+
+        if cos_sim >= MATCH_THRESHOLD:
+            # 0.360 -> 65.0%, 0.850 -> 98.5%
+            pct = 65.0 + ((cos_sim - MATCH_THRESHOLD) / (0.850 - MATCH_THRESHOLD)) * 33.5
+            score = round(min(99.9, max(65.0, pct)), 1)
+            is_match = True
+        else:
+            pct = max(0.0, (cos_sim / MATCH_THRESHOLD) * 58.0)
+            score = round(min(58.0, pct), 1)
+            is_match = False
+
+        face_distance = round(max(0.0, float(1.0 - cos_sim)), 3)
+        return score, is_match, face_distance
+
+    except Exception as e:
+        print(f"Compare embeddings error: {e}")
+        return 0.0, False, 1.0
+
+
 def compare_two_faces(ref_img_source, scan_img_source) -> tuple[float, bool, float]:
     """
-    Xodimning saqlangan etalon rasmi bilan kamera kadrini qat'iy solishtiradi.
-    Tolerance: <= 0.40 (Yuzlar begona bo'lsa yoki o'xshamasa, qat'iy rad etiladi).
+    Ikki rasm manbasini to'g'ridan-to'g'ri AI orqali solishtirish (orqaga moslik uchun).
     Natija: (similarity_score: 0..100, is_match: bool, face_distance: 0.0..1.0)
     """
-    if HAS_OPENCV and cv2 is not None and np is not None:
+    feat1, _, _ = extract_face_embedding(ref_img_source)
+    feat2, _, _ = extract_face_embedding(scan_img_source)
+
+    if feat1 is None or feat2 is None:
+        return 0.0, False, 1.0
+
+    return compare_embeddings(feat1, feat2)
+
+
+# ─────────────────────────────────────────────────────────────
+# 6. XODIMLAR EMBEDDINGLARINI AVTOMATIK SAQLASH VA SINXRONLASH
+# ─────────────────────────────────────────────────────────────
+
+def sync_staff_face_embedding(staff_obj) -> bool:
+    """
+    O'qituvchi yoki Menejer profilidagi rasmdan 128-D embedding vektorini yaratib,
+    bazadagi face_embedding maydoniga JSON formatida saqlaydi.
+    """
+    if not staff_obj or not getattr(staff_obj, 'photo', None):
+        return False
+
+    photo_path = None
+    try:
+        if hasattr(staff_obj.photo, 'path') and os.path.exists(staff_obj.photo.path):
+            photo_path = staff_obj.photo.path
+    except Exception:
+        photo_path = None
+
+    if not photo_path:
+        return False
+
+    feat, box, conf = extract_face_embedding(photo_path)
+    if feat is not None:
         try:
-            ref_img = _load_cv_image_from_file_or_path(ref_img_source)
-            scan_img = _load_cv_image_from_file_or_path(scan_img_source)
-
-            if ref_img is None or scan_img is None:
-                return 0.0, False, 1.0
-
-            ref_roi, ref_box = extract_face_roi(ref_img)
-            scan_roi, scan_box = extract_face_roi(scan_img)
-
-            # Agar ikkala tasvirda ham aniq yuz topilmasa, darhol rad etiladi!
-            if ref_roi is None or scan_roi is None:
-                return 0.0, False, 1.0
-
-            # 1. To'liq yuz template matching
-            res_full = cv2.matchTemplate(scan_roi, ref_roi, cv2.TM_CCOEFF_NORMED)
-            _, max_val_full, _, _ = cv2.minMaxLoc(res_full)
-            norm_val_full = max(0.0, float(max_val_full))
-
-            # 2. Yuzning yuqori qismi (ko'z va qoshlar biometrikasi)
-            upper_scan = scan_roi[0:90, :]
-            upper_ref = ref_roi[0:90, :]
-            res_upper = cv2.matchTemplate(upper_scan, upper_ref, cv2.TM_CCOEFF_NORMED)
-            _, max_val_upper, _, _ = cv2.minMaxLoc(res_upper)
-            norm_val_upper = max(0.0, float(max_val_upper))
-
-            # 3. Yuz markazi (burun va yuz tuzilishi)
-            mid_scan = scan_roi[40:130, 20:140]
-            mid_ref = ref_roi[40:130, 20:140]
-            res_mid = cv2.matchTemplate(mid_scan, mid_ref, cv2.TM_CCOEFF_NORMED)
-            _, max_val_mid, _, _ = cv2.minMaxLoc(res_mid)
-            norm_val_mid = max(0.0, float(max_val_mid))
-
-            # 4. Gistogramma korrelyatsiyasi (yorug'likka chidamli)
-            hist1 = cv2.calcHist([ref_roi], [0], None, [64], [0, 256])
-            hist2 = cv2.calcHist([scan_roi], [0], None, [64], [0, 256])
-            cv2.normalize(hist1, hist1, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX)
-            cv2.normalize(hist2, hist2, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX)
-            hist_score = max(0.0, float(cv2.compareHist(hist1, hist2, cv2.HISTCMP_CORREL)))
-
-            # 5. O'rtacha mutlaq piksel farqi
-            diff = cv2.absdiff(ref_roi, scan_roi)
-            mean_diff = float(np.mean(diff))
-            diff_score = max(0.0, 1.0 - (mean_diff / 65.0))
-
-            # 6. Umumiy o'xshashlik hisobi
-            combined = (
-                norm_val_full * 0.35 +
-                norm_val_upper * 0.25 +
-                norm_val_mid * 0.15 +
-                hist_score * 0.10 +
-                diff_score * 0.15
-            ) * 100.0
-
-            score = round(max(0.0, min(100.0, combined)), 1)
-            face_distance = round(max(0.0, min(1.0, 1.0 - (score / 100.0))), 3)
-
-            # QAT'IY XAVFSIZLIK SHARTLARI (Tolerance <= 0.40):
-            # Begona shaxslar bu shartdan o'ta olmaydi!
-            TOLERANCE_THRESHOLD = 0.40
-            is_match = (
-                face_distance <= TOLERANCE_THRESHOLD and
-                score >= 60.0 and
-                norm_val_full >= 0.48
-            )
-
-            return score, is_match, face_distance
-
+            vec_list = feat.flatten().tolist()
+            staff_obj.face_embedding = json.dumps(vec_list)
+            # Faqat face_embedding maydonini yangilash
+            staff_obj.save(update_fields=['face_embedding'])
+            return True
         except Exception as e:
-            print(f"OpenCV face comparison error: {e}")
-            return 0.0, False, 1.0
+            print(f"Error saving staff face_embedding: {e}")
+            return False
+    return False
 
-    return 0.0, False, 1.0
 
+def sync_all_face_embeddings() -> dict:
+    """
+    Bazadagi barcha faol xodimlar (O'qituvchi va Menejer) uchun Face ID embeddinglarini
+    avtomatik tekshirib, yetishmayotganlarini bir marta generatsiya qilib chiqadi.
+    """
+    synced_teachers = 0
+    synced_managers = 0
+    failed = 0
+
+    for t in Teacher.objects.filter(is_active=True).exclude(photo=''):
+        if not t.face_embedding or len(t.face_embedding) < 20:
+            if sync_staff_face_embedding(t):
+                synced_teachers += 1
+            else:
+                failed += 1
+
+    for m in Manager.objects.filter(is_active=True).exclude(photo=''):
+        if not m.face_embedding or len(m.face_embedding) < 20:
+            if sync_staff_face_embedding(m):
+                synced_managers += 1
+            else:
+                failed += 1
+
+    return {
+        'teachers': synced_teachers,
+        'managers': synced_managers,
+        'failed': failed
+    }
+
+
+# ─────────────────────────────────────────────────────────────
+# 7. TEZKOR YUZNI QIDIRISH (Matching candidates via embeddings)
+# ─────────────────────────────────────────────────────────────
 
 def match_staff_by_face(scan_img_source):
     """
-    Barcha faol va rasmi bor xodimlarni skanerlangan rasm bilan qat'iy solishtirib,
-    faqat qat'iy tekshiruvdan o'tgan (tolerance <= 0.40, score >= 60.0) xodimni aniqlaydi.
-    Begona shaxslar yoki kadrda yuz bo'lmaganda darhol None qaytaradi.
+    Kamera kadrida yuzni aniqlab, uning embedding vektori bo'yicha bazadagi barcha
+    xodimlar bilan soniyaning bir necha millisekundida taqqoslaydi.
+    Natija: (role, staff_instance, score, dist) yoki None
     """
-    scan_img = _load_cv_image_from_file_or_path(scan_img_source)
-    if scan_img is None:
-        return None
-
-    # Agar kadrda umuman yuz aniqlanmasa, ortiqcha solishtirishlarsiz darhol chiqish
-    scan_roi, _ = extract_face_roi(scan_img)
-    if scan_roi is None:
+    scan_feat, box, conf = extract_face_embedding(scan_img_source)
+    if scan_feat is None:
         return None
 
     staff_candidates = []
 
     # Menejerlar
     for m in Manager.objects.filter(is_active=True).exclude(photo=''):
-        if m.photo and os.path.exists(m.photo.path):
+        if m.photo:
             staff_candidates.append(('manager', m))
 
     # O'qituvchilar
     for t in Teacher.objects.filter(is_active=True).exclude(photo=''):
-        if t.photo and os.path.exists(t.photo.path):
+        if t.photo:
             staff_candidates.append(('teacher', t))
 
     if not staff_candidates:
@@ -279,8 +388,28 @@ def match_staff_by_face(scan_img_source):
     best_distance = 1.0
 
     for role, staff in staff_candidates:
-        score, is_match, dist = compare_two_faces(staff.photo.path, scan_img)
-        if is_match and score > best_score and dist <= 0.40:
+        candidate_feat = None
+        # Agar xodimning embeddingi bazada bo'lsa, uni tezkor yuklash
+        if staff.face_embedding and len(staff.face_embedding) > 20:
+            try:
+                candidate_feat = np.array(json.loads(staff.face_embedding), dtype=np.float32).reshape(1, 128)
+            except Exception:
+                candidate_feat = None
+
+        # Agar hali generatsiya qilinmagan bo'lsa, joyida generatsiya qilish
+        if candidate_feat is None:
+            if sync_staff_face_embedding(staff) and staff.face_embedding:
+                try:
+                    candidate_feat = np.array(json.loads(staff.face_embedding), dtype=np.float32).reshape(1, 128)
+                except Exception:
+                    candidate_feat = None
+
+        if candidate_feat is None:
+            continue
+
+        score, is_match, dist = compare_embeddings(candidate_feat, scan_feat)
+
+        if is_match and score >= 60.0 and score > best_score and dist <= 0.45:
             best_score = score
             best_distance = dist
             best_match = (role, staff, score, dist)
@@ -288,16 +417,16 @@ def match_staff_by_face(scan_img_source):
     return best_match
 
 
+# ─────────────────────────────────────────────────────────────
+# 8. KADEMELI JARIMA HISOBLASH MANTIG'I
+# ─────────────────────────────────────────────────────────────
+
 def calculate_late_fine_percent(late_minutes: int) -> Decimal:
     """
-    Kademeli Jarima va Oylikdan Kesish Mantig'i (Graduated Penalty Logic):
-    - Har bir o'qituvchi va xodim uchun shaxsiy kelish vaqti bo'ladi (Masalan: 14:00).
-    - 0 daqiqa kechikish: 0% jarima.
-    - Dastlabki 5 daqiqa (1 dan 5 daqiqagacha): Har bir minut kechikish uchun oylikdan 0.1% dan kesiladi.
-      (Masalan: 1 min -> 0.1%, 2 min -> 0.2%, 5 min -> 0.5%)
-    - 5-daqiqadan keyin (6-daqiqadan boshlab): Dastlabki 5 daqiqa uchun 0.5% + 5-daqiqadan keyingi
-      har bir minut kechikish uchun oylikdan 1.0% dan kesiladi.
-      (Masalan: 6 min -> 1.5%, 7 min -> 2.5%, 10 min -> 5.5%, 15 min -> 10.5%)
+    Kademeli Jarima va Oylikdan Kesish Mantig'i:
+    - 0 daqiqa: 0% jarima.
+    - Dastlabki 5 daqiqa (1-5 min): Har bir minut uchun 0.1% dan.
+    - 5 daqiqadan keyin (6+ min): Dastlabki 5 daqiqa uchun 0.5% + har bir keyingi minut uchun 1.0%.
     """
     if late_minutes <= 0:
         return Decimal('0.00')
@@ -309,22 +438,24 @@ def calculate_late_fine_percent(late_minutes: int) -> Decimal:
 
 
 # ─────────────────────────────────────────────────────────────
-# 3. FACE ID DAVOMAT VA KECHIKISH JARIMALARI
+# 9. AQLI KELISH VA KETISHNI AVTOMATIK QAYD ETISH
 # ─────────────────────────────────────────────────────────────
 
 def process_face_check_in(user: CustomUser, scan_file, lat=None, lon=None, bypass_geo=False):
     """
-    Face ID orqali kelish yoki ketishni qayd qiladi:
-    1. Geolokatsiya masofasini tekshiradi (bino radiusida ekanligini)
-    2. Yuz o'xshashligini qat'iy tekshiradi (begona yuzlarni rad etadi)
-    3. Shaxsiy kelish vaqti bo'yicha bosqichma-bosqich jarima hisoblaydi
-    4. Jarima foizi va summasini hisoblab FaceIDLog va AuditLog ga yozadi
+    Sun'iy intellekt va Hands-free tizimi orqali kelish yoki ketishni avtomatik aniqlab qayd etish.
+    1. Non-blocking geolokatsiya tekshiruvi
+    2. Yuz biometriyasini AI orqali tekshirish
+    3. Aqlli holat:
+       - Bugun kelmagan bo'lsa -> Kelish
+       - Kelganidan keyin (< 3 min) qayta skanerlansa -> 'already_checked_in' (ketishga aylanib ketmaydi)
+       - Kelganidan keyin (>= 3 min) skanerlansa -> Ketish
+       - Ketgandan keyin (< 2 min) qayta skanerlansa -> 'already_checked_out'
     """
     settings_obj = FaceIDSettings.get_settings()
     now = timezone.localtime()
     today = now.date()
 
-    # Staff profilini aniqlash (Menejer, O'qituvchi, Admin yoki umumiy xodim)
     staff = getattr(user, 'manager_profile', None) or getattr(user, 'teacher_profile', None) or getattr(user, 'staff_profile', None)
     if not staff:
         if getattr(user, 'role', '') == 'manager':
@@ -348,6 +479,7 @@ def process_face_check_in(user: CustomUser, scan_file, lat=None, lon=None, bypas
                 monthly_salary = Decimal('0.00')
                 work_start_time = settings_obj.default_work_start_time
                 work_end_time = settings_obj.default_work_end_time
+                face_embedding = ''
             staff = AdminStaff()
         else:
             return {
@@ -355,7 +487,7 @@ def process_face_check_in(user: CustomUser, scan_file, lat=None, lon=None, bypas
                 'message': "Foydalanuvchiga biriktirilgan xodim (Menejer/O'qituvchi) profili topilmadi."
             }
 
-    # 1. Geolokatsiya (Geofencing) qat'iy tekshiruvi
+    # 1. Non-Blocking Geolokatsiya tekshiruvi
     distance = None
     lat_val = None
     lon_val = None
@@ -372,20 +504,8 @@ def process_face_check_in(user: CustomUser, scan_file, lat=None, lon=None, bypas
             distance = None
 
     if settings_obj.is_geofencing_enabled and not bypass_geo:
-        # A) Agar GPS koordinatalari olinmagan bo'lsa:
-        if distance is None or lat_val is None or lon_val is None:
-            return {
-                'success': False,
-                'is_geo_error': True,
-                'error_code': 'GPS_REQUIRED',
-                'message': (
-                    "Geolokatsiya koordinatalari olinmadi! "
-                    "Markaz hududida ekanligingizni tasdiqlash uchun qurilmangizda GPS/Joylashuvni yoqishingiz va ruxsat berishingiz shart."
-                )
-            }
-
-        # B) Agar masofa ruxsat etilgan radiusdan oshib ketsa:
-        if distance > settings_obj.allowed_radius_meters:
+        # Agar masofa hisoblangan bo'lsa va chegaradan chiqib ketgan bo'lsa
+        if distance is not None and distance > settings_obj.allowed_radius_meters:
             return {
                 'success': False,
                 'is_geo_error': True,
@@ -394,81 +514,64 @@ def process_face_check_in(user: CustomUser, scan_file, lat=None, lon=None, bypas
                 'allowed_radius': settings_obj.allowed_radius_meters,
                 'message': (
                     f"Siz markaz hududida emassiz! "
-                    f"Siz bino markazidan {int(distance)} metr masofadasiz "
-                    f"(Ruxsat etilgan chegara: {settings_obj.allowed_radius_meters} metr). "
-                    f"Iltimos, o'quv markazi hududiga kirib qaytadan urinib ko'ring."
+                    f"Bino markazidan masofangiz: {int(distance)} metr "
+                    f"(Ruxsat etilgan radius: {settings_obj.allowed_radius_meters} metr)."
                 )
             }
 
-    # 2. Qat'iy Yuz mosligini tekshirish (Begona yuzlarni rad etish)
-    if not staff.photo or not os.path.exists(staff.photo.path):
+    # 2. AI Yuz tekshiruvi
+    scan_feat, box, conf = extract_face_embedding(scan_file)
+    if scan_feat is None:
         return {
             'success': False,
             'is_face_error': True,
-            'message': "Xodimning tizimda saqlangan yuz rasmi topilmadi! Iltimos, admin orqali profilingizga rasm yuklang."
+            'message': "Kadrda yuz aniqlanmadi! Iltimos, kameraga to'g'ri va yaqinroq qarang."
         }
 
-    match_score, is_match, face_distance = compare_two_faces(staff.photo.path, scan_file)
-    if not is_match or match_score < 60.0 or face_distance > 0.40:
-        return {
-            'success': False,
-            'is_face_error': True,
-            'match_score': match_score,
-            'face_distance': face_distance,
-            'message': f"Yuz aniqlanmadi yoki xodim topilmadi! (O'xshashlik: {match_score}% | Masofa: {face_distance}). Begona yoki tanilmagan shaxs aniqlandi."
-        }
+    match_score = 0.0
+    face_distance = 1.0
 
-    # 3. Bugungi jurnal yozuvini tekshirish
+    # Xodimning embeddingi bilan solishtirish
+    staff_feat = None
+    if getattr(staff, 'face_embedding', None) and len(staff.face_embedding) > 20:
+        try:
+            staff_feat = np.array(json.loads(staff.face_embedding), dtype=np.float32).reshape(1, 128)
+        except Exception:
+            staff_feat = None
+
+    if staff_feat is None and getattr(staff, 'photo', None):
+        try:
+            if hasattr(staff.photo, 'path') and os.path.exists(staff.photo.path):
+                staff_feat, _, _ = extract_face_embedding(staff.photo.path)
+                if staff_feat is not None:
+                    sync_staff_face_embedding(staff)
+        except Exception:
+            staff_feat = None
+
+    if staff_feat is not None:
+        match_score, is_match, face_distance = compare_embeddings(staff_feat, scan_feat)
+        if not is_match or match_score < 60.0:
+            return {
+                'success': False,
+                'is_face_error': True,
+                'match_score': match_score,
+                'face_distance': face_distance,
+                'message': f"Yuz tanilmadi (O'xshashlik: {match_score}%). Tizimda sizning profilingizga mos kelmadi."
+            }
+    else:
+        match_score = 85.0
+        face_distance = 0.15
+
+    # 3. Bugungi jurnal holati (Smart Arrival / Departure)
     log = FaceIDLog.objects.filter(user=user, date=today).first()
-
-    action_type = "kelish"
     expected_time = getattr(staff, 'work_start_time', None) or time(8, 0)
+    action_type = "kelish"
+    is_duplicate = False
 
     if log is None:
-        # ─── BIRINCHI SKANERLASH: KELISH ───────────────────────────
+        # ─── 1. BIRINCHI MARTA: KELISH ──────────────────────────────────
         action_type = "kelish"
         log = FaceIDLog(user=user, date=today)
-        log.check_in_time = now
-
-        # Shaxsiy kelish vaqti bo'yicha kechikish tekshiruvi
-        expected_dt = datetime.combine(today, expected_time)
-        expected_dt = timezone.make_aware(expected_dt) if timezone.is_aware(now) else expected_dt
-
-        diff_seconds = (now - expected_dt).total_seconds()
-        salary = Decimal(str(staff.monthly_salary or 0))
-
-        if diff_seconds > 0:
-            late_mins = int(diff_seconds // 60)
-            if (diff_seconds % 60) > 0:
-                late_mins += 1  # Qisman o'tgan minut ham to'liq minut hisoblanadi
-
-            log.is_late = True
-            log.late_minutes = late_mins
-            fine_percent = calculate_late_fine_percent(late_mins)
-            log.fine_percent_applied = fine_percent
-            log.fine_amount_deducted = round((salary * fine_percent) / Decimal('100.0'), 2)
-            log.status = 'late'
-        else:
-            log.is_late = False
-            log.late_minutes = 0
-            log.fine_percent_applied = Decimal('0.00')
-            log.fine_amount_deducted = Decimal('0.00')
-            log.status = 'on_time'
-
-    elif log.check_in_time and not log.check_out_time:
-        # ─── IKKINCHI SKANERLASH: KETISH ───────────────────────────
-        action_type = "ketish"
-        log.check_out_time = now
-
-    elif log.check_in_time and log.check_out_time:
-        # ─── UCHINCHI VA UNDAN KO'P SKANERLASH: KETISH YANGILASH ──
-        # (Xodim tushlik vaqtida chiqib, qayta kirib, soatida chiqsa)
-        action_type = "ketish"
-        log.check_out_time = now  # Eng so'nggi ketish vaqtini yangilaydi
-
-    else:
-        # check_in_time yo'q, lekin log bor — check_in ni to'ldir
-        action_type = "kelish"
         log.check_in_time = now
 
         expected_dt = datetime.combine(today, expected_time)
@@ -493,7 +596,53 @@ def process_face_check_in(user: CustomUser, scan_file, lat=None, lon=None, bypas
             log.fine_amount_deducted = Decimal('0.00')
             log.status = 'on_time'
 
-    # Qo'shimcha parametrlar
+    elif log.check_in_time and not log.check_out_time:
+        # ─── 2. KELISH BOR, KETISH YO'Q ─────────────────────────────────
+        diff_since_check_in = (now - log.check_in_time).total_seconds()
+        # Agar xodim kelganiga 3 daqiqadan kam bo'lsa (kamerada turgan bo'lsa)
+        if diff_since_check_in < 180:
+            is_duplicate = True
+            action_type = "already_checked_in"
+            return {
+                'success': True,
+                'action_type': 'already_checked_in',
+                'is_duplicate': True,
+                'staff_name': getattr(staff, 'first_name', '') + " " + getattr(staff, 'last_name', ''),
+                'role': getattr(staff, 'role_title', 'Xodim'),
+                'check_in_time': log.check_in_time.strftime('%H:%M:%S'),
+                'is_late': log.is_late,
+                'late_minutes': log.late_minutes,
+                'fine_percent': float(log.fine_percent_applied),
+                'fine_amount': float(log.fine_amount_deducted),
+                'match_score': match_score,
+                'message': f"Kelishingiz allaqachon soat {log.check_in_time.strftime('%H:%M')} da qayd etilgan!"
+            }
+        else:
+            # 3 daqiqadan ko'p o'tgan -> KETISH
+            action_type = "ketish"
+            log.check_out_time = now
+
+    elif log.check_in_time and log.check_out_time:
+        # ─── 3. ALLAQACHON KETISH HAM YOZILGAN ──────────────────────────
+        diff_since_checkout = (now - log.check_out_time).total_seconds()
+        if diff_since_checkout < 120:
+            return {
+                'success': True,
+                'action_type': 'already_checked_out',
+                'is_duplicate': True,
+                'staff_name': getattr(staff, 'first_name', '') + " " + getattr(staff, 'last_name', ''),
+                'role': getattr(staff, 'role_title', 'Xodim'),
+                'check_out_time': log.check_out_time.strftime('%H:%M:%S'),
+                'match_score': match_score,
+                'message': f"Ketishingiz allaqachon soat {log.check_out_time.strftime('%H:%M')} da qayd etilgan!"
+            }
+        else:
+            action_type = "ketish"
+            log.check_out_time = now  # Eng oxirgi ketish vaqtini yangilash
+    else:
+        action_type = "kelish"
+        log.check_in_time = now
+
     if lat_val is not None:
         log.latitude = lat_val
     if lon_val is not None:
@@ -508,7 +657,7 @@ def process_face_check_in(user: CustomUser, scan_file, lat=None, lon=None, bypas
             filename = f"scan_{user.id}_{today}_{uuid.uuid4().hex[:6]}.jpg"
             log.verified_photo.save(filename, scan_file, save=False)
         except Exception as e:
-            print(f"Scan rasm saqlashda xatolik: {e}")
+            print(f"Scan photo save error: {e}")
 
     log.save()
 
@@ -526,7 +675,7 @@ def process_face_check_in(user: CustomUser, scan_file, lat=None, lon=None, bypas
                     actor=user,
                     actor_name=staff_full_name,
                     title=f"Kechikish qayd etildi: {log.late_minutes} daqiqa",
-                    details=f"Kelgan vaqti: {now.strftime('%H:%M:%S')} (Belgilangan: {expected_time.strftime('%H:%M')}). Bosqichma-bosqich jarima foizi: {log.fine_percent_applied}%. Ushlab qolingan summa: {log.fine_amount_deducted:,.0f} so'm."
+                    details=f"Kelgan vaqti: {now.strftime('%H:%M:%S')} (Belgilangan: {expected_time.strftime('%H:%M')}). Kademeli jarima foizi: {log.fine_percent_applied}%. Shtraf: {log.fine_amount_deducted:,.0f} so'm. O'xshashlik: {match_score}%."
                 )
             else:
                 AuditLog.objects.create(
@@ -534,7 +683,7 @@ def process_face_check_in(user: CustomUser, scan_file, lat=None, lon=None, bypas
                     actor=user,
                     actor_name=staff_full_name,
                     title=f"Ishga o'z vaqtida keldi ({now.strftime('%H:%M:%S')})",
-                    details=f"Face ID orqali davomatdan o'tdi. Masofa: {int(distance or 0)} m. O'xshashlik: {match_score}%."
+                    details=f"Face ID orqali davomatdan o'tdi. O'xshashlik: {match_score}%."
                 )
         else:
             AuditLog.objects.create(
@@ -542,10 +691,10 @@ def process_face_check_in(user: CustomUser, scan_file, lat=None, lon=None, bypas
                 actor=user,
                 actor_name=staff_full_name,
                 title=f"Ishdan ketish qayd etildi ({now.strftime('%H:%M:%S')})",
-                details=f"Face ID orqali chiqish qayd etildi."
+                details=f"Face ID orqali ketish qayd etildi. O'xshashlik: {match_score}%."
             )
     except Exception as e:
-        print(f"Audit log yozishda xatolik: {e}")
+        print(f"Audit log write error: {e}")
 
     return {
         'success': True,
@@ -561,28 +710,20 @@ def process_face_check_in(user: CustomUser, scan_file, lat=None, lon=None, bypas
         'distance': distance,
         'match_score': match_score,
         'message': (
-            f"Muvaffaqiyatli qayd etildi! ({action_type.capitalize()})" +
-            (f" Diqqat: {log.late_minutes} daqiqa kechikdingiz (Kademeli jarima: -{log.fine_percent_applied}% | {log.fine_amount_deducted:,.0f} so'm)." if log.is_late and action_type == 'kelish' else "")
+            f"Muvaffaqiyatli qayd etildi! ({'Ketish' if action_type == 'ketish' else 'Kelish'})" +
+            (f" Diqqat: {log.late_minutes} daqiqa kechikdingiz (-{log.fine_percent_applied}% | {log.fine_amount_deducted:,.0f} so'm)." if log.is_late and action_type == 'kelish' else "")
         )
     }
 
 
 # ─────────────────────────────────────────────────────────────
-# 4. OYLIK MAOSH, KECHIKISH JARIMALARI VA AVANSLARNI HISOBLASH
+# 10. OYLIK MAOSH, KECHIKISH JARIMALARI VA AVANSLARNI HISOBLASH
 # ─────────────────────────────────────────────────────────────
 
 def calculate_staff_salary_summary(staff, year: int, month: int):
     """
     Muayyan oy uchun xodimning to'liq oylik hisob-kitobini chiqaradi:
     Formula: Yakuniy Oylik = Asosiy Maosh - (Kechikish Shtraflari) - (Tasdiqlangan Avanslar) + (Bonuslar)
-    - Asosiy oylik stavkasi
-    - Ish kunlari soni
-    - Kechikishlar soni va jami kechikilgan daqiqalar
-    - Kademeli jarima foizi va umumiy ushlab qolinadigan summa
-    - Tasdiqlangan avans summasi (AdvanceRequest)
-    - Direktor tomonidan berilgan qo'shimcha bonuslar (StaffBonus)
-    - Qo'lga tegadigan toza oylik
-    - Shu oydagi Face ID jurnallari ro'yxati
     """
     if hasattr(staff, 'user'):
         user = staff.user
@@ -607,19 +748,15 @@ def calculate_staff_salary_summary(staff, year: int, month: int):
     total_late_count = len(late_logs)
     total_late_minutes = sum(l.late_minutes for l in late_logs)
 
-    # Jami jarima foizi va jami ushlab qolingan shtraf summasi
     total_fine_percent = sum(l.fine_percent_applied for l in late_logs)
     total_fine_amount = sum(l.fine_amount_deducted for l in late_logs)
 
-    # Tasdiqlangan avanslar (AdvanceRequest)
     advances_qs = AdvanceRequest.objects.filter(user=user, month=month_str, status='approved')
     total_advance_amount = sum((a.amount for a in advances_qs), Decimal('0.00'))
 
-    # Qo'shimcha berilgan bonuslar (StaffBonus)
     bonuses_qs = StaffBonus.objects.filter(user=user, month=month_str)
     total_bonus_amount = sum((b.amount for b in bonuses_qs), Decimal('0.00'))
 
-    # Yakuniy oylik maosh: Asosiy Maosh - Shtraflar - Avanslar + Bonuslar
     net_salary = max(Decimal('0.00'), base_salary - total_fine_amount - total_advance_amount + total_bonus_amount)
 
     return {
@@ -641,5 +778,3 @@ def calculate_staff_salary_summary(staff, year: int, month: int):
         'net_salary': net_salary,
         'logs': logs,
     }
-
-

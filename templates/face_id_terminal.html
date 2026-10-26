@@ -680,6 +680,9 @@
 
             <!-- SUCCESS / LATE / ERROR RESULT OVERLAY -->
             <div class="kiosk-result-overlay" id="resultOverlay">
+                <div class="result-avatar-wrap mb-2" id="resultAvatarWrap" style="display:none;">
+                    <img id="resultAvatarImg" src="" alt="Staff" style="width:78px; height:78px; border-radius:50%; object-fit:cover; border:3px solid #06b6d4; box-shadow:0 4px 20px rgba(6,182,212,0.4);">
+                </div>
                 <div class="result-icon-ring" id="resultIcon">
                     <i class="bi bi-check-lg"></i>
                 </div>
@@ -820,8 +823,8 @@
     let autoScanEnabled = true;
     let lastScanTime = 0;
     let activeMediaStream = null;
-    const SCAN_INTERVAL_MS = 1400; // Har 1.4 soniyada bir kadr tekshiriladi
-    const COOLDOWN_DURATION_MS = 3800; // Muvaffaqiyatdan so'ng 3.8 soniya kutish
+    const SCAN_INTERVAL_MS = 1200; // Har 1.2 soniyada bir kadr tahlil qilinadi (Hands-free)
+    const COOLDOWN_DURATION_MS = 3600; // Muvaffaqiyatdan so'ng 3.6 soniya kutish
 
     // ══════ SMART BACK NAVIGATION ══════
     function handleKioskBack() {
@@ -1243,9 +1246,9 @@
             },
             (err) => {
                 gpsIcon.className = "bi bi-geo-alt text-warning";
-                gpsText.innerHTML = "GPS: <i>Signali cheklangan (ixtiyoriy)</i>";
+                gpsText.innerHTML = "GPS: <i>Signali cheklangan (Kiosk faol)</i>";
             },
-            { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+            { enableHighAccuracy: true, timeout: 3000, maximumAge: 30000 }
         );
     } else {
         gpsIcon.className = "bi bi-geo-alt text-muted";
@@ -1288,6 +1291,7 @@
 
         const formData = new FormData();
         formData.append('image', dataUrl);
+        formData.append('is_kiosk', '1');
         if (targetUserId) {
             formData.append('user_id', targetUserId);
         }
@@ -1381,7 +1385,28 @@
         cameraFrame.className = `kiosk-camera-frame ${isLate ? 'state-late' : 'state-success'}`;
         resultOverlay.classList.add('active');
 
-        if (isCheckout) {
+        if (data.photo_url) {
+            document.getElementById('resultAvatarWrap').style.display = 'block';
+            document.getElementById('resultAvatarImg').src = data.photo_url;
+            resultIcon.style.display = 'none';
+        } else {
+            document.getElementById('resultAvatarWrap').style.display = 'none';
+            resultIcon.style.display = 'flex';
+        }
+
+        if (actionType === 'already_checked_in' || data.is_duplicate) {
+            playKioskChime('success');
+            resultIcon.className = "result-icon-ring success";
+            resultIcon.innerHTML = '<i class="bi bi-info-circle-fill"></i>';
+            resultActionTitle.className = "result-action-title text-info";
+            resultActionTitle.textContent = "Kelganingiz qayd etilgan! ✅";
+        } else if (actionType === 'already_checked_out') {
+            playKioskChime('success');
+            resultIcon.className = "result-icon-ring success";
+            resultIcon.innerHTML = '<i class="bi bi-info-circle-fill"></i>';
+            resultActionTitle.className = "result-action-title text-info";
+            resultActionTitle.textContent = "Ketganingiz qayd etilgan! 👋";
+        } else if (isCheckout) {
             // ── KETISH ──
             playKioskChime('success');
             resultIcon.className = "result-icon-ring success";
@@ -1418,7 +1443,7 @@
             <span class="result-pill"><i class="bi bi-${isCheckout ? 'door-open' : 'door-closed'} me-1"></i>${timeLabel}: <b>${displayTime}</b></span>
             ${isLate && !isCheckout ? `<span class="result-pill" style="background:rgba(245,158,11,0.2);border-color:rgba(245,158,11,0.5);color:#fde047;"><i class="bi bi-percent me-1"></i>Jarima: -${data.fine_percent}% (${Number(data.fine_amount).toLocaleString()} so'm)</span>` : ''}
             ${!isCheckout && data.check_out_time ? `<span class="result-pill" style="color:#67e8f9;"><i class="bi bi-clock-history me-1"></i>Avvalgi ketish: ${data.check_out_time}</span>` : ''}
-            <span class="result-pill"><i class="bi bi-shield-check text-success me-1"></i>O'xshashlik: ${data.match_score || 95}%</span>
+            <span class="result-pill"><i class="bi bi-cpu-fill text-success me-1"></i>AI Aniqlik: <b>${data.match_score || 95}%</b></span>
         `;
 
         statusDot.style.background = isLate ? "var(--kiosk-amber)" : (isCheckout ? "var(--kiosk-blue)" : "var(--kiosk-emerald)");
