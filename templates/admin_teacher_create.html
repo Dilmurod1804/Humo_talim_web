@@ -11,7 +11,7 @@
                 <h3 class="fw-black text-dark mt-3 mb-1">Yangi O'qituvchi</h3>
                 <p class="text-muted small">Login va parol avtomatik yaratiladi</p>
             </div>
-            <form method="post">
+            <form method="post" enctype="multipart/form-data">
                 {% csrf_token %}
                 <div class="alert alert-info py-2 px-3 small rounded-3 mb-3" style="background:rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.25); color:#065f46;">
                     <i class="bi bi-info-circle-fill me-1"></i> Iltimos, ism va familiyani faqat <b>Lotin alifbosida</b> kiriting.
@@ -34,6 +34,23 @@
                         </span>
                         <input type="text" name="phone" class="form-control" placeholder="+998 90 123 45 67" value="{{ phone_val|default:'' }}"
                                style="border:1.5px solid #e5e7eb;border-left:none;border-radius:0 10px 10px 0;">
+                    </div>
+                </div>
+
+                <!-- ══════ FACE ID YUZ FOTOSI YUKLASH ══════ -->
+                <div class="mb-3">
+                    <label class="form-label fw-semibold small text-dark d-flex align-items-center gap-1">
+                        <i class="bi bi-person-bounding-box text-primary"></i> Face ID Yuz Fotosurati (Biometrik Davomat)
+                    </label>
+                    <div class="d-flex align-items-center gap-3 p-3 rounded-3" style="background:#f8fafc; border:1.5px dashed #cbd5e1;">
+                        <div id="createPhotoPreview" style="width:54px; height:54px; border-radius:14px; background:#e2e8f0; display:flex; align-items:center; justify-content:center; overflow:hidden; flex-shrink:0;">
+                            <i class="bi bi-camera text-muted fs-4" id="createPlaceholderIcon"></i>
+                            <img id="createImgPreview" src="" alt="Preview" style="width:100%; height:100%; object-fit:cover; display:none;">
+                        </div>
+                        <div class="flex-grow-1">
+                            <input type="file" name="photo" id="createPhotoInput" class="form-control form-control-sm" accept="image/*" onchange="previewCreatePhoto(event)">
+                            <div class="form-text" style="font-size:0.72rem;">Face ID terminalida avtomatik tanilishi uchun xodimning yuz rasmi.</div>
+                        </div>
                     </div>
                 </div>
 
@@ -69,6 +86,23 @@
                     <i class="bi bi-check-circle-fill me-2"></i>Saqlash
                 </button>
             </form>
+
+            <script>
+            function previewCreatePhoto(e) {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = function(evt) {
+                        const img = document.getElementById('createImgPreview');
+                        const icon = document.getElementById('createPlaceholderIcon');
+                        img.src = evt.target.result;
+                        img.style.display = 'block';
+                        icon.style.display = 'none';
+                    };
+                    reader.readAsDataURL(file);
+                }
+            }
+            </script>
         </div>
     </div>
 </div>

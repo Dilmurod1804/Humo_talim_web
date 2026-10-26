@@ -192,6 +192,7 @@ def admin_teacher_create(request):
         late_fine_rate = request.POST.get('late_fine_rate', str(settings_obj.default_late_fine_rate)).strip()
         work_start_time = request.POST.get('work_start_time', str(settings_obj.default_work_start_time)).strip()
         work_end_time = request.POST.get('work_end_time', str(settings_obj.default_work_end_time)).strip()
+        photo_file = request.FILES.get('photo')
 
         if contains_cyrillic(first_name) or contains_cyrillic(last_name):
             messages.error(
@@ -211,6 +212,11 @@ def admin_teacher_create(request):
         pwd_str = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
 
         user = CustomUser.objects.create_user(username=login_str, password=pwd_str, role='teacher')
+
+        opt_photo = None
+        if photo_file:
+            opt_photo, err = optimize_student_photo(photo_file)
+
         salary_val = _safe_decimal(monthly_salary, '0') if is_admin_user(request) else Decimal('0')
         fine_rate_val = _safe_decimal(late_fine_rate, str(settings_obj.default_late_fine_rate)) if is_admin_user(request) else settings_obj.default_late_fine_rate
         Teacher.objects.create(
@@ -224,8 +230,9 @@ def admin_teacher_create(request):
             late_fine_rate=fine_rate_val,
             work_start_time=work_start_time or '09:00',
             work_end_time=work_end_time or '18:00',
+            photo=opt_photo
         )
-        messages.success(request, f"O'qituvchi '{first_name} {last_name}' muvaffaqiyatli yaratildi.")
+        messages.success(request, f"O'qituvchi '{first_name} {last_name}' muvaffaqiyatli yaratildi (Face ID fotosi biriktirildi).")
         return redirect('admin_dashboard')
     return render(request, 'admin_teacher_create.html', {
         'default_fine_rate': settings_obj.default_late_fine_rate,
@@ -835,6 +842,15 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
     overdue_count = 0
     local_count = 0
 
+    total_cash = 0
+    total_terminal = 0
+    total_payme = 0
+    total_click = 0
+    count_cash = 0
+    count_terminal = 0
+    count_payme = 0
+    count_click = 0
+
     curr_month_str = today.strftime('%Y-%m')
 
     for idx, s in enumerate(students_list, start=1):
@@ -873,6 +889,25 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
 
         # Oylik tushum
         total_paid += num_paid
+
+        # To'lov turlari bo'yicha tushumlar hisobi
+        p_type = getattr(pay, 'payment_type', 'cash') if pay else 'cash'
+        if not p_type:
+            p_type = 'cash'
+
+        if num_paid > 0:
+            if p_type == 'terminal':
+                total_terminal += num_paid
+                count_terminal += 1
+            elif p_type == 'payme':
+                total_payme += num_paid
+                count_payme += 1
+            elif p_type == 'click':
+                total_click += num_paid
+                count_click += 1
+            else:
+                total_cash += num_paid
+                count_cash += 1
 
         # To'lov muddati (due_date)
         has_paid_val = (num_paid > 0) or has_text_payment or is_mahalla
@@ -979,6 +1014,8 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
             'phone': phone_str,
             'notes': pay.notes if pay else "",
             'payment_id': pay.id if pay else None,
+            'payment_type': pay.payment_type if (pay and getattr(pay, 'payment_type', None)) else 'cash',
+            'payment_type_display': pay.get_payment_type_display() if (pay and hasattr(pay, 'get_payment_type_display')) else "Naqd pul (Cash)",
             'debt': debt_val,
             'debt_formatted': f"{debt_val:,}".replace(',', ' '),
         }
@@ -1002,6 +1039,11 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
     for i, r in enumerate(rows, start=1):
         r['index'] = i
 
+    pct_cash = round((total_cash / total_paid) * 100) if total_paid > 0 else 0
+    pct_terminal = round((total_terminal / total_paid) * 100) if total_paid > 0 else 0
+    pct_payme = round((total_payme / total_paid) * 100) if total_paid > 0 else 0
+    pct_click = round((total_click / total_paid) * 100) if total_paid > 0 else 0
+
     stats = {
         'total_students': len(students_list),
         'paid_count': paid_count,
@@ -1012,6 +1054,22 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
         'total_rate_formatted': f"{total_rate:,}".replace(',', ' '),
         'total_paid': total_paid,
         'total_paid_formatted': f"{total_paid:,}".replace(',', ' '),
+        'total_cash': total_cash,
+        'total_cash_formatted': f"{total_cash:,}".replace(',', ' '),
+        'total_terminal': total_terminal,
+        'total_terminal_formatted': f"{total_terminal:,}".replace(',', ' '),
+        'total_payme': total_payme,
+        'total_payme_formatted': f"{total_payme:,}".replace(',', ' '),
+        'total_click': total_click,
+        'total_click_formatted': f"{total_click:,}".replace(',', ' '),
+        'count_cash': count_cash,
+        'count_terminal': count_terminal,
+        'count_payme': count_payme,
+        'count_click': count_click,
+        'pct_cash': pct_cash,
+        'pct_terminal': pct_terminal,
+        'pct_payme': pct_payme,
+        'pct_click': pct_click,
         'debt_sum': total_debt,
         'debt_sum_formatted': f"{total_debt:,}".replace(',', ' '),
         'daily_collected': daily_collected,
@@ -1020,6 +1078,58 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
     }
 
     return rows, stats
+
+
+def get_payment_type_aggregates(month=None, start_date=None, end_date=None):
+    """
+    To'lov turlari bo'yicha tushumlarni alohida hisoblab beruvchi yordamchi funksiya.
+    Django ORM va to'lov modelidan foydalanib:
+    - Naqd pul (cash)
+    - Terminal (terminal)
+    - Payme (payme)
+    - Click (click)
+    tushumlarini jami summasi, to'lovlar soni va foizini qaytaradi.
+    """
+    qs = MonthlyPayment.objects.all()
+    if month:
+        qs = qs.filter(month=month)
+    if start_date:
+        qs = qs.filter(payment_date__gte=start_date)
+    if end_date:
+        qs = qs.filter(payment_date__lte=end_date)
+
+    totals = {'cash': 0, 'terminal': 0, 'payme': 0, 'click': 0}
+    counts = {'cash': 0, 'terminal': 0, 'payme': 0, 'click': 0}
+    total_all = 0
+
+    for p in qs:
+        num = _clean_amount(p.amount_paid)
+        if num > 0:
+            ptype = p.payment_type if (hasattr(p, 'payment_type') and p.payment_type in totals) else 'cash'
+            totals[ptype] += num
+            counts[ptype] += 1
+            total_all += num
+
+    return {
+        'total_cash': totals['cash'],
+        'total_cash_formatted': f"{totals['cash']:,}".replace(',', ' '),
+        'total_terminal': totals['terminal'],
+        'total_terminal_formatted': f"{totals['terminal']:,}".replace(',', ' '),
+        'total_payme': totals['payme'],
+        'total_payme_formatted': f"{totals['payme']:,}".replace(',', ' '),
+        'total_click': totals['click'],
+        'total_click_formatted': f"{totals['click']:,}".replace(',', ' '),
+        'count_cash': counts['cash'],
+        'count_terminal': counts['terminal'],
+        'count_payme': counts['payme'],
+        'count_click': counts['click'],
+        'pct_cash': round((totals['cash'] / total_all) * 100) if total_all > 0 else 0,
+        'pct_terminal': round((totals['terminal'] / total_all) * 100) if total_all > 0 else 0,
+        'pct_payme': round((totals['payme'] / total_all) * 100) if total_all > 0 else 0,
+        'pct_click': round((totals['click'] / total_all) * 100) if total_all > 0 else 0,
+        'total_all': total_all,
+        'total_all_formatted': f"{total_all:,}".replace(',', ' '),
+    }
 
 
 @admin_required
@@ -1136,6 +1246,10 @@ def admin_payment_save(request):
     student_id = request.POST.get('student_id')
     month = request.POST.get('month', '').strip()
     amount_raw = request.POST.get('amount') or request.POST.get('amount_paid') or '0'
+    payment_type = request.POST.get('payment_type', 'cash').strip()
+    valid_types = [t[0] for t in MonthlyPayment.PAYMENT_TYPE_CHOICES]
+    if payment_type not in valid_types:
+        payment_type = 'cash'
     notes = request.POST.get('notes', '').strip()
 
     if not month:
@@ -1196,6 +1310,7 @@ def admin_payment_save(request):
         month=month,
         defaults={
             'amount_paid': amount_to_save,
+            'payment_type': payment_type,
             'payment_date': p_date,
             'status': new_status,
             'notes': notes,
@@ -1207,8 +1322,8 @@ def admin_payment_save(request):
             action_type='payment',
             actor=request.user if (hasattr(request, 'user') and request.user.is_authenticated) else None,
             actor_name="Direktor / Admin",
-            title=f"To'lov qayd etildi: {student.first_name} {student.last_name} ({amount_to_save})",
-            details=f"Guruh: {student.time_slot.group.name if student.time_slot and student.time_slot.group else '-'}, Oy: {month}, Holat: {new_status}"
+            title=f"To'lov qayd etildi: {student.first_name} {student.last_name} ({amount_to_save} - {mp.get_payment_type_display()})",
+            details=f"Guruh: {student.time_slot.group.name if student.time_slot and student.time_slot.group else '-'}, Oy: {month}, Turi: {mp.get_payment_type_display()}, Holat: {new_status}"
         )
     except Exception:
         pass
@@ -1256,6 +1371,8 @@ def admin_payment_save(request):
             'amount_paid': mp.amount_paid,
             'amount_paid_num': amount_num,
             'amount_paid_formatted': f"{amount_num:,}".replace(',', ' ') if amount_num > 0 else (amount_to_save if (has_text or is_mahalla_user) else '0'),
+            'payment_type': mp.payment_type,
+            'payment_type_display': mp.get_payment_type_display(),
             'payment_date': mp.payment_date.strftime('%d.%m.%Y') if mp.payment_date else '',
             'payment_date_iso': mp.payment_date.strftime('%Y-%m-%d') if mp.payment_date else '',
             'due_date': due_date_str,
@@ -1269,10 +1386,11 @@ def admin_payment_save(request):
 
     # Oddiy redirect javob
     formatted_amount = f"{amount_num:,}".replace(',', ' ')
+    type_display = mp.get_payment_type_display()
     if amount_num > 0:
         messages.success(
             request,
-            f"✅ {student.first_name} {student.last_name}: {formatted_amount} so'm "
+            f"✅ {student.first_name} {student.last_name}: {formatted_amount} so'm [{type_display}] "
             f"({month}) uchun muvaffaqiyatli saqlandi!"
         )
     elif is_mahalla_user:
@@ -1762,21 +1880,35 @@ def admin_teacher_edit(request, id):
 
 @admin_required
 def admin_face_id_logs(request):
-    """Barcha xodimlarning Face ID davomat jurnali (kelish-ketish va kechikishlar)."""
+    """Barcha xodimlarning Face ID davomat jurnali (kelish-ketish va kechikishlar).
+    Moslashuvchan sana filtrlari: Bugun, Shu oy, Barcha sanalar, yoki Aniq sana."""
     if not _admin_only(request):
         return redirect('home')
 
-    filter_date_str = request.GET.get('date', date.today().strftime('%Y-%m-%d'))
+    filter_period = request.GET.get('period', 'today')
+    filter_date_str = request.GET.get('date', '')
     filter_role = request.GET.get('role', 'all')
     filter_status = request.GET.get('status', 'all')
 
-    try:
-        filter_date = datetime.strptime(filter_date_str, '%Y-%m-%d').date()
-    except Exception:
-        filter_date = date.today()
-        filter_date_str = filter_date.strftime('%Y-%m-%d')
+    today = date.today()
+    logs_qs = FaceIDLog.objects.select_related('user').all()
 
-    logs_qs = FaceIDLog.objects.select_related('user').filter(date=filter_date)
+    if filter_date_str:
+        try:
+            filter_date = datetime.strptime(filter_date_str, '%Y-%m-%d').date()
+            logs_qs = logs_qs.filter(date=filter_date)
+            filter_period = 'custom'
+        except Exception:
+            filter_date_str = today.strftime('%Y-%m-%d')
+            logs_qs = logs_qs.filter(date=today)
+            filter_period = 'today'
+    elif filter_period == 'today':
+        logs_qs = logs_qs.filter(date=today)
+        filter_date_str = today.strftime('%Y-%m-%d')
+    elif filter_period == 'month':
+        logs_qs = logs_qs.filter(date__year=today.year, date__month=today.month)
+    elif filter_period == 'all':
+        pass  # Barcha yozuvlar
 
     if filter_role == 'manager':
         logs_qs = logs_qs.filter(user__role='manager')
@@ -1788,7 +1920,7 @@ def admin_face_id_logs(request):
     elif filter_status == 'late':
         logs_qs = logs_qs.filter(is_late=True)
 
-    logs_list = list(logs_qs.order_by('-check_in_time'))
+    logs_list = list(logs_qs.order_by('-date', '-check_in_time'))
 
     # Statistika
     total_scans = len(logs_list)
@@ -1796,8 +1928,73 @@ def admin_face_id_logs(request):
     ontime_scans = total_scans - late_scans
     total_fines = sum(l.fine_amount_deducted for l in logs_list)
 
+    # ── Barcha xodimlarning Face ID holati (Enrollment status) ──
+    staff_status_list = []
+    has_cv = False
+    try:
+        import core.face_service as fs
+        has_cv = getattr(fs, 'HAS_OPENCV', False)
+    except Exception:
+        fs = None
+
+    for m in Manager.objects.all().select_related('user'):
+        has_photo = bool(m.photo)
+        face_detected = False
+        if has_photo:
+            try:
+                if os.path.exists(m.photo.path) and has_cv and fs:
+                    cv_img = fs._load_cv_image_from_file_or_path(m.photo.path)
+                    if cv_img is not None:
+                        roi, _ = fs.extract_face_roi(cv_img)
+                        face_detected = (roi is not None)
+            except Exception:
+                pass
+        staff_status_list.append({
+            'id': m.id,
+            'role': 'manager',
+            'role_title': 'Menejer',
+            'full_name': f"{m.first_name} {m.last_name}".strip() or m.user.username,
+            'username': m.user.username,
+            'phone': m.phone or '—',
+            'has_photo': has_photo,
+            'face_detected': face_detected,
+            'photo_url': m.photo.url if m.photo else '',
+            'work_time': f"{m.work_start_time.strftime('%H:%M')} - {m.work_end_time.strftime('%H:%M')}" if m.work_start_time else '—',
+            'is_active': m.is_active,
+        })
+
+    for t in Teacher.objects.all().select_related('user'):
+        has_photo = bool(t.photo)
+        face_detected = False
+        if has_photo:
+            try:
+                if os.path.exists(t.photo.path) and has_cv and fs:
+                    cv_img = fs._load_cv_image_from_file_or_path(t.photo.path)
+                    if cv_img is not None:
+                        roi, _ = fs.extract_face_roi(cv_img)
+                        face_detected = (roi is not None)
+            except Exception:
+                pass
+        staff_status_list.append({
+            'id': t.id,
+            'role': 'teacher',
+            'role_title': "O'qituvchi",
+            'full_name': f"{t.first_name} {t.last_name}".strip() or t.user.username,
+            'username': t.user.username,
+            'phone': t.phone or '—',
+            'has_photo': has_photo,
+            'face_detected': face_detected,
+            'photo_url': t.photo.url if t.photo else '',
+            'work_time': f"{t.work_start_time.strftime('%H:%M')} - {t.work_end_time.strftime('%H:%M')}" if t.work_start_time else '—',
+            'is_active': t.is_active,
+        })
+
+    ready_staff_count = sum(1 for s in staff_status_list if s['face_detected'])
+    missing_staff_count = len(staff_status_list) - ready_staff_count
+
     return render(request, 'admin_face_id_logs.html', {
         'logs': logs_list,
+        'filter_period': filter_period,
         'filter_date': filter_date_str,
         'filter_role': filter_role,
         'filter_status': filter_status,
@@ -1805,7 +2002,142 @@ def admin_face_id_logs(request):
         'late_scans': late_scans,
         'ontime_scans': ontime_scans,
         'total_fines': total_fines,
+        'staff_status_list': staff_status_list,
+        'ready_staff_count': ready_staff_count,
+        'missing_staff_count': missing_staff_count,
     })
+
+
+@admin_required
+def admin_face_id_sync_staff(request):
+    """Barcha mavjud xodimlarni Face ID ga bir marta bosish bilan sinxronlash."""
+    if not _admin_only(request):
+        return redirect('home')
+
+    settings_obj = FaceIDSettings.get_settings()
+    synced_count = 0
+    created_profiles = 0
+
+    # Menejerlar tekshiruvi
+    for u in CustomUser.objects.filter(role='manager'):
+        if not hasattr(u, 'manager_profile'):
+            Manager.objects.create(
+                user=u,
+                first_name=u.first_name or u.username,
+                last_name=u.last_name or '',
+                phone='',
+                generated_login=u.username,
+                generated_password='***',
+                work_start_time=settings_obj.default_work_start_time,
+                work_end_time=settings_obj.default_work_end_time,
+                late_fine_rate=settings_obj.default_late_fine_rate
+            )
+            created_profiles += 1
+
+    # O'qituvchilar tekshiruvi
+    for u in CustomUser.objects.filter(role='teacher'):
+        if not hasattr(u, 'teacher_profile'):
+            Teacher.objects.create(
+                user=u,
+                first_name=u.first_name or u.username,
+                last_name=u.last_name or '',
+                phone='',
+                generated_login=u.username,
+                generated_password='***',
+                work_start_time=settings_obj.default_work_start_time,
+                work_end_time=settings_obj.default_work_end_time,
+                late_fine_rate=settings_obj.default_late_fine_rate
+            )
+            created_profiles += 1
+
+    for m in Manager.objects.all():
+        if not m.work_start_time:
+            m.work_start_time = settings_obj.default_work_start_time
+        if not m.work_end_time:
+            m.work_end_time = settings_obj.default_work_end_time
+        m.save()
+        synced_count += 1
+
+    for t in Teacher.objects.all():
+        if not t.work_start_time:
+            t.work_start_time = settings_obj.default_work_start_time
+        if not t.work_end_time:
+            t.work_end_time = settings_obj.default_work_end_time
+        t.save()
+        synced_count += 1
+
+    messages.success(
+        request,
+        f"Face ID sinxronizatsiyasi muvaffaqiyatli: {synced_count} ta xodim sozlamalari yangilandi, {created_profiles} ta yetishmayotgan profil yaratildi."
+    )
+    return redirect('admin_face_id_logs')
+
+
+@admin_required
+def admin_face_id_upload_photo(request, role, id):
+    """Admin orqali xodimga Face ID yuz fotosuratini biriktirish (fayl yoki veb-kamera snapshot orqali)."""
+    if not _admin_only(request):
+        return JsonResponse({'success': False, 'message': 'Ruxsat berilmagan'}, status=403)
+
+    staff = None
+    if role == 'teacher':
+        staff = get_object_or_404(Teacher, id=id)
+    elif role == 'manager':
+        staff = get_object_or_404(Manager, id=id)
+    else:
+        return JsonResponse({'success': False, 'message': 'Noto\'g\'ri lavozim'}, status=400)
+
+    photo_file = request.FILES.get('photo')
+    image_base64 = request.POST.get('image_base64')
+
+    if not photo_file and image_base64:
+        try:
+            if ',' in image_base64:
+                header, image_base64 = image_base64.split(',', 1)
+            decoded = base64.b64decode(image_base64)
+            photo_file = ContentFile(decoded, name=f"face_{role}_{id}_{uuid.uuid4().hex[:6]}.jpg")
+        except Exception as e:
+            return JsonResponse({'success': False, 'message': f"Suratni o'qishda xatolik: {e}"}, status=400)
+
+    if not photo_file:
+        return JsonResponse({'success': False, 'message': "Hech qanday rasm tanlanmadi!"}, status=400)
+
+    opt_photo, err = optimize_student_photo(photo_file)
+    if not opt_photo:
+        return JsonResponse({'success': False, 'message': f"Rasmni qayta ishlashda xatolik: {err}"}, status=400)
+
+    staff.photo = opt_photo
+    staff.save()
+
+    # OpenCV biometrik tekshiruvi
+    face_ok = False
+    try:
+        import core.face_service as fs
+        if fs.HAS_OPENCV:
+            cv_img = fs._load_cv_image_from_file_or_path(staff.photo.path)
+            if cv_img is not None:
+                roi, box = fs.extract_face_roi(cv_img)
+                if roi is not None:
+                    face_ok = True
+    except Exception:
+        pass
+
+    msg = f"{staff.first_name} {staff.last_name} uchun Face ID yuz fotosurati muvaffaqiyatli biriktirildi!"
+    if face_ok:
+        msg += " (OpenCV biometrik tekshiruvdan o'tdi, yuz to'g'ri aniqlandi)."
+    else:
+        msg += " (Ogohlantirish: Rasm saqlandi, ammo yuz aniq aniqlanmadi, boshqa surat yuklash tavsiya etiladi)."
+
+    if request.headers.get('x-requested-with') == 'XMLHttpRequest' or request.POST.get('is_ajax'):
+        return JsonResponse({
+            'success': True,
+            'message': msg,
+            'photo_url': staff.photo.url if staff.photo else '',
+            'face_detected': face_ok
+        })
+
+    messages.success(request, msg)
+    return redirect('admin_face_id_logs')
 
 
 @admin_required

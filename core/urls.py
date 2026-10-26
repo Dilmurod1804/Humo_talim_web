@@ -31,6 +31,8 @@ urlpatterns = [
     # ── Face ID Boshqaruvi, Jurnali va Oyliklar (Admin) ───────────────────────
     path('admin/face-id/logs/',      admin_views.admin_face_id_logs,     name='admin_face_id_logs'),
     path('admin/face-id/settings/',  admin_views.admin_face_id_settings, name='admin_face_id_settings'),
+    path('admin/face-id/sync-staff/', admin_views.admin_face_id_sync_staff, name='admin_face_id_sync_staff'),
+    path('admin/face-id/upload-photo/<str:role>/<int:id>/', admin_views.admin_face_id_upload_photo, name='admin_face_id_upload_photo'),
     path('admin/salary/report/',     admin_views.admin_salary_report,    name='admin_salary_report'),
     path('admin/salary/export/',     admin_views.admin_salary_export_excel, name='admin_salary_export_excel'),
     path('admin/bonus/save/',        admin_views.admin_bonus_save,       name='admin_bonus_save'),

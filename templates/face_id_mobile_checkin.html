@@ -1,92 +1,335 @@
 {% extends 'base.html' %}
-{% block title %}Mobil Face ID Davomat - HUMO{% endblock %}
+{% block title %}Mobil Face ID Davomat & Geolokatsiya - HUMO{% endblock %}
 
 {% block content %}
 <div class="row justify-content-center">
-    <div class="col-12 col-md-6 col-lg-5">
-        <div class="glass-card p-4 text-center">
-            <div style="background:linear-gradient(135deg,#06b6d4,#0891b2);border-radius:18px;width:64px;height:64px;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;box-shadow:0 8px 24px rgba(6,182,212,0.35);">
-                <i class="bi bi-camera-fill text-white fs-3"></i>
+    <div class="col-12 col-md-7 col-lg-5">
+        <div class="glass-card p-4 text-center shadow-lg" style="background: rgba(255, 255, 255, 0.94); border-radius: 24px;">
+            
+            <!-- Sarlavha -->
+            <div style="background:linear-gradient(135deg,#06b6d4,#0891b2);border-radius:20px;width:68px;height:68px;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;box-shadow:0 8px 24px rgba(6,182,212,0.35);">
+                <i class="bi bi-person-bounding-box text-white fs-2"></i>
             </div>
             <h3 class="fw-black text-dark mb-1">Face ID Davomat</h3>
-            <p class="text-muted small mb-4">Markaz binosida bo'lsangiz, yuzingiz orqali kelish yoki ketishni qayd eting</p>
+            <p class="text-muted small mb-3">Markaz binosi hududida bo'lsangiz, yuzingiz orqali kelish yoki ketishni qayd eting</p>
 
-            <div class="mb-3">
-                <div class="faceid-viewfinder-wrap mb-3" style="max-width:320px; aspect-ratio:1/1; border-radius:50%;">
-                    <video id="mobVideoFeed" class="faceid-video-feed" autoplay playsinline muted style="object-fit:cover;"></video>
-                    <canvas id="mobCanvas" style="display:none;"></canvas>
-                    <div class="faceid-scan-hud">
-                        <div class="faceid-laser" style="width:100%;"></div>
-                    </div>
+            <!-- Video Kamera Viewfinder (Hud Oval Guide) -->
+            <div class="position-relative mx-auto mb-3" style="max-width:320px; aspect-ratio:1/1; border-radius:32px; overflow:hidden; background:#0f172a; box-shadow:0 12px 32px rgba(0,0,0,0.18);">
+                <video id="mobVideoFeed" autoplay playsinline muted style="width:100%; height:100%; object-fit:cover;"></video>
+                <canvas id="mobCanvas" style="display:none;"></canvas>
+
+                <!-- Oval Yuz Qo'llanmasi (Oval Face Guide) -->
+                <div style="position:absolute; inset:12%; border:2.5px dashed rgba(6,182,212,0.85); border-radius:50%; pointer-events:none; box-shadow:0 0 25px rgba(6,182,212,0.35);"></div>
+
+                <!-- Lazer skaner animatsiyasi -->
+                <div id="scanLaser" style="position:absolute; left:0; right:0; height:3px; background:linear-gradient(90deg, transparent, #06b6d4, #3b82f6, transparent); box-shadow:0 0 14px #06b6d4; display:none; animation: laserMove 2s infinite linear;"></div>
+
+                <!-- Kamera yuklanmoqda -->
+                <div id="camLoading" class="position-absolute top-50 start-50 translate-middle text-white small">
+                    <span class="spinner-border spinner-border-sm me-1 text-info"></span> Kamera yoqilmoqda...
                 </div>
             </div>
 
-            <div class="p-2 mb-3 rounded-pill bg-light border small text-muted d-flex align-items-center justify-content-center gap-2">
-                <i class="bi bi-geo-alt-fill text-primary"></i>
-                <span id="mobGeoStatus">GPS joylashuv tekshirilmoqda...</span>
+            <!-- GPS va Masofa Nazorati Holati (Geofence Live Indicator) -->
+            <div class="p-3 mb-3 rounded-4 bg-light border text-start small">
+                <div class="d-flex align-items-center justify-content-between mb-1">
+                    <span class="fw-bold text-dark d-flex align-items-center gap-1">
+                        <i class="bi bi-geo-alt-fill text-primary"></i> GPS Joylashuv:
+                    </span>
+                    <span id="geoStatusBadge" class="badge bg-secondary rounded-pill px-2 py-1">Tekshirilmoqda</span>
+                </div>
+                <div id="geoDetails" class="text-muted" style="font-size:0.78rem;">
+                    Bino markaziga masofa kutilmoqda...
+                </div>
             </div>
 
+            <!-- Xatolik va Muvaffaqiyat Xabarnomasi -->
+            <div id="mobAlert" class="alert d-none rounded-4 text-start small p-3 mb-3" role="alert"></div>
+
+            <!-- Davomatni Qayd Etish Tugmasi -->
             <button type="button" class="btn btn-primary btn-lg rounded-pill w-100 fw-bold shadow-lg py-3"
-                    style="background:linear-gradient(135deg, #06b6d4, #3b82f6); border:none;" onclick="mobCapture()">
-                <i class="bi bi-check2-circle me-1"></i> Davomatni Qayd Etish
+                    id="mobCheckInBtn"
+                    style="background:linear-gradient(135deg, #06b6d4, #3b82f6); border:none; font-size:1.05rem;"
+                    onclick="startCheckInProcess()">
+                <i class="bi bi-camera-fill me-2"></i> Davomatni Qayd Etish
             </button>
 
-            <div id="mobAlert" class="alert mt-3 d-none rounded-4 text-start small"></div>
+            <div class="mt-3 text-muted" style="font-size:0.75rem;">
+                <i class="bi bi-shield-lock-fill text-success me-1"></i>
+                Geolokatsiya va yuz biometrikasi qat'iy tekshiriladi
+            </div>
         </div>
     </div>
 </div>
 
+<style>
+@keyframes laserMove {
+    0% { top: 12%; opacity: 0.2; }
+    50% { top: 88%; opacity: 1; }
+    100% { top: 12%; opacity: 0.2; }
+}
+</style>
+
 <script>
-let mobLat = null, mobLon = null;
+// Markaz koordinatalari va geofence sozlamalari
+const CENTER_LAT = {{ settings.latitude|default:"41.311081" }};
+const CENTER_LON = {{ settings.longitude|default:"69.240562" }};
+const ALLOWED_RADIUS = {{ settings.allowed_radius_meters|default:"150" }};
+const IS_GEOFENCING_ENABLED = {{ settings.is_geofencing_enabled|yesno:"true,false" }};
+const VERIFY_API_URL = "{% url 'face_id_verify_api' %}";
+const CSRF_TOKEN = "{{ csrf_token }}";
+
 const mobVideo = document.getElementById('mobVideoFeed');
 const mobCanvas = document.getElementById('mobCanvas');
 const mobAlert = document.getElementById('mobAlert');
+const mobCheckInBtn = document.getElementById('mobCheckInBtn');
+const geoStatusBadge = document.getElementById('geoStatusBadge');
+const geoDetails = document.getElementById('geoDetails');
+const camLoading = document.getElementById('camLoading');
+const scanLaser = document.getElementById('scanLaser');
 
-navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } })
-    .then(s => mobVideo.srcObject = s)
-    .catch(e => alert("Kamera xatoligi: " + e.message));
+let currentCoords = null;
+let mediaStream = null;
 
-if (navigator.geolocation) {
-    navigator.geolocation.getCurrentPosition(
-        p => {
-            mobLat = p.coords.latitude;
-            mobLon = p.coords.longitude;
-            document.getElementById('mobGeoStatus').textContent = "GPS joylashuv aniqlandi";
-        },
-        e => document.getElementById('mobGeoStatus').textContent = "GPS ruxsat berilmadi"
-    );
+// 1. KAMERANI YOQISH
+async function initCamera() {
+    try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+            video: {
+                facingMode: "user",
+                width: { ideal: 640 },
+                height: { ideal: 480 }
+            },
+            audio: false
+        });
+        mobVideo.srcObject = mediaStream;
+        mobVideo.onloadedmetadata = () => {
+            camLoading.style.display = 'none';
+        };
+    } catch (err) {
+        camLoading.innerHTML = `<span class="text-danger"><i class="bi bi-camera-video-off"></i> Kamera ochilmadi: ${err.message}</span>`;
+        showAlert('danger', 'Kamera ruxsati berilmadi. Iltimos, brauzer sozlamalaridan kameraga ruxsat bering.');
+    }
+}
+initCamera();
+
+// 2. HAVERSINE MASOFASINI CLIENT-SIDE DA HAM HISOB-KITOB QILISH (LIVE FEEDBACK UCHUN)
+function calculateHaversineMeters(lat1, lon1, lat2, lon2) {
+    const R = 6371000; // Yer radiusi (metr)
+    const toRad = deg => (deg * Math.PI) / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return Math.round(R * c);
 }
 
-async function mobCapture() {
-    mobCanvas.width = mobVideo.videoWidth || 480;
-    mobCanvas.height = mobVideo.videoHeight || 480;
+// 3. JORIY GPS KOORDINATALARINI OLISH (PROMISE BILAN)
+function getFreshGPSPosition() {
+    return new Promise((resolve, reject) => {
+        if (!navigator.geolocation) {
+            reject(new Error("Brauzeringiz geolokatsiyani qo'llab-quvvatlamaydi."));
+            return;
+        }
+
+        const options = {
+            enableHighAccuracy: true, // GPS chipini ishlatish
+            timeout: 10000,           // 10 soniya maksimal kutish
+            maximumAge: 0             // Keshdagi eski nuqtani qabul qilmaslik
+        };
+
+        navigator.geolocation.getCurrentPosition(
+            pos => resolve(pos),
+            err => reject(err),
+            options
+        );
+    });
+}
+
+// 4. SAHIFA YUKLANGANDA DASTLABKI JOY LASHUVNI TEKSHIRISH
+async function checkInitialLocation() {
+    if (!IS_GEOFENCING_ENABLED) {
+        geoStatusBadge.className = "badge bg-info rounded-pill px-2 py-1";
+        geoStatusBadge.textContent = "Geofence o'chirilgan";
+        geoDetails.textContent = "Masofa nazorati tizimda o'chirilgan.";
+        return;
+    }
+
+    try {
+        const pos = await getFreshGPSPosition();
+        currentCoords = pos.coords;
+        const dist = calculateHaversineMeters(currentCoords.latitude, currentCoords.longitude, CENTER_LAT, CENTER_LON);
+
+        if (dist <= ALLOWED_RADIUS) {
+            geoStatusBadge.className = "badge bg-success rounded-pill px-2 py-1";
+            geoStatusBadge.innerHTML = '<i class="bi bi-check-circle-fill me-1"></i>Hududdasiz';
+            geoDetails.innerHTML = `Bino markazigacha: <b>${dist} metr</b> (Ruxsat: ${ALLOWED_RADIUS}m) · GPS aniqligi: ±${Math.round(currentCoords.accuracy)}m`;
+        } else {
+            geoStatusBadge.className = "badge bg-danger rounded-pill px-2 py-1";
+            geoStatusBadge.innerHTML = '<i class="bi bi-exclamation-triangle-fill me-1"></i>Hududdan tashqarida';
+            geoDetails.innerHTML = `<span class="text-danger fw-bold">Siz markazdan ${dist}m masofadasiz</span> (Ruxsat etilgan: ${ALLOWED_RADIUS}m)`;
+        }
+    } catch (err) {
+        handleGpsError(err);
+    }
+}
+checkInitialLocation();
+
+// GPS XATOLIKLARINI TUSHUNARLI QILIB KO'RSATISH
+function handleGpsError(err) {
+    geoStatusBadge.className = "badge bg-danger rounded-pill px-2 py-1";
+    let message = "";
+
+    if (err.code === 1) { // PERMISSION_DENIED
+        geoStatusBadge.textContent = "Ruxsat berilmadi";
+        message = "GPS/Geolokatsiyadan foydalanishga ruxsat berilmadi. Iltimos, brauzer sozlamalaridan GPS/Joylashuvga ruxsat bering va sahifani yangilang.";
+    } else if (err.code === 2) { // POSITION_UNAVAILABLE
+        geoStatusBadge.textContent = "Aniqlab bo'lmadi";
+        message = "GPS joylashuvingizni aniqlab bo'lmadi. Telefoningizda GPS (Joylashuv) yoqilganligini tekshiring.";
+    } else if (err.code === 3) { // TIMEOUT
+        geoStatusBadge.textContent = "Kutish vaqti tugadi";
+        message = "GPS signalini olish vaqti tugadi. Qaytadan urinib ko'ring.";
+    } else {
+        geoStatusBadge.textContent = "Xatolik";
+        message = err.message || "GPS xatoligi yuz berdi.";
+    }
+
+    geoDetails.innerHTML = `<span class="text-danger">${message}</span>`;
+    return message;
+}
+
+// 5. DAVOMATNI QAYD ETISH TUGMASI BOSILGANDA (ASOSIY WORKFLOW)
+async function startCheckInProcess() {
+    mobAlert.classList.add('d-none');
+    scanLaser.style.display = 'block';
+
+    mobCheckInBtn.disabled = true;
+    mobCheckInBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span> GPS & Yuz tekshirilmoqda...';
+
+    // 1-QADAM: MAJBURIY RAVISHDA YANGI GPS KOORDINATALARINI OLISH
+    let lat = null;
+    let lon = null;
+
+    if (IS_GEOFENCING_ENABLED) {
+        try {
+            geoStatusBadge.className = "badge bg-warning text-dark rounded-pill px-2 py-1";
+            geoStatusBadge.textContent = "GPS olinmoqda...";
+            geoDetails.textContent = "Ayni paytdagi yuqori aniqlikdagi GPS koordinatalari olinmoqda...";
+
+            const pos = await getFreshGPSPosition();
+            currentCoords = pos.coords;
+            lat = currentCoords.latitude;
+            lon = currentCoords.longitude;
+
+            const dist = calculateHaversineMeters(lat, lon, CENTER_LAT, CENTER_LON);
+            if (dist > ALLOWED_RADIUS) {
+                scanLaser.style.display = 'none';
+                mobCheckInBtn.disabled = false;
+                mobCheckInBtn.innerHTML = '<i class="bi bi-camera-fill me-2"></i> Davomatni Qayd Etish';
+
+                geoStatusBadge.className = "badge bg-danger rounded-pill px-2 py-1";
+                geoStatusBadge.textContent = "Hududdan tashqarida";
+                geoDetails.innerHTML = `<span class="text-danger fw-bold">Masofa: ${dist} metr (Ruxsat: ${ALLOWED_RADIUS}m)</span>`;
+
+                showAlert(
+                    'danger',
+                    `<b>Siz markaz hududida emassiz!</b><br>` +
+                    `Siz bino markazidan <b>${dist} metr</b> uzoqlikdasiz (Ruxsat etilgan chegara: ${ALLOWED_RADIUS} metr).<br>` +
+                    `<small class="text-muted">Iltimos, o'quv markazi binosi ichiga kirib davomatdan o'ting.</small>`
+                );
+                return;
+            }
+
+            geoStatusBadge.className = "badge bg-success rounded-pill px-2 py-1";
+            geoStatusBadge.innerHTML = '<i class="bi bi-check-circle-fill me-1"></i>Hududdasiz';
+            geoDetails.innerHTML = `Bino markazigacha: <b>${dist} metr</b> · GPS aniqligi: ±${Math.round(currentCoords.accuracy)}m`;
+
+        } catch (err) {
+            scanLaser.style.display = 'none';
+            mobCheckInBtn.disabled = false;
+            mobCheckInBtn.innerHTML = '<i class="bi bi-camera-fill me-2"></i> Davomatni Qayd Etish';
+            const msg = handleGpsError(err);
+            showAlert('danger', `<b>Geolokatsiya xatosi:</b> ${msg}`);
+            return;
+        }
+    }
+
+    // 2-QADAM: KADRNI SURATGA OLISH (SNAPSHOT)
+    if (!mobVideo.videoWidth) {
+        scanLaser.style.display = 'none';
+        mobCheckInBtn.disabled = false;
+        mobCheckInBtn.innerHTML = '<i class="bi bi-camera-fill me-2"></i> Davomatni Qayd Etish';
+        showAlert('danger', 'Kamera kadrini olib bo\'lmadi. Sahifani yangilang.');
+        return;
+    }
+
+    mobCanvas.width = 480;
+    mobCanvas.height = Math.round(480 * (mobVideo.videoHeight / mobVideo.videoWidth));
     const ctx = mobCanvas.getContext('2d');
     ctx.drawImage(mobVideo, 0, 0, mobCanvas.width, mobCanvas.height);
-    const dataUrl = mobCanvas.toDataURL('image/jpeg', 0.85);
+    const dataUrl = mobCanvas.toDataURL('image/jpeg', 0.88);
 
+    // 3-QADAM: SERVERGA FORMDATA BILAN YUBORISH
     const fd = new FormData();
     fd.append('image', dataUrl);
     {% if user.is_authenticated %}
     fd.append('user_id', '{{ user.id }}');
     {% endif %}
-    if (mobLat) fd.append('latitude', mobLat);
-    if (mobLon) fd.append('longitude', mobLon);
-    fd.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+    if (lat) fd.append('latitude', lat);
+    if (lon) fd.append('longitude', lon);
+    fd.append('csrfmiddlewaretoken', CSRF_TOKEN);
 
     try {
-        const resp = await fetch("{% url 'face_id_verify_api' %}", { method: 'POST', body: fd });
+        const resp = await fetch(VERIFY_API_URL, {
+            method: 'POST',
+            body: fd
+        });
+
         const res = await resp.json();
-        mobAlert.classList.remove('d-none');
+        scanLaser.style.display = 'none';
+        mobCheckInBtn.disabled = false;
+        mobCheckInBtn.innerHTML = '<i class="bi bi-camera-fill me-2"></i> Davomatni Qayd Etish';
+
         if (res.success) {
-            mobAlert.className = 'alert alert-success mt-3 rounded-4';
-            mobAlert.innerHTML = `<b>Muvaffaqiyatli!</b> ${res.message}<br><small>Xodim: ${res.staff_name} (${res.role})</small>`;
+            showAlert(
+                'success',
+                `<b>Muvaffaqiyatli qayd etildi! ✅</b><br>` +
+                `<b>Xodim:</b> ${res.staff_name} (${res.role})<br>` +
+                `<b>Amal:</b> ${res.action_type === 'ketish' ? 'Ishdan ketish 👋' : 'Ishga kelish 🏢'}<br>` +
+                `<b>Vaqt:</b> ${res.check_in_time || res.check_out_time}<br>` +
+                `${res.is_late ? `<span class="text-danger fw-bold">⚠ Kechikish: +${res.late_minutes} daqiqa (Jarima: -${res.fine_percent}% | ${Number(res.fine_amount).toLocaleString()} so'm)</span><br>` : ''}` +
+                `<small class="text-muted">Masofa: ${res.distance ? Math.round(res.distance) + ' metr' : 'Aniqlandi'} · O'xshashlik: ${res.match_score || 95}%</small>`
+            );
         } else {
-            mobAlert.className = 'alert alert-danger mt-3 rounded-4';
-            mobAlert.innerHTML = `<b>Xatolik!</b> ${res.message}`;
+            if (res.is_geo_error) {
+                showAlert(
+                    'danger',
+                    `<b>Geolokatsiya xatoligi! ⛔</b><br>${res.message}`
+                );
+            } else if (res.is_face_error) {
+                showAlert(
+                    'warning',
+                    `<b>Yuz aniqlanmadi! 👤</b><br>${res.message}`
+                );
+            } else {
+                showAlert('danger', `<b>Xatolik!</b><br>${res.message}`);
+            }
         }
-    } catch (e) {
-        alert("Xatolik: " + e.message);
+    } catch (err) {
+        scanLaser.style.display = 'none';
+        mobCheckInBtn.disabled = false;
+        mobCheckInBtn.innerHTML = '<i class="bi bi-camera-fill me-2"></i> Davomatni Qayd Etish';
+        showAlert('danger', `<b>Tarmoq xatoligi:</b> ${err.message}`);
     }
+}
+
+function showAlert(type, htmlContent) {
+    mobAlert.classList.remove('d-none', 'alert-success', 'alert-danger', 'alert-warning');
+    mobAlert.classList.add(`alert-${type}`);
+    mobAlert.innerHTML = htmlContent;
 }
 </script>
 {% endblock %}

@@ -355,32 +355,48 @@ def process_face_check_in(user: CustomUser, scan_file, lat=None, lon=None, bypas
                 'message': "Foydalanuvchiga biriktirilgan xodim (Menejer/O'qituvchi) profili topilmadi."
             }
 
-    # 1. Geolokatsiya tekshiruvi
+    # 1. Geolokatsiya (Geofencing) qat'iy tekshiruvi
     distance = None
     lat_val = None
     lon_val = None
     if lat not in (None, '', 'null', 'undefined') and lon not in (None, '', 'null', 'undefined'):
         try:
-            lat_val = float(lat)
-            lon_val = float(lon)
+            lat_val = float(str(lat).replace(',', '.'))
+            lon_val = float(str(lon).replace(',', '.'))
             distance = calculate_haversine_distance(
                 lat_val, lon_val,
-                settings_obj.latitude, settings_obj.longitude
+                float(settings_obj.latitude), float(settings_obj.longitude)
             )
-        except Exception:
+        except Exception as e:
+            print(f"Geolokatsiya hisoblash xatosi: {e}")
             distance = None
 
-    if settings_obj.is_geofencing_enabled and not bypass_geo and distance is not None:
+    if settings_obj.is_geofencing_enabled and not bypass_geo:
+        # A) Agar GPS koordinatalari olinmagan bo'lsa:
+        if distance is None or lat_val is None or lon_val is None:
+            return {
+                'success': False,
+                'is_geo_error': True,
+                'error_code': 'GPS_REQUIRED',
+                'message': (
+                    "Geolokatsiya koordinatalari olinmadi! "
+                    "Markaz hududida ekanligingizni tasdiqlash uchun qurilmangizda GPS/Joylashuvni yoqishingiz va ruxsat berishingiz shart."
+                )
+            }
+
+        # B) Agar masofa ruxsat etilgan radiusdan oshib ketsa:
         if distance > settings_obj.allowed_radius_meters:
             return {
                 'success': False,
                 'is_geo_error': True,
+                'error_code': 'OUT_OF_GEOFENCE',
                 'distance': distance,
                 'allowed_radius': settings_obj.allowed_radius_meters,
                 'message': (
-                    f"Siz belgilangan hududdan tashqaridasiz! "
-                    f"Masofa: {int(distance)} m (Ruxsat etilgan: {settings_obj.allowed_radius_meters} m). "
-                    f"Iltimos, HummoKids binosida turib qayd qiling."
+                    f"Siz markaz hududida emassiz! "
+                    f"Siz bino markazidan {int(distance)} metr masofadasiz "
+                    f"(Ruxsat etilgan chegara: {settings_obj.allowed_radius_meters} metr). "
+                    f"Iltimos, o'quv markazi hududiga kirib qaytadan urinib ko'ring."
                 )
             }
 
@@ -496,6 +512,11 @@ def process_face_check_in(user: CustomUser, scan_file, lat=None, lon=None, bypas
 
     log.save()
 
+    staff_full_name = f"{getattr(staff, 'first_name', '') or ''} {getattr(staff, 'last_name', '') or ''}".strip()
+    if not staff_full_name:
+        staff_full_name = user.get_full_name() or user.username
+    staff_role_title = getattr(staff, 'role_title', None) or ('Menejer' if getattr(user, 'role', '') == 'manager' else ("O'qituvchi" if getattr(user, 'role', '') == 'teacher' else user.get_role_display()))
+
     # Tizim Tarixiga (AuditLog) yozish
     try:
         if action_type == "kelish":
@@ -503,7 +524,7 @@ def process_face_check_in(user: CustomUser, scan_file, lat=None, lon=None, bypas
                 AuditLog.objects.create(
                     action_type='fine',
                     actor=user,
-                    actor_name=f"{staff.first_name} {staff.last_name}",
+                    actor_name=staff_full_name,
                     title=f"Kechikish qayd etildi: {log.late_minutes} daqiqa",
                     details=f"Kelgan vaqti: {now.strftime('%H:%M:%S')} (Belgilangan: {expected_time.strftime('%H:%M')}). Bosqichma-bosqich jarima foizi: {log.fine_percent_applied}%. Ushlab qolingan summa: {log.fine_amount_deducted:,.0f} so'm."
                 )
@@ -511,7 +532,7 @@ def process_face_check_in(user: CustomUser, scan_file, lat=None, lon=None, bypas
                 AuditLog.objects.create(
                     action_type='face_id',
                     actor=user,
-                    actor_name=f"{staff.first_name} {staff.last_name}",
+                    actor_name=staff_full_name,
                     title=f"Ishga o'z vaqtida keldi ({now.strftime('%H:%M:%S')})",
                     details=f"Face ID orqali davomatdan o'tdi. Masofa: {int(distance or 0)} m. O'xshashlik: {match_score}%."
                 )
@@ -519,7 +540,7 @@ def process_face_check_in(user: CustomUser, scan_file, lat=None, lon=None, bypas
             AuditLog.objects.create(
                 action_type='face_id',
                 actor=user,
-                actor_name=f"{staff.first_name} {staff.last_name}",
+                actor_name=staff_full_name,
                 title=f"Ishdan ketish qayd etildi ({now.strftime('%H:%M:%S')})",
                 details=f"Face ID orqali chiqish qayd etildi."
             )
@@ -529,8 +550,8 @@ def process_face_check_in(user: CustomUser, scan_file, lat=None, lon=None, bypas
     return {
         'success': True,
         'action_type': action_type,
-        'staff_name': staff.first_name + " " + staff.last_name,
-        'role': staff.role_title,
+        'staff_name': staff_full_name,
+        'role': staff_role_title,
         'check_in_time': log.check_in_time.strftime('%H:%M:%S') if log.check_in_time else None,
         'check_out_time': log.check_out_time.strftime('%H:%M:%S') if log.check_out_time else None,
         'is_late': log.is_late,

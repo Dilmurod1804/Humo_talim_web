@@ -121,6 +121,15 @@ class FaceIDSettings(models.Model):
             obj = cls.objects.create()
         return obj
 
+    @property
+    def geofence_radius(self):
+        """Geofencing ruxsat etilgan masofa radiusi (metrda) alias."""
+        return self.allowed_radius_meters
+
+    @geofence_radius.setter
+    def geofence_radius(self, value):
+        self.allowed_radius_meters = int(value)
+
     def __str__(self):
         return f"{self.center_name} Face ID ({self.allowed_radius_meters}m)"
 
@@ -149,6 +158,21 @@ class FaceIDLog(models.Model):
     class Meta:
         unique_together = ('user', 'date')
         ordering = ['-date', '-check_in_time']
+
+    @property
+    def staff_name(self):
+        return self.user.staff_full_name
+
+    @property
+    def staff_role(self):
+        sp = self.user.staff_profile
+        if sp and hasattr(sp, 'role_title'):
+            return sp.role_title
+        if self.user.role == 'manager':
+            return "Menejer"
+        elif self.user.role == 'teacher':
+            return "O'qituvchi"
+        return self.user.get_role_display()
 
     def __str__(self):
         return f"{self.user.username} - {self.date} ({self.get_status_display()})"
@@ -281,9 +305,22 @@ class MonthlyPayment(models.Model):
         ('partial', "Qisman to'langan"),
         ('unpaid', "To'lanmagan"),
     )
+    PAYMENT_TYPE_CHOICES = (
+        ('cash', 'Naqd pul (Cash)'),
+        ('payme', 'Payme'),
+        ('click', 'Click'),
+        ('terminal', 'Terminal / Plastik karta'),
+    )
     student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name='monthly_payments')
     month = models.CharField(max_length=7, help_text="Yil va Oy. Masalan: 2026-09")
     amount_paid = models.CharField(max_length=100, default='', help_text="To'lov summasi yoki izoh")
+    payment_type = models.CharField(
+        max_length=20,
+        choices=PAYMENT_TYPE_CHOICES,
+        default='cash',
+        verbose_name="To'lov turi",
+        help_text="To'lov usuli (Naqd, Payme, Click, Terminal)"
+    )
     payment_date = models.DateField(null=True, blank=True, help_text="To'lov qilingan sana")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='paid')
     notes = models.CharField(max_length=255, blank=True, default='', help_text="Izoh yoki to'lov turi")

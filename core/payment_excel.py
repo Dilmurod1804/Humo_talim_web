@@ -46,7 +46,7 @@ def generate_payments_excel(payments_data, title="O'quvchilar To'lovlar Jadvali"
     total_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=double_bottom)
 
     # 1. Asosiy sarlavha (Title)
-    ws.merge_cells("A1:M1")
+    ws.merge_cells("A1:N1")
     title_cell = ws["A1"]
     title_cell.value = "HUMO TA'LIM MARKAZI — " + title.upper()
     title_cell.font = Font(name="Arial", size=14, bold=True, color="FFFFFF")
@@ -55,7 +55,7 @@ def generate_payments_excel(payments_data, title="O'quvchilar To'lovlar Jadvali"
     ws.row_dimensions[1].height = 36
 
     # 2. Quyi sarlavha (Subtitle: Davr, sana, guruh)
-    ws.merge_cells("A2:M2")
+    ws.merge_cells("A2:N2")
     sub_cell = ws["A2"]
     sub_cell.value = subtitle if subtitle else f"Hujjat yaratilgan sana: {date.today().strftime('%d.%m.%Y')}"
     sub_cell.font = Font(name="Arial", size=10, italic=True, color="E2E8F0")
@@ -66,7 +66,7 @@ def generate_payments_excel(payments_data, title="O'quvchilar To'lovlar Jadvali"
     # 3. Moliyaviy ko'rsatkichlar sarlavhasi (Stats summary row)
     start_row = 3
     if stats:
-        ws.merge_cells("A3:M3")
+        ws.merge_cells("A3:N3")
         stats_cell = ws["A3"]
         daily = stats.get('daily_collected_formatted', '0')
         monthly = stats.get('total_paid_formatted', '0')
@@ -100,6 +100,7 @@ def generate_payments_excel(payments_data, title="O'quvchilar To'lovlar Jadvali"
         ("To'langan sana", 15, "center"),
         ("Oylik tarif (so'm)", 18, "right"),
         ("To'langan miqdor", 18, "right"),
+        ("To'lov turi", 16, "center"),
         ("To'lov holati", 16, "center"),
         ("Telefon raqami", 20, "center"),
         ("Izoh", 24, "left"),
@@ -184,6 +185,7 @@ def generate_payments_excel(payments_data, title="O'quvchilar To'lovlar Jadvali"
             (item.get('payment_date', '-'), "center", None),
             (rate_val, "right", None, "#,##0"),
             (num_paid if num_paid > 0 else (raw_paid if raw_paid else "-"), "right", None, "#,##0" if num_paid > 0 else None),
+            (item.get('payment_type_display', 'Naqd pul (Cash)'), "center", None),
             (status_txt, "center", None),
             (item.get('phone', '-'), "center", None),
             (item.get('notes', ''), "left", None),
@@ -219,8 +221,8 @@ def generate_payments_excel(payments_data, title="O'quvchilar To'lovlar Jadvali"
                 elif st_code == 'paid':
                     cell.font = Font(name="Arial", size=9, color="16A34A")
 
-            # Holat ustuni (col 11)
-            if col_idx == 11:
+            # Holat ustuni (col 12)
+            if col_idx == 12:
                 if is_mahalla:
                     cell.fill = PatternFill(start_color="E0F2FE", end_color="E0F2FE", fill_type="solid")
                     cell.font = Font(name="Arial", size=10, bold=True, color="0369A1")
@@ -267,7 +269,7 @@ def generate_payments_excel(payments_data, title="O'quvchilar To'lovlar Jadvali"
     cell_tot_paid.fill = PatternFill(start_color=c_total_bg, end_color=c_total_bg, fill_type="solid")
     cell_tot_paid.border = total_border
 
-    for c in range(11, 14):
+    for c in range(11, 15):
         cell = ws.cell(row=current_row, column=c, value="")
         cell.fill = PatternFill(start_color=c_total_bg, end_color=c_total_bg, fill_type="solid")
         cell.border = total_border

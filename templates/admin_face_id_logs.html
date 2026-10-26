@@ -1,19 +1,22 @@
 {% extends 'base.html' %}
-{% block title %}Face ID Jurnali - HUMO Admin{% endblock %}
+{% block title %}Face ID Jurnali & Xodimlar - HUMO Admin{% endblock %}
 
 {% block content %}
 <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3 mb-4">
     <div>
         <h2 class="text-white fw-black mb-1" style="letter-spacing:-1px; text-shadow:0 2px 10px rgba(0,0,0,0.2);">
-            <i class="bi bi-person-bounding-box me-2 text-info"></i>Face ID Davomat Jurnali
+            <i class="bi bi-person-bounding-box me-2 text-info"></i>Face ID Davomat Jurnali & Boshqaruvi
         </h2>
-        <p class="text-white mb-0 opacity-75">Barcha xodimlar (o'qituvchi va menejerlar)ning kelib-ketish va kechikish vaqtlari</p>
+        <p class="text-white mb-0 opacity-75">Barcha xodimlar (o'qituvchi va menejerlar)ning biometrik davomat va yuz registratsiyasi</p>
     </div>
 
     <div class="d-flex gap-2 flex-wrap">
         {% if is_admin %}
+        <a href="{% url 'admin_face_id_sync_staff' %}" class="btn btn-warning text-dark rounded-pill px-3 fw-bold shadow-sm" title="Barcha xodimlarni Face ID tizimiga sinxronlash">
+            <i class="bi bi-arrow-repeat me-1"></i> Xodimlarni Sinxronlash
+        </a>
         <a href="{% url 'admin_face_id_settings' %}" class="btn btn-outline-light rounded-pill px-3 fw-semibold shadow-sm">
-            <i class="bi bi-sliders me-1"></i> Face ID Boshqaruvi
+            <i class="bi bi-sliders me-1"></i> Sozlamalar
         </a>
         {% endif %}
         <a href="{% url 'face_id_terminal' %}" target="_blank" class="btn btn-info text-white rounded-pill px-3 fw-semibold shadow-sm" style="background:linear-gradient(135deg,#06b6d4,#0891b2); border:none;">
@@ -30,15 +33,15 @@
 <!-- ══════ KPI STATISTIKA KARTALARI ══════ -->
 <div class="row g-3 mb-4">
     <div class="col-6 col-lg-3">
-        <div class="glass-card p-3 p-md-4 text-center h-100" style="background:rgba(255,255,255,0.9);">
+        <div class="glass-card p-3 p-md-4 text-center h-100" style="background:rgba(255,255,255,0.92);">
             <div class="text-muted small fw-semibold mb-1">
                 <i class="bi bi-people-fill text-primary me-1"></i> Jami Kelganlar
             </div>
-            <h3 class="fw-black text-dark mb-0">{{ total_scans }} <small class="fs-6 text-muted font-normal">kishi</small></h3>
+            <h3 class="fw-black text-dark mb-0">{{ total_scans }} <small class="fs-6 text-muted font-normal">yozuv</small></h3>
         </div>
     </div>
     <div class="col-6 col-lg-3">
-        <div class="glass-card p-3 p-md-4 text-center h-100" style="background:rgba(255,255,255,0.9);">
+        <div class="glass-card p-3 p-md-4 text-center h-100" style="background:rgba(255,255,255,0.92);">
             <div class="text-success small fw-semibold mb-1">
                 <i class="bi bi-check-circle-fill me-1"></i> O'z vaqtida
             </div>
@@ -46,7 +49,7 @@
         </div>
     </div>
     <div class="col-6 col-lg-3">
-        <div class="glass-card p-3 p-md-4 text-center h-100" style="background:rgba(255,255,255,0.9);">
+        <div class="glass-card p-3 p-md-4 text-center h-100" style="background:rgba(255,255,255,0.92);">
             <div class="text-danger small fw-semibold mb-1">
                 <i class="bi bi-clock-history me-1"></i> Kechikkanlar
             </div>
@@ -54,202 +57,560 @@
         </div>
     </div>
     <div class="col-6 col-lg-3">
-        <div class="glass-card p-3 p-md-4 text-center h-100" style="background:rgba(255,255,255,0.9);">
-            <div class="text-warning small fw-semibold mb-1">
-                <i class="bi bi-cash-stack me-1"></i> Jarima Ushlanmalari
+        <div class="glass-card p-3 p-md-4 text-center h-100" style="background:rgba(255,255,255,0.92);">
+            <div class="text-info small fw-semibold mb-1">
+                <i class="bi bi-person-badge-fill me-1"></i> Face ID Holati
             </div>
-            <h3 class="fw-black text-dark mb-0">{{ total_fines|floatformat:0 }} <small class="fs-6 text-muted font-normal">so'm</small></h3>
+            <h4 class="fw-black text-dark mb-0">
+                <span class="text-success">{{ ready_staff_count }}</span> / <span class="text-muted fs-6">{{ staff_status_list|length }} xodim tayyor</span>
+            </h4>
         </div>
     </div>
 </div>
 
-<!-- ══════ FILTR PANEL ══════ -->
-<div class="glass-card p-3 mb-4" style="background: rgba(255,255,255,0.2); border: 1.5px solid rgba(255,255,255,0.35);">
-    <form method="get" action="{% url 'admin_face_id_logs' %}" class="row g-2 align-items-center">
-        <div class="col-12 col-sm-4 col-md-3">
-            <label class="form-label text-white small fw-semibold mb-1">Sana:</label>
-            <input type="date" name="date" class="form-control rounded-pill" value="{{ filter_date }}" onchange="this.form.submit()">
+<!-- ══════ NAVIGATION TABLARI (Jurnal vs Xodimlar Ro'yxati) ══════ -->
+<ul class="nav nav-pills mb-4 gap-2" id="faceIdTab" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active rounded-pill px-4 py-2 fw-bold" id="logs-tab" data-bs-toggle="pill" data-bs-target="#tab-logs" type="button" role="tab" style="box-shadow:0 4px 12px rgba(0,0,0,0.1);">
+            <i class="bi bi-list-check me-1"></i> Davomat Jurnali ({{ total_scans }})
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link rounded-pill px-4 py-2 fw-bold bg-white text-dark border" id="staff-tab" data-bs-toggle="pill" data-bs-target="#tab-staff" type="button" role="tab" style="box-shadow:0 4px 12px rgba(0,0,0,0.05);">
+            <i class="bi bi-person-bounding-box text-info me-1"></i> Xodimlar Yuz Registratsiyasi ({{ ready_staff_count }}/{{ staff_status_list|length }})
+            {% if missing_staff_count > 0 %}
+            <span class="badge bg-danger rounded-pill ms-1">{{ missing_staff_count }} ta rasm yo'q</span>
+            {% endif %}
+        </button>
+    </li>
+</ul>
+
+<div class="tab-content" id="faceIdTabContent">
+
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <!-- 1. DAVOMAT JURNALI TABI                                    -->
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <div class="tab-pane fade show active" id="tab-logs" role="tabpanel">
+
+        <!-- ══════ FILTR PANEL ══════ -->
+        <div class="glass-card p-3 mb-4" style="background: rgba(255,255,255,0.2); border: 1.5px solid rgba(255,255,255,0.35);">
+            <form method="get" action="{% url 'admin_face_id_logs' %}" class="row g-2 align-items-center">
+                
+                <!-- Tezkor Davr Tugmalari -->
+                <div class="col-12 col-md-4 d-flex gap-1">
+                    <a href="{% url 'admin_face_id_logs' %}?period=today" class="btn btn-sm rounded-pill flex-grow-1 fw-bold {% if filter_period == 'today' %}btn-light shadow-sm{% else %}btn-outline-light{% endif %}">
+                        Bugun
+                    </a>
+                    <a href="{% url 'admin_face_id_logs' %}?period=month" class="btn btn-sm rounded-pill flex-grow-1 fw-bold {% if filter_period == 'month' %}btn-light shadow-sm{% else %}btn-outline-light{% endif %}">
+                        Shu oy
+                    </a>
+                    <a href="{% url 'admin_face_id_logs' %}?period=all" class="btn btn-sm rounded-pill flex-grow-1 fw-bold {% if filter_period == 'all' %}btn-light shadow-sm{% else %}btn-outline-light{% endif %}">
+                        Barchasi
+                    </a>
+                </div>
+
+                <!-- Aniq Sana Tanlash -->
+                <div class="col-6 col-md-3">
+                    <input type="date" name="date" class="form-control form-control-sm rounded-pill" value="{{ filter_date }}" placeholder="Sana tanlang" onchange="this.form.submit()">
+                </div>
+
+                <!-- Lavozim -->
+                <div class="col-6 col-md-2">
+                    <select name="role" class="form-select form-select-sm rounded-pill" onchange="this.form.submit()">
+                        <option value="all" {% if filter_role == 'all' %}selected{% endif %}>Barcha Xodimlar</option>
+                        <option value="manager" {% if filter_role == 'manager' %}selected{% endif %}>Menejerlar</option>
+                        <option value="teacher" {% if filter_role == 'teacher' %}selected{% endif %}>O'qituvchilar</option>
+                    </select>
+                </div>
+
+                <!-- Holat -->
+                <div class="col-6 col-md-2">
+                    <select name="status" class="form-select form-select-sm rounded-pill" onchange="this.form.submit()">
+                        <option value="all" {% if filter_status == 'all' %}selected{% endif %}>Barcha Holat</option>
+                        <option value="on_time" {% if filter_status == 'on_time' %}selected{% endif %}>O'z vaqtida</option>
+                        <option value="late" {% if filter_status == 'late' %}selected{% endif %}>Kechikkanlar</option>
+                    </select>
+                </div>
+
+                <div class="col-6 col-md-1">
+                    <a href="{% url 'admin_face_id_logs' %}" class="btn btn-sm btn-outline-light rounded-pill w-100" title="Filtrni tozalash">
+                        <i class="bi bi-x-circle"></i>
+                    </a>
+                </div>
+            </form>
         </div>
-        <div class="col-6 col-sm-4 col-md-3">
-            <label class="form-label text-white small fw-semibold mb-1">Lavozim:</label>
-            <select name="role" class="form-select rounded-pill" onchange="this.form.submit()">
-                <option value="all" {% if filter_role == 'all' %}selected{% endif %}>Barcha Xodimlar</option>
-                <option value="manager" {% if filter_role == 'manager' %}selected{% endif %}>Menejerlar</option>
-                <option value="teacher" {% if filter_role == 'teacher' %}selected{% endif %}>O'qituvchilar</option>
-            </select>
-        </div>
-        <div class="col-6 col-sm-4 col-md-3">
-            <label class="form-label text-white small fw-semibold mb-1">Holat:</label>
-            <select name="status" class="form-select rounded-pill" onchange="this.form.submit()">
-                <option value="all" {% if filter_status == 'all' %}selected{% endif %}>Barcha Holatlar</option>
-                <option value="on_time" {% if filter_status == 'on_time' %}selected{% endif %}>O'z vaqtida</option>
-                <option value="late" {% if filter_status == 'late' %}selected{% endif %}>Kechikkanlar</option>
-            </select>
-        </div>
-        <div class="col-12 col-md-3 d-flex align-items-end pt-3 pt-md-0">
-            <a href="{% url 'admin_face_id_logs' %}" class="btn btn-light rounded-pill w-100 fw-semibold">
-                <i class="bi bi-arrow-repeat me-1"></i> Bugungi kun
-            </a>
-        </div>
-    </form>
-</div>
 
-<!-- ══════ JURNAL JADVALI ══════ -->
-<div class="glass-card" style="overflow:hidden; background: rgba(255,255,255,0.95);">
-    <div class="table-responsive">
-        <table class="table table-hover align-middle mb-0">
-            <thead class="table-light text-uppercase small text-muted" style="letter-spacing:0.5px; font-size:0.75rem;">
-                <tr>
-                    <th class="ps-4">Xodim</th>
-                    <th>Lavozim</th>
-                    <th>Kelgan Vaqti</th>
-                    <th>Ketgan Vaqti</th>
-                    <th>Holati</th>
-                    <th>Kechikish</th>
-                    <th>Jarima</th>
-                    <th>Geolokatsiya</th>
-                    <th class="text-end pe-4">Scan Rasmi</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for log in logs %}
-                <tr>
-                    <td class="ps-4">
-                        <div class="d-flex align-items-center gap-3">
-                            {% if log.user.staff_profile and log.user.staff_profile.photo %}
-                            <img src="{{ log.user.staff_profile.photo.url }}" alt="Avatar" style="width: 44px; height: 44px; border-radius: 12px; object-fit: cover; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
-                            {% else %}
-                            <div style="width: 44px; height: 44px; border-radius: 12px; background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: bold;">
-                                {{ log.user.username|slice:":2"|upper }}
-                            </div>
-                            {% endif %}
-                            <div>
-                                <div class="fw-bold text-dark">{{ log.user.staff_full_name }}</div>
-                                <small class="text-muted font-monospace">{{ log.user.username }}</small>
-                            </div>
-                        </div>
-                    </td>
+        <!-- ══════ JURNAL JADVALI ══════ -->
+        <div class="glass-card" style="overflow:hidden; background: rgba(255,255,255,0.96);">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light text-uppercase small text-muted" style="letter-spacing:0.5px; font-size:0.75rem;">
+                        <tr>
+                            <th class="ps-4">Xodim</th>
+                            <th>Lavozim</th>
+                            <th>Sana</th>
+                            <th>Kelgan Vaqti</th>
+                            <th>Ketgan Vaqti</th>
+                            <th>Holati</th>
+                            <th>Kechikish & Jarima</th>
+                            <th>Geolokatsiya</th>
+                            <th class="text-end pe-4">Scan Rasmi</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for log in logs %}
+                        <tr>
+                            <td class="ps-4">
+                                <div class="d-flex align-items-center gap-3">
+                                    {% if log.user.staff_profile and log.user.staff_profile.photo %}
+                                    <img src="{{ log.user.staff_profile.photo.url }}" alt="Avatar" style="width: 44px; height: 44px; border-radius: 12px; object-fit: cover; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
+                                    {% else %}
+                                    <div style="width: 44px; height: 44px; border-radius: 12px; background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: bold;">
+                                        {{ log.user.username|slice:":2"|upper }}
+                                    </div>
+                                    {% endif %}
+                                    <div>
+                                        <div class="fw-bold text-dark">{{ log.user.staff_full_name }}</div>
+                                        <small class="text-muted font-monospace">@{{ log.user.username }}</small>
+                                    </div>
+                                </div>
+                            </td>
 
-                    <td>
-                        {% if log.user.role == 'manager' %}
-                        <span class="badge bg-warning bg-opacity-20 text-warning border border-warning border-opacity-30 rounded-pill px-3 py-1 fw-bold">Menejer</span>
-                        {% elif log.user.role == 'teacher' %}
-                        <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill px-3 py-1 fw-bold">O'qituvchi</span>
-                        {% else %}
-                        <span class="badge bg-secondary rounded-pill px-3 py-1">{{ log.user.get_role_display }}</span>
-                        {% endif %}
-                    </td>
+                            <td>
+                                {% if log.user.role == 'manager' %}
+                                <span class="badge bg-warning bg-opacity-20 text-warning border border-warning border-opacity-30 rounded-pill px-3 py-1 fw-bold">Menejer</span>
+                                {% elif log.user.role == 'teacher' %}
+                                <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill px-3 py-1 fw-bold">O'qituvchi</span>
+                                {% else %}
+                                <span class="badge bg-secondary rounded-pill px-3 py-1">{{ log.user.get_role_display }}</span>
+                                {% endif %}
+                            </td>
 
-                    <td>
-                        {% if log.check_in_time %}
-                        <span class="badge bg-dark rounded-pill px-3 py-1 fw-mono fs-6">
-                            <i class="bi bi-box-arrow-in-right text-success me-1"></i>{{ log.check_in_time|time:"H:i:s" }}
-                        </span>
-                        {% else %}
-                        <span class="text-muted">—</span>
-                        {% endif %}
-                    </td>
+                            <td>
+                                <span class="fw-semibold text-dark">{{ log.date|date:"d.m.Y" }}</span>
+                            </td>
 
-                    <td>
-                        {% if log.check_out_time %}
-                        <span class="badge bg-dark rounded-pill px-3 py-1 fw-mono fs-6">
-                            <i class="bi bi-box-arrow-left text-danger me-1"></i>{{ log.check_out_time|time:"H:i:s" }}
-                        </span>
-                        {% else %}
-                        <span class="badge bg-light text-muted border rounded-pill px-2 py-1 small">Hali ketmagan</span>
-                        {% endif %}
-                    </td>
+                            <td>
+                                {% if log.check_in_time %}
+                                <span class="badge bg-dark rounded-pill px-3 py-1 fw-mono fs-6">
+                                    <i class="bi bi-box-arrow-in-right text-success me-1"></i>{{ log.check_in_time|time:"H:i:s" }}
+                                </span>
+                                {% else %}
+                                <span class="text-muted">—</span>
+                                {% endif %}
+                            </td>
 
-                    <td>
-                        {% if log.is_late %}
-                        <span class="badge bg-danger bg-opacity-15 text-danger border border-danger border-opacity-30 rounded-pill px-3 py-1 fw-bold d-inline-flex align-items-center gap-1">
-                            <i class="bi bi-exclamation-triangle-fill"></i> Kechikdi
-                        </span>
-                        {% else %}
-                        <span class="badge bg-success bg-opacity-15 text-success border border-success border-opacity-30 rounded-pill px-3 py-1 fw-bold d-inline-flex align-items-center gap-1">
-                            <i class="bi bi-check-circle-fill"></i> O'z vaqtida
-                        </span>
-                        {% endif %}
-                    </td>
+                            <td>
+                                {% if log.check_out_time %}
+                                <span class="badge bg-dark rounded-pill px-3 py-1 fw-mono fs-6">
+                                    <i class="bi bi-box-arrow-right text-info me-1"></i>{{ log.check_out_time|time:"H:i:s" }}
+                                </span>
+                                {% else %}
+                                <span class="badge bg-light text-muted border rounded-pill px-3 py-1">Ketmagan</span>
+                                {% endif %}
+                            </td>
 
-                    <td>
-                        {% if log.is_late %}
-                        <span class="text-danger fw-bold">+{{ log.late_minutes }} daqiqa</span>
-                        {% else %}
-                        <span class="text-success small fw-semibold">0 daq</span>
-                        {% endif %}
-                    </td>
+                            <td>
+                                {% if log.is_late %}
+                                <span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25 rounded-pill px-3 py-1 fw-bold">
+                                    <i class="bi bi-clock-history me-1"></i>Kechikdi
+                                </span>
+                                {% else %}
+                                <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill px-3 py-1 fw-bold">
+                                    <i class="bi bi-check-circle-fill me-1"></i>O'z vaqtida
+                                </span>
+                                {% endif %}
+                            </td>
 
-                    <td>
-                        {% if log.is_late and log.fine_amount_deducted %}
-                        <div>
-                            <span class="badge bg-danger text-white rounded-pill px-2 py-0 fw-bold">-{{ log.fine_percent_applied }}%</span>
-                            <div class="fw-bold text-danger small mt-1">-{{ log.fine_amount_deducted|floatformat:0 }} so'm</div>
-                        </div>
-                        {% else %}
-                        <span class="text-muted small">0 so'm</span>
-                        {% endif %}
-                    </td>
+                            <td>
+                                {% if log.is_late %}
+                                <div>
+                                    <span class="text-danger fw-bold">+{{ log.late_minutes }} daq</span>
+                                    <small class="text-muted d-block" style="font-size:0.75rem;">
+                                        -{{ log.fine_percent_applied }}% ({{ log.fine_amount_deducted|floatformat:0 }} so'm)
+                                    </small>
+                                </div>
+                                {% else %}
+                                <span class="text-success small fw-semibold">0 daqiqa (Jarima yo'q)</span>
+                                {% endif %}
+                            </td>
 
-                    <td>
-                        {% if log.distance_meters is not None %}
-                        <span class="badge {% if log.distance_meters <= 150 %}bg-success bg-opacity-10 text-success border border-success border-opacity-25{% else %}bg-warning bg-opacity-20 text-warning border border-warning border-opacity-30{% endif %} rounded-pill px-2 py-1 small">
-                            <i class="bi bi-geo-alt-fill me-1"></i>{{ log.distance_meters|floatformat:0 }} m
-                        </span>
-                        {% else %}
-                        <span class="text-muted small">—</span>
-                        {% endif %}
-                    </td>
+                            <td>
+                                {% if log.distance_meters %}
+                                <span class="badge bg-light text-dark border rounded-pill px-2 py-1 small">
+                                    <i class="bi bi-geo-alt text-primary me-1"></i>{{ log.distance_meters|floatformat:0 }} m
+                                </span>
+                                {% else %}
+                                <span class="text-muted small">—</span>
+                                {% endif %}
+                            </td>
 
-                    <td class="text-end pe-4">
-                        {% if log.verified_photo %}
-                        <button type="button" class="btn btn-sm btn-outline-info rounded-pill px-3 shadow-sm fw-semibold" data-bs-toggle="modal" data-bs-target="#scanPhotoModal{{ log.id }}">
-                            <i class="bi bi-eye-fill me-1"></i> Rasm
-                        </button>
-                        {% else %}
-                        <span class="text-muted small">—</span>
-                        {% endif %}
-                    </td>
-                </tr>
-                {% empty %}
-                <tr>
-                    <td colspan="9" class="text-center py-5">
-                        <i class="bi bi-calendar-x text-muted" style="font-size:3rem; opacity:0.4;"></i>
-                        <h6 class="fw-bold mt-3 mb-1 text-dark">Ushbu kunda davomat yozuvlari mavjud emas</h6>
-                        <p class="text-muted small mb-0">{{ filter_date }} sanasi bo'yicha hech qanday kelish-ketish qayd etilmagan.</p>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</div>
-
-<!-- ══════════════ MODALLAR (Face ID Skan Rasmlari) ══════════════ -->
-{% for log in logs %}
-{% if log.verified_photo %}
-<div class="modal fade" id="scanPhotoModal{{ log.id }}" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content border-0 rounded-4 shadow-lg overflow-hidden" style="background:#ffffff;">
-            <div class="modal-header border-0 pb-0 pt-4 px-4 bg-light">
-                <h6 class="modal-title fw-bold text-dark">
-                    <i class="bi bi-camera me-1 text-primary"></i>Face ID Skaner Rasmi: {{ log.user.staff_full_name }}
-                </h6>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Yopish"></button>
+                            <td class="text-end pe-4">
+                                {% if log.verified_photo %}
+                                <a href="{{ log.verified_photo.url }}" target="_blank" title="Scan qilingan fotosuratni ko'rish">
+                                    <img src="{{ log.verified_photo.url }}" alt="Scan" style="width: 42px; height: 42px; border-radius: 10px; object-fit: cover; border: 2px solid #06b6d4;">
+                                </a>
+                                {% else %}
+                                <span class="text-muted small">—</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="9" class="text-center py-5">
+                                <div class="py-4 text-muted">
+                                    <i class="bi bi-person-bounding-box fs-1 d-block mb-3 opacity-50 text-cyan"></i>
+                                    <h5 class="fw-bold mb-1 text-dark">Tanlangan davrda Face ID qaydlari topilmadi</h5>
+                                    <p class="small text-muted mb-3">Xodimlar kamera terminali orqali davomatdan o'tganda yozuvlar shu yerda avtomatik paydo bo'ladi.</p>
+                                    <div class="d-flex justify-content-center gap-2">
+                                        <a href="{% url 'admin_face_id_logs' %}?period=all" class="btn btn-sm btn-outline-primary rounded-pill px-3 fw-bold">
+                                            <i class="bi bi-clock-history me-1"></i> Barcha Sanalarni Ko'rish
+                                        </a>
+                                        <a href="{% url 'face_id_terminal' %}" target="_blank" class="btn btn-sm btn-info text-white rounded-pill px-3 fw-bold">
+                                            <i class="bi bi-qr-code-scan me-1"></i> Terminalni Ochish
+                                        </a>
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
             </div>
-            <div class="modal-body text-center p-4">
-                <img src="{{ log.verified_photo.url }}" alt="Scan" class="img-fluid rounded-4 shadow" style="max-height:360px; object-fit:cover;">
-                <div class="mt-3 small text-muted">
-                    Qayd etilgan vaqt: <b>{{ log.check_in_time|date:"d.m.Y H:i:s" }}</b>
-                    {% if log.distance_meters %}<br>Masofa: <b>{{ log.distance_meters|floatformat:0 }} metr</b>{% endif %}
+        </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <!-- 2. XODIMLAR YUZ REGISTRATSIYASI (ENROLLMENT) TABI         -->
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <div class="tab-pane fade" id="tab-staff" role="tabpanel">
+        
+        <div class="alert alert-info border-0 rounded-4 p-3 mb-4 d-flex align-items-center justify-content-between flex-wrap gap-2" style="background:rgba(6,182,212,0.12); color:#0891b2;">
+            <div class="d-flex align-items-center gap-2">
+                <i class="bi bi-info-circle-fill fs-4 text-cyan"></i>
+                <div>
+                    <h6 class="fw-bold mb-0">Face ID Registratsiya Yo'riqnomasi</h6>
+                    <small>Xodim Face ID terminalida avtomatik tanilishi uchun uning profiliga bitta sifatli yuz fotosurati biriktirilishi shart.</small>
                 </div>
             </div>
-            <div class="modal-footer border-0 bg-light px-4 py-3">
-                <button type="button" class="btn btn-secondary rounded-pill px-4" data-bs-dismiss="modal">Yopish</button>
+            <a href="{% url 'admin_face_id_sync_staff' %}" class="btn btn-sm btn-info text-white rounded-pill px-3 fw-bold shadow-sm">
+                <i class="bi bi-arrow-repeat me-1"></i> Barchasini Sinxronlash
+            </a>
+        </div>
+
+        <div class="glass-card" style="overflow:hidden; background: rgba(255,255,255,0.96);">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light text-uppercase small text-muted" style="letter-spacing:0.5px; font-size:0.75rem;">
+                        <tr>
+                            <th class="ps-4">Xodim F.I.SH</th>
+                            <th>Lavozimi</th>
+                            <th>Telefon</th>
+                            <th>Ish Vaqti</th>
+                            <th>Face ID Holati</th>
+                            <th class="text-end pe-4">Amallar</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for st in staff_status_list %}
+                        <tr>
+                            <td class="ps-4">
+                                <div class="d-flex align-items-center gap-3">
+                                    {% if st.photo_url %}
+                                    <img src="{{ st.photo_url }}" alt="{{ st.full_name }}" style="width: 48px; height: 48px; border-radius: 14px; object-fit: cover; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
+                                    {% else %}
+                                    <div style="width: 48px; height: 48px; border-radius: 14px; background: #e2e8f0; color: #94a3b8; display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">
+                                        <i class="bi bi-person"></i>
+                                    </div>
+                                    {% endif %}
+                                    <div>
+                                        <div class="fw-bold text-dark fs-6">{{ st.full_name }}</div>
+                                        <small class="text-muted font-monospace">@{{ st.username }}</small>
+                                    </div>
+                                </div>
+                            </td>
+
+                            <td>
+                                {% if st.role == 'manager' %}
+                                <span class="badge bg-warning bg-opacity-20 text-warning border border-warning border-opacity-30 rounded-pill px-3 py-1 fw-bold">Menejer</span>
+                                {% else %}
+                                <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill px-3 py-1 fw-bold">O'qituvchi</span>
+                                {% endif %}
+                            </td>
+
+                            <td>{{ st.phone }}</td>
+
+                            <td>
+                                <span class="badge bg-light text-dark border rounded-pill px-2 py-1 small">
+                                    <i class="bi bi-clock me-1 text-muted"></i>{{ st.work_time }}
+                                </span>
+                            </td>
+
+                            <td>
+                                {% if st.face_detected %}
+                                <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill px-3 py-1 fw-bold">
+                                    <i class="bi bi-check-circle-fill me-1"></i>Face ID Faol (OK)
+                                </span>
+                                {% elif st.has_photo %}
+                                <span class="badge bg-warning bg-opacity-20 text-warning border border-warning border-opacity-30 rounded-pill px-3 py-1 fw-bold">
+                                    <i class="bi bi-exclamation-triangle-fill me-1"></i>Yuz aniq emas
+                                </span>
+                                {% else %}
+                                <span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25 rounded-pill px-3 py-1 fw-bold">
+                                    <i class="bi bi-x-circle-fill me-1"></i>Rasm yuklanmagan
+                                </span>
+                                {% endif %}
+                            </td>
+
+                            <td class="text-end pe-4">
+                                <button type="button" class="btn btn-sm btn-primary rounded-pill px-3 fw-semibold shadow-sm"
+                                        onclick="openEnrollModal('{{ st.role }}', '{{ st.id }}', '{{ st.full_name }}', '{{ st.photo_url }}')"
+                                        style="background:linear-gradient(135deg, #06b6d4, #3b82f6); border:none;">
+                                    <i class="bi bi-camera-fill me-1"></i> Yuzni Biriktirish
+                                </button>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="6" class="text-center py-4 text-muted">
+                                Xodimlar topilmadi.
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- FACE ID FOTO BIRIKTIRISH MODALI (Kamera yoki Fayl)          -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="modal fade" id="enrollFaceModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content rounded-4 border-0 shadow-lg overflow-hidden">
+            <div class="modal-header text-white" style="background:linear-gradient(135deg, #06b6d4, #3b82f6);">
+                <h5 class="modal-title fw-bold">
+                    <i class="bi bi-person-bounding-box me-2"></i>Face ID Yuzini Biriktirish
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close" onclick="stopEnrollWebcam()"></button>
+            </div>
+            <div class="modal-body p-4">
+                <div class="text-center mb-3">
+                    <h6 class="fw-bold text-dark mb-1" id="enrollStaffName">Xodim Ismi</h6>
+                    <small class="text-muted">Kamera orqali suratga oling yoki kompyuterdan rasm yuklang</small>
+                </div>
+
+                <!-- Variantlar tanlovi -->
+                <ul class="nav nav-tabs nav-fill mb-3" id="photoMethodTab">
+                    <li class="nav-item">
+                        <button class="nav-link active fw-bold" id="camTabBtn" onclick="switchMethod('cam')">
+                            <i class="bi bi-camera-video me-1"></i> Kamera orqali
+                        </button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link fw-bold" id="fileTabBtn" onclick="switchMethod('file')">
+                            <i class="bi bi-image me-1"></i> Fayl yuklash
+                        </button>
+                    </li>
+                </ul>
+
+                <!-- 1. KAMERA PANELI -->
+                <div id="camSection">
+                    <div class="position-relative mb-3 rounded-4 overflow-hidden bg-dark text-center" style="aspect-ratio:4/3; max-height:280px;">
+                        <video id="enrollVideo" autoplay playsinline muted style="width:100%; height:100%; object-fit:cover;"></video>
+                        <canvas id="enrollCanvas" style="display:none;"></canvas>
+                        
+                        <!-- Oval yuz ramkasi -->
+                        <div style="position:absolute; inset:12%; border:2.5px dashed rgba(6,182,212,0.85); border-radius:50%; pointer-events:none; box-shadow:0 0 20px rgba(6,182,212,0.3);"></div>
+                    </div>
+                    
+                    <button type="button" class="btn btn-info text-white w-100 rounded-pill py-2 fw-bold shadow-sm" id="snapBtn" onclick="takeSnapshotAndUpload()">
+                        <i class="bi bi-camera me-1"></i> Suratga Olish va Saqlash
+                    </button>
+                </div>
+
+                <!-- 2. FAYL YUKLASH PANELI -->
+                <div id="fileSection" style="display:none;">
+                    <form id="fileUploadForm" enctype="multipart/form-data" onsubmit="handleFileUpload(event)">
+                        <div class="mb-3 text-center p-4 rounded-4" style="border:2px dashed #cbd5e1; background:#f8fafc;">
+                            <img id="filePreviewImg" src="" alt="Preview" style="width:100px; height:100px; border-radius:20px; object-fit:cover; display:none; margin:0 auto 12px;">
+                            <i class="bi bi-cloud-arrow-up fs-1 text-muted d-block mb-2" id="fileIcon"></i>
+                            <input type="file" name="photo" id="modalPhotoFile" class="form-control" accept="image/*" onchange="previewModalFile(event)" required>
+                            <small class="text-muted d-block mt-2">Tiniq va yuz to'liq ko'ringan fotosurat tanlang</small>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100 rounded-pill py-2 fw-bold shadow-sm" id="fileUploadBtn">
+                            <i class="bi bi-check-circle me-1"></i> Rasmni Saqlash
+                        </button>
+                    </form>
+                </div>
+
+                <div id="uploadFeedback" class="mt-3 small" style="display:none;"></div>
             </div>
         </div>
     </div>
 </div>
-{% endif %}
-{% endfor %}
+
+<script>
+let currentEnrollRole = '';
+let currentEnrollId = '';
+let enrollStream = null;
+
+function openEnrollModal(role, id, name, photoUrl) {
+    currentEnrollRole = role;
+    currentEnrollId = id;
+    document.getElementById('enrollStaffName').textContent = name;
+    document.getElementById('uploadFeedback').style.display = 'none';
+
+    const modal = new bootstrap.Modal(document.getElementById('enrollFaceModal'));
+    modal.show();
+
+    switchMethod('cam');
+}
+
+function switchMethod(method) {
+    const camSection = document.getElementById('camSection');
+    const fileSection = document.getElementById('fileSection');
+    const camBtn = document.getElementById('camTabBtn');
+    const fileBtn = document.getElementById('fileTabBtn');
+
+    if (method === 'cam') {
+        camSection.style.display = 'block';
+        fileSection.style.display = 'none';
+        camBtn.classList.add('active');
+        fileBtn.classList.remove('active');
+        startEnrollWebcam();
+    } else {
+        camSection.style.display = 'none';
+        fileSection.style.display = 'block';
+        fileBtn.classList.add('active');
+        camBtn.classList.remove('active');
+        stopEnrollWebcam();
+    }
+}
+
+async function startEnrollWebcam() {
+    stopEnrollWebcam();
+    const video = document.getElementById('enrollVideo');
+    try {
+        enrollStream = await navigator.mediaDevices.getUserMedia({
+            video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
+            audio: false
+        });
+        video.srcObject = enrollStream;
+    } catch(err) {
+        console.warn("Kamera ochilmadi:", err);
+        const fb = document.getElementById('uploadFeedback');
+        fb.className = 'alert alert-warning py-2 text-center rounded-3';
+        fb.textContent = "Veb-kamera yoqilmadi. Iltimos 'Fayl yuklash' tabidan foydalaning.";
+        fb.style.display = 'block';
+    }
+}
+
+function stopEnrollWebcam() {
+    if (enrollStream) {
+        enrollStream.getTracks().forEach(t => t.stop());
+        enrollStream = null;
+    }
+}
+
+function previewModalFile(e) {
+    const file = e.target.files[0];
+    if (file) {
+        const reader = new FileReader();
+        reader.onload = function(evt) {
+            const img = document.getElementById('filePreviewImg');
+            const icon = document.getElementById('fileIcon');
+            img.src = evt.target.result;
+            img.style.display = 'block';
+            icon.style.display = 'none';
+        };
+        reader.readAsDataURL(file);
+    }
+}
+
+async function takeSnapshotAndUpload() {
+    const video = document.getElementById('enrollVideo');
+    const canvas = document.getElementById('enrollCanvas');
+    const snapBtn = document.getElementById('snapBtn');
+    const fb = document.getElementById('uploadFeedback');
+
+    if (!video.videoWidth) {
+        alert("Kamera tasviri hali tayyor emas!");
+        return;
+    }
+
+    canvas.width = 480;
+    canvas.height = Math.round(480 * (video.videoHeight / video.videoWidth));
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.90);
+
+    snapBtn.disabled = true;
+    snapBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Saqlanmoqda...';
+
+    const fd = new FormData();
+    fd.append('image_base64', dataUrl);
+    fd.append('is_ajax', '1');
+    fd.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+
+    sendEnrollRequest(fd);
+}
+
+async function handleFileUpload(e) {
+    e.preventDefault();
+    const fileInput = document.getElementById('modalPhotoFile');
+    const fileUploadBtn = document.getElementById('fileUploadBtn');
+    if (!fileInput.files || !fileInput.files[0]) return;
+
+    fileUploadBtn.disabled = true;
+    fileUploadBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Yuklanmoqda...';
+
+    const fd = new FormData();
+    fd.append('photo', fileInput.files[0]);
+    fd.append('is_ajax', '1');
+    fd.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+
+    sendEnrollRequest(fd);
+}
+
+async function sendEnrollRequest(formData) {
+    const fb = document.getElementById('uploadFeedback');
+    const snapBtn = document.getElementById('snapBtn');
+    const fileUploadBtn = document.getElementById('fileUploadBtn');
+    const url = `/admin/face-id/upload-photo/${currentEnrollRole}/${currentEnrollId}/`;
+
+    try {
+        const resp = await fetch(url, {
+            method: 'POST',
+            body: formData,
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        });
+        const data = await resp.json();
+
+        fb.style.display = 'block';
+        if (data.success) {
+            fb.className = 'alert alert-success py-2 text-center rounded-3';
+            fb.innerHTML = `<strong>Muvaffaqiyatli!</strong> ${data.message}`;
+            setTimeout(() => {
+                location.reload();
+            }, 1200);
+        } else {
+            fb.className = 'alert alert-danger py-2 text-center rounded-3';
+            fb.textContent = data.message || "Xatolik yuz berdi";
+        }
+    } catch(err) {
+        fb.style.display = 'block';
+        fb.className = 'alert alert-danger py-2 text-center rounded-3';
+        fb.textContent = "Tarmoq xatoligi: " + err;
+    } finally {
+        snapBtn.disabled = false;
+        snapBtn.innerHTML = '<i class="bi bi-camera me-1"></i> Suratga Olish va Saqlash';
+        fileUploadBtn.disabled = false;
+        fileUploadBtn.innerHTML = '<i class="bi bi-check-circle me-1"></i> Rasmni Saqlash';
+    }
+}
+</script>
 {% endblock %}
