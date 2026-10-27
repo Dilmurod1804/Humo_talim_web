@@ -970,17 +970,15 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
         elif total_p_paid > 0 or has_text_p:
             p_status = 'paid'
             p_debt = max(0, total_p_rate - total_p_paid)
-        elif total_p_rate <= 0:
-            p_status = 'free'
-            p_debt = 0
         else:
+            # Tarifsiz yoki 0 so'mlik o'quvchilar ham to'lov qilmagan bo'lsa, qat'iy qarzdor hisoblanadi
             p_status = 'unpaid'
             p_debt = total_p_rate
 
         earliest_due = min(due_dates) if due_dates else today
         is_overdue = False
         delay_days = 0
-        if not is_mahalla and p_status == 'unpaid' and total_p_rate > 0:
+        if not is_mahalla and p_status == 'unpaid':
             if req_month < curr_month_str:
                 is_overdue = True
                 delay_days = max(1, (today - earliest_due).days)
@@ -1262,14 +1260,12 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
                 st_code = 'local'
             elif num_paid > 0 or has_text_payment or (pay and pay.status == 'paid' and raw_paid not in ('', '0')):
                 st_code = 'paid'
-            elif rate_val <= 0:
-                st_code = 'free'
             else:
                 st_code = 'unpaid'
 
             is_overdue = False
             delay_days = 0
-            if not is_mahalla and st_code == 'unpaid' and rate_val > 0:
+            if not is_mahalla and st_code == 'unpaid':
                 if req_month < curr_month_str:
                     is_overdue = True
                     delay_days = max(1, (today - due_date).days)
@@ -1281,8 +1277,6 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
                 debt_val = 0
             elif num_paid > 0:
                 debt_val = max(0, rate_val - num_paid) if rate_val > 0 else 0
-            elif rate_val <= 0:
-                debt_val = 0
             else:
                 debt_val = rate_val
 
@@ -1300,8 +1294,6 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
                     status_display = f"To'langan ({raw_paid})"
                 else:
                     status_display = "To'langan"
-            elif st_code == 'free':
-                status_display = "Bepul (Tarifsiz)"
             else:
                 status_display = "Muddati o'tgan" if is_overdue else "To'lanmagan"
 
