@@ -146,13 +146,20 @@ def teacher_dashboard(request):
         return redirect('staff_my_face_logs')
 
     # Guruh biriktirilganligini tekshirish
-    first_group = teacher.groups.first()
-    if not first_group:
+    teacher_groups = teacher.groups.all().order_by('name')
+    if not teacher_groups.exists():
         messages.info(request, "Sizga hali birorta guruh biriktirilmagan. Siz faqat Face ID va Xodimlar panelidan foydalanishingiz mumkin.")
         return redirect('staff_my_face_logs')
 
-    # FAQAT o'ziga biriktirilgan 1 ta guruh
-    groups = teacher.groups.filter(id=first_group.id).prefetch_related('time_slots__students')
+    # URL yoki parametr orqali aniq guruh bo'yicha filterlash (Matematika, Ingliz tili va h.k. aralashib ketmasligi uchun)
+    req_group_id = request.GET.get('group_id')
+    if req_group_id and str(req_group_id).isdigit():
+        selected_group = get_object_or_404(teacher.groups, id=int(req_group_id))
+    else:
+        selected_group = teacher_groups.first()
+
+    # FAQAT tanlangan 1 ta guruh va unga tegishli o'quvchilar olinadi
+    groups = teacher.groups.filter(id=selected_group.id).prefetch_related('time_slots__students')
 
     req_month = request.GET.get('month', date.today().strftime('%Y-%m'))
     try:
@@ -208,7 +215,9 @@ def teacher_dashboard(request):
     return render(request, 'teacher_dashboard.html', {
         'teacher': teacher,
         'groups': groups,
-        'assigned_group': first_group,
+        'assigned_group': selected_group,
+        'selected_group': selected_group,
+        'teacher_groups': teacher_groups,
         'current_month': req_month,
         'days_data': days_data,
     })
@@ -492,9 +501,14 @@ def teacher_export_excel(request):
     payments = MonthlyPayment.objects.filter(month=curr_month)
     payment_map = {p.student_id: p.amount_paid for p in payments}
 
+    req_group_id = request.GET.get('group_id')
     students = Student.objects.select_related('time_slot__group__teacher').filter(
-        time_slot__group__teacher=teacher
-    ).order_by('time_slot__group__name', 'first_name', 'last_name')
+        time_slot__group__teacher=teacher,
+        is_active=True
+    )
+    if req_group_id and str(req_group_id).isdigit():
+        students = students.filter(time_slot__group_id=int(req_group_id))
+    students = students.order_by('time_slot__group__name', 'first_name', 'last_name')
 
     wb = openpyxl.Workbook()
     ws = wb.active
