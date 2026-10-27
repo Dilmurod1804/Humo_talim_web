@@ -8,6 +8,7 @@ import os
 import random
 import string
 import calendar
+import re
 from datetime import date, datetime
 
 try:
@@ -824,19 +825,47 @@ def _is_mahalla_student(student, pay=None) -> bool:
     return False
 
 
+def _normalize_phone(phone_str):
+    if not phone_str:
+        return ""
+    digits = re.sub(r'\D', '', str(phone_str))
+    return digits[-9:] if len(digits) >= 9 else digits
+
+
+def _get_student_person_key(student):
+    """
+    Jismoniy bitta o'quvchini unikal aniqlash kaliti.
+    Bitta o'quvchi markazda 2 va undan ortiq fanga qatnashganda
+    telefon raqami va/yoki ismi orqali bir shaxs sifatida taniladi.
+    """
+    clean_p = _normalize_phone(getattr(student, 'phone_1', ''))
+    fn = re.sub(r'[^a-zA-Z0-9]', '', str(getattr(student, 'first_name', '') or '').lower())
+    if clean_p and fn:
+        return f"p_{clean_p}_{fn}"
+    if clean_p:
+        return f"p_{clean_p}"
+    ln = re.sub(r'[^a-zA-Z0-9]', '', str(getattr(student, 'last_name', '') or '').lower())
+    if fn or ln:
+        return f"name_{fn}_{ln}"
+    return f"id_{student.id}"
+
+
 def _build_payments_data(students_qs, req_month, status_filter='all', is_group_specific=False):
     """
     O'quvchilar va ularning to'lovlari bo'yicha ma'lumotlar ro'yxatini shakllantiradi.
     Mantiq:
-      1. O'quvchi guruhga biriktirilgan ekan, to'lovlar jadvalida doimo ko'rinib turadi.
-         Hech qanday sun'iy joined_date, left_date yoki is_active cheklovlari qo'llanmaydi.
-      2. "Mahalla" toifasidagi o'quvchilar (is_local=True, is_mahalla=True yoki to'lov sharti mahalla bo'lganlar):
+      1. Fanlar kesimida duplicate (takrorlanish) oldini olish:
+         Bitta o'quvchi markazda bir nechta fanga qatnashsa ham, umumiy statistika
+         (jami o'quvchilar, to'laganlar, qarzdorlar, mahalla) va qarzdorlar ro'yxatida
+         faqat 1 marta unikal (distinct) bo'lib hisoblanadi.
+      2. "Mahalla" toifasidagi o'quvchilar (is_local=True, is_mahalla=True yoki to'lov sharti mahalla):
          - QARZDORLAR (unpaid) ro'yxatiga MUTLAQO qo'shilmaydi
          - Umumiy qarzdorlar soniga (unpaid_count) sanalmaydi
          - Kechikkanlar (overdue) ro'yxatiga va soniga sanalmaydi
          - Qarz summasi har doim 0 so'm hisoblanadi
-      3. Matn kiritilganda ('mahalla', 'B.U' va h.k.):
-         - Qarzdorlik: 0 so'm (Qarzdor deb hisoblanmaydi)
+      3. Haqiqatda to'lov qilganlar (amount_paid > 0 yoki matnli to'lov):
+         - Qarzdorlar (unpaid) ro'yxatiga MUTLAQO kiritilmaydi.
+      4. Arxivdagi, o'chirilgan yoki ketgan o'quvchilar qat'iy chiqarib tashlanadi.
     """
     today = date.today()
     try:
@@ -846,6 +875,7 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
         req_month = f"{req_year:04d}-{req_mon:02d}"
 
     max_day_in_month = calendar.monthrange(req_year, req_mon)[1]
+    curr_month_str = today.strftime('%Y-%m')
 
     # Faqat faol o'quvchilar ro'yxati (Arxivlangan, ketgan yoki DeletedStudent bo'lganlar hisobga olinmaydi)
     deleted_ids = DeletedStudent.objects.filter(student_id__isnull=False).values_list('student_id', flat=True)
@@ -853,6 +883,7 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
         students_qs
         .filter(is_active=True, left_date__isnull=True)
         .exclude(id__in=deleted_ids)
+        .select_related('time_slot__group__teacher', 'time_slot__group')
         .distinct()
         .order_by('first_name', 'last_name')
     )
@@ -861,16 +892,115 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
     payments = MonthlyPayment.objects.filter(student_id__in=student_ids, month=req_month)
     payment_map = {p.student_id: p for p in payments}
 
-    rows = []
-    total_rate = 0
-    total_paid = 0
-    daily_collected = 0
-    total_debt = 0
-    paid_count = 0
-    unpaid_count = 0
-    overdue_count = 0
-    local_count = 0
+    # Markaz bo'yicha barcha faol o'quvchilar orasida Mahalla deb belgilangan telefon raqamlari
+    all_mahalla_phones = set(
+        Student.objects.filter(is_active=True, left_date__isnull=True, is_local=True)
+        .exclude(phone_1='')
+        .values_list('phone_1', flat=True)
+    )
+    mahalla_pay_sids = MonthlyPayment.objects.filter(
+        month=req_month
+    ).filter(
+        Q(notes__icontains='mahalla') | Q(amount_paid__icontains='mahalla')
+    ).values_list('student_id', flat=True)
+    all_mahalla_phones.update(
+        Student.objects.filter(id__in=mahalla_pay_sids).exclude(phone_1='').values_list('phone_1', flat=True)
+    )
+    mahalla_clean_phones = {_normalize_phone(p) for p in all_mahalla_phones if _normalize_phone(p)}
 
+    # O'quvchilarni bitta jismoniy shaxs (person_key) bo'yicha guruhlash
+    person_records = {}
+    for s in students_list:
+        pkey = _get_student_person_key(s)
+        person_records.setdefault(pkey, []).append(s)
+
+    # Har bir shaxsning umumiy holati, tarifi va to'lovlarini hisoblash
+    person_info = {}
+    for pkey, records in person_records.items():
+        is_mahalla = False
+        total_p_rate = 0
+        total_p_paid = 0
+        has_text_p = False
+        due_dates = []
+
+        for r in records:
+            pay = payment_map.get(r.id)
+            raw_paid = str(pay.amount_paid if pay else '').strip()
+            num_paid = _clean_amount(raw_paid)
+            text_p = _is_text_payment(raw_paid)
+            clean_p = _normalize_phone(r.phone_1)
+
+            if _is_mahalla_student(r, pay) or (clean_p and clean_p in mahalla_clean_phones):
+                is_mahalla = True
+
+            total_p_rate += (r.payment_rate or 0)
+            total_p_paid += num_paid
+            if text_p:
+                has_text_p = True
+
+            # Due date hisobi
+            pay_date_obj = pay.payment_date if (pay and pay.payment_date) else (pay.created_at.date() if (pay and pay.created_at) else None)
+            if pay_date_obj and (num_paid > 0 or text_p or is_mahalla):
+                yr, mn = pay_date_obj.year, pay_date_obj.month + 1
+                if mn > 12:
+                    mn = 1
+                    yr += 1
+                max_next = calendar.monthrange(yr, mn)[1]
+                due_dates.append(date(yr, mn, min(pay_date_obj.day, max_next)))
+            else:
+                joined_d = r.joined_date or today
+                due_day = min(joined_d.day, max_day_in_month)
+                due_dates.append(date(req_year, req_mon, due_day))
+
+        # Shaxsning umumiy to'lov holati
+        if is_mahalla:
+            p_status = 'local'
+            p_debt = 0
+        elif total_p_paid > 0 or has_text_p:
+            p_status = 'paid'
+            p_debt = max(0, total_p_rate - total_p_paid)
+        elif total_p_rate <= 0:
+            p_status = 'free'
+            p_debt = 0
+        else:
+            p_status = 'unpaid'
+            p_debt = total_p_rate
+
+        earliest_due = min(due_dates) if due_dates else today
+        is_overdue = False
+        delay_days = 0
+        if not is_mahalla and p_status == 'unpaid' and total_p_rate > 0:
+            if req_month < curr_month_str:
+                is_overdue = True
+                delay_days = max(1, (today - earliest_due).days)
+            elif today > earliest_due:
+                is_overdue = True
+                delay_days = (today - earliest_due).days
+
+        person_info[pkey] = {
+            'is_mahalla': is_mahalla,
+            'total_rate': total_p_rate,
+            'total_paid': total_p_paid,
+            'has_text_payment': has_text_p,
+            'status': p_status,
+            'debt': p_debt,
+            'is_overdue': is_overdue,
+            'delay_days': delay_days,
+            'earliest_due': earliest_due,
+        }
+
+    # Barcha unikal o'quvchilar bo'yicha toza statistika
+    unique_all_count = len(person_info)
+    local_count = sum(1 for p in person_info.values() if p['status'] == 'local')
+    paid_count = sum(1 for p in person_info.values() if p['status'] == 'paid')
+    unpaid_count = sum(1 for p in person_info.values() if p['status'] == 'unpaid')
+    overdue_count = sum(1 for p in person_info.values() if p['is_overdue'])
+    debt_sum = sum(p['debt'] for p in person_info.values() if p['status'] == 'unpaid')
+    total_rate_sum = sum(p['total_rate'] for p in person_info.values())
+
+    # To'lov turlari va tushumlar hisobi
+    daily_collected = 0
+    total_paid_sum = 0
     total_cash = 0
     total_terminal = 0
     total_payme = 0
@@ -880,223 +1010,356 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
     count_payme = 0
     count_click = 0
 
-    curr_month_str = today.strftime('%Y-%m')
-
-    for idx, s in enumerate(students_list, start=1):
-        pay = payment_map.get(s.id)
-
-        raw_paid = str(pay.amount_paid if pay else '').strip()
+    for pay in payments:
+        raw_paid = str(pay.amount_paid or '').strip()
         num_paid = _clean_amount(raw_paid)
-        has_text_payment = _is_text_payment(raw_paid)
-
-        # Mahalla o'quvchisini aniqlash (is_local, is_mahalla yoki to'lov sharti mahalla)
-        is_mahalla = _is_mahalla_student(s, pay)
-        is_loc = is_mahalla
-        if is_mahalla:
-            local_count += 1
-
-        grp = s.time_slot.group if s.time_slot else None
-        subject_name = grp.subject_name if grp else "-"
-        teacher_name = str(grp.teacher) if (grp and grp.teacher) else "-"
-
-        rate_val = s.payment_rate or 0
-        total_rate += rate_val
-
-        # To'lov sanasi
-        pay_date_obj = None
-        if pay and pay.payment_date:
-            pay_date_obj = pay.payment_date
-        elif pay and pay.created_at:
-            pay_date_obj = pay.created_at.date()
-
-        pay_date_str = pay_date_obj.strftime('%d.%m.%Y') if pay_date_obj else ""
-        pay_date_iso = pay_date_obj.strftime('%Y-%m-%d') if pay_date_obj else ""
-
-        # Bugungi tushum
-        if pay_date_obj == today and num_paid > 0:
-            daily_collected += num_paid
-
-        # Oylik tushum
-        total_paid += num_paid
-
-        # To'lov turlari bo'yicha tushumlar hisobi
-        p_type = getattr(pay, 'payment_type', 'cash') if pay else 'cash'
-        if not p_type:
-            p_type = 'cash'
-
         if num_paid > 0:
-            if p_type == 'terminal':
+            total_paid_sum += num_paid
+            pay_date = pay.payment_date or (pay.created_at.date() if pay.created_at else None)
+            if pay_date == today:
+                daily_collected += num_paid
+
+            ptype = getattr(pay, 'payment_type', 'cash') or 'cash'
+            if ptype == 'terminal':
                 total_terminal += num_paid
                 count_terminal += 1
-            elif p_type == 'payme':
+            elif ptype == 'payme':
                 total_payme += num_paid
                 count_payme += 1
-            elif p_type == 'click':
+            elif ptype == 'click':
                 total_click += num_paid
                 count_click += 1
             else:
                 total_cash += num_paid
                 count_cash += 1
 
-        # To'lov muddati (due_date)
-        has_paid_val = (num_paid > 0) or has_text_payment or is_mahalla
+    rows = []
 
-        if pay_date_obj and has_paid_val:
-            if relativedelta:
-                due_date = pay_date_obj + relativedelta(months=1)
-            else:
-                yr, mn = pay_date_obj.year, pay_date_obj.month
-                mn += 1
+    # Agar Qarzdorlar (unpaid) filtri tanlangan bo'lsa:
+    # Har bir qarzdor o'quvchi bir nechta fanda bo'lsa ham, FAQAT 1 MARTA unikal chiqadi!
+    if status_filter == 'unpaid':
+        for pkey, info in person_info.items():
+            if info['status'] != 'unpaid':
+                continue
+            recs = person_records[pkey]
+            primary_student = recs[0]
+
+            grp_names = [r.time_slot.group.name for r in recs if r.time_slot and r.time_slot.group]
+            unique_grp_names = ", ".join(dict.fromkeys(grp_names)) or "-"
+
+            sub_names = [r.time_slot.group.subject_name for r in recs if r.time_slot and r.time_slot.group]
+            unique_sub_names = ", ".join(dict.fromkeys(sub_names)) or "-"
+
+            teacher_names = [str(r.time_slot.group.teacher) for r in recs if r.time_slot and r.time_slot.group and r.time_slot.group.teacher]
+            unique_teacher_names = ", ".join(dict.fromkeys(teacher_names)) or "-"
+
+            phone_str = f"{primary_student.phone_1} {primary_student.phone_2 or ''}".strip()
+            joined_str = primary_student.joined_date.strftime('%d.%m.%Y') if primary_student.joined_date else "-"
+            due_str = info['earliest_due'].strftime('%d.%m.%Y')
+
+            status_display = "Muddati o'tgan" if info['is_overdue'] else "To'lanmagan"
+
+            rows.append({
+                'index': 0,
+                'student': primary_student,
+                'student_id': primary_student.id,
+                'student_name': f"{primary_student.first_name} {primary_student.last_name}",
+                'is_local': False,
+                'is_mahalla': False,
+                'group': primary_student.time_slot.group if primary_student.time_slot else None,
+                'group_name': unique_grp_names,
+                'group_id': primary_student.time_slot.group_id if primary_student.time_slot else None,
+                'subject_name': unique_sub_names,
+                'teacher_name': unique_teacher_names,
+                'joined_date': joined_str,
+                'joined_date_iso': primary_student.joined_date.strftime('%Y-%m-%d') if primary_student.joined_date else "",
+                'due_date': info['earliest_due'],
+                'due_date_str': due_str,
+                'is_overdue': info['is_overdue'],
+                'delay_days': info['delay_days'],
+                'delay_text': f"{info['delay_days']} kun kechikdi" if info['is_overdue'] else "",
+                'payment_date': "",
+                'payment_date_iso': "",
+                'payment_rate': info['total_rate'],
+                'payment_rate_formatted': f"{info['total_rate']:,}".replace(',', ' '),
+                'amount_paid': "-",
+                'amount_paid_formatted': "-",
+                'num_paid': 0,
+                'has_text_payment': False,
+                'status_code': 'unpaid',
+                'status_display': status_display,
+                'phone': phone_str,
+                'notes': "",
+                'payment_id': None,
+                'payment_type': 'cash',
+                'payment_type_display': "Naqd pul (Cash)",
+                'debt': info['debt'],
+                'debt_formatted': f"{info['debt']:,}".replace(',', ' '),
+            })
+
+    elif status_filter == 'overdue':
+        for pkey, info in person_info.items():
+            if not info['is_overdue']:
+                continue
+            recs = person_records[pkey]
+            primary_student = recs[0]
+
+            grp_names = [r.time_slot.group.name for r in recs if r.time_slot and r.time_slot.group]
+            unique_grp_names = ", ".join(dict.fromkeys(grp_names)) or "-"
+            sub_names = [r.time_slot.group.subject_name for r in recs if r.time_slot and r.time_slot.group]
+            unique_sub_names = ", ".join(dict.fromkeys(sub_names)) or "-"
+            teacher_names = [str(r.time_slot.group.teacher) for r in recs if r.time_slot and r.time_slot.group and r.time_slot.group.teacher]
+            unique_teacher_names = ", ".join(dict.fromkeys(teacher_names)) or "-"
+            phone_str = f"{primary_student.phone_1} {primary_student.phone_2 or ''}".strip()
+            joined_str = primary_student.joined_date.strftime('%d.%m.%Y') if primary_student.joined_date else "-"
+            due_str = info['earliest_due'].strftime('%d.%m.%Y')
+
+            rows.append({
+                'index': 0,
+                'student': primary_student,
+                'student_id': primary_student.id,
+                'student_name': f"{primary_student.first_name} {primary_student.last_name}",
+                'is_local': False,
+                'is_mahalla': False,
+                'group': primary_student.time_slot.group if primary_student.time_slot else None,
+                'group_name': unique_grp_names,
+                'group_id': primary_student.time_slot.group_id if primary_student.time_slot else None,
+                'subject_name': unique_sub_names,
+                'teacher_name': unique_teacher_names,
+                'joined_date': joined_str,
+                'joined_date_iso': primary_student.joined_date.strftime('%Y-%m-%d') if primary_student.joined_date else "",
+                'due_date': info['earliest_due'],
+                'due_date_str': due_str,
+                'is_overdue': True,
+                'delay_days': info['delay_days'],
+                'delay_text': f"{info['delay_days']} kun kechikdi",
+                'payment_date': "",
+                'payment_date_iso': "",
+                'payment_rate': info['total_rate'],
+                'payment_rate_formatted': f"{info['total_rate']:,}".replace(',', ' '),
+                'amount_paid': "-",
+                'amount_paid_formatted': "-",
+                'num_paid': 0,
+                'has_text_payment': False,
+                'status_code': 'unpaid',
+                'status_display': "Muddati o'tgan",
+                'phone': phone_str,
+                'notes': "",
+                'payment_id': None,
+                'payment_type': 'cash',
+                'payment_type_display': "Naqd pul (Cash)",
+                'debt': info['debt'],
+                'debt_formatted': f"{info['debt']:,}".replace(',', ' '),
+            })
+
+    elif status_filter == 'local' and not is_group_specific:
+        for pkey, info in person_info.items():
+            if info['status'] != 'local':
+                continue
+            recs = person_records[pkey]
+            primary_student = recs[0]
+
+            grp_names = [r.time_slot.group.name for r in recs if r.time_slot and r.time_slot.group]
+            unique_grp_names = ", ".join(dict.fromkeys(grp_names)) or "-"
+            sub_names = [r.time_slot.group.subject_name for r in recs if r.time_slot and r.time_slot.group]
+            unique_sub_names = ", ".join(dict.fromkeys(sub_names)) or "-"
+            teacher_names = [str(r.time_slot.group.teacher) for r in recs if r.time_slot and r.time_slot.group and r.time_slot.group.teacher]
+            unique_teacher_names = ", ".join(dict.fromkeys(teacher_names)) or "-"
+            phone_str = f"{primary_student.phone_1} {primary_student.phone_2 or ''}".strip()
+            joined_str = primary_student.joined_date.strftime('%d.%m.%Y') if primary_student.joined_date else "-"
+            due_str = info['earliest_due'].strftime('%d.%m.%Y')
+
+            rows.append({
+                'index': 0,
+                'student': primary_student,
+                'student_id': primary_student.id,
+                'student_name': f"{primary_student.first_name} {primary_student.last_name}",
+                'is_local': True,
+                'is_mahalla': True,
+                'group': primary_student.time_slot.group if primary_student.time_slot else None,
+                'group_name': unique_grp_names,
+                'group_id': primary_student.time_slot.group_id if primary_student.time_slot else None,
+                'subject_name': unique_sub_names,
+                'teacher_name': unique_teacher_names,
+                'joined_date': joined_str,
+                'joined_date_iso': primary_student.joined_date.strftime('%Y-%m-%d') if primary_student.joined_date else "",
+                'due_date': info['earliest_due'],
+                'due_date_str': due_str,
+                'is_overdue': False,
+                'delay_days': 0,
+                'delay_text': "",
+                'payment_date': "",
+                'payment_date_iso': "",
+                'payment_rate': info['total_rate'],
+                'payment_rate_formatted': f"{info['total_rate']:,}".replace(',', ' '),
+                'amount_paid': "Mahalla",
+                'amount_paid_formatted': "Mahalla",
+                'num_paid': info['total_paid'],
+                'has_text_payment': True,
+                'status_code': 'local',
+                'status_display': "Mahalla",
+                'phone': phone_str,
+                'notes': "",
+                'payment_id': None,
+                'payment_type': 'cash',
+                'payment_type_display': "Mahalla",
+                'debt': 0,
+                'debt_formatted': "0",
+            })
+
+    else:
+        # status_filter in ('all', 'paid', 'local' when is_group_specific)
+        for idx, s in enumerate(students_list, start=1):
+            pkey = _get_student_person_key(s)
+            p_inf = person_info.get(pkey, {})
+            pay = payment_map.get(s.id)
+
+            raw_paid = str(pay.amount_paid if pay else '').strip()
+            num_paid = _clean_amount(raw_paid)
+            has_text_payment = _is_text_payment(raw_paid)
+            is_mahalla = p_inf.get('is_mahalla', False) or _is_mahalla_student(s, pay)
+
+            grp = s.time_slot.group if s.time_slot else None
+            subject_name = grp.subject_name if grp else "-"
+            teacher_name = str(grp.teacher) if (grp and grp.teacher) else "-"
+            rate_val = s.payment_rate or 0
+
+            # To'lov sanasi
+            pay_date_obj = pay.payment_date if (pay and pay.payment_date) else (pay.created_at.date() if (pay and pay.created_at) else None)
+            pay_date_str = pay_date_obj.strftime('%d.%m.%Y') if pay_date_obj else ""
+            pay_date_iso = pay_date_obj.strftime('%Y-%m-%d') if pay_date_obj else ""
+
+            # To'lov muddati
+            has_paid_val = (num_paid > 0) or has_text_payment or is_mahalla
+            if pay_date_obj and has_paid_val:
+                yr, mn = pay_date_obj.year, pay_date_obj.month + 1
                 if mn > 12:
                     mn = 1
                     yr += 1
                 max_next = calendar.monthrange(yr, mn)[1]
                 due_date = date(yr, mn, min(pay_date_obj.day, max_next))
-        else:
-            joined_d = s.joined_date or today
-            due_day = min(joined_d.day, max_day_in_month)
-            due_date = date(req_year, req_mon, due_day)
-
-        due_date_str = due_date.strftime('%d.%m.%Y')
-
-        # Holat aniqlash:
-        # 1. Mahalla o'quvchisi
-        if is_mahalla:
-            st_code = 'local'
-        # 2. Haqiqatan to'lov qilgan o'quvchi (amount_paid > 0 yoki matnli to'lov yoki status='paid')
-        elif num_paid > 0 or has_text_payment or (pay and pay.status == 'paid' and raw_paid not in ('', '0')):
-            st_code = 'paid'
-        # 3. Tarifsiz o'quvchi (to'lov qilmagan va tarifi 0)
-        elif rate_val <= 0:
-            st_code = 'free'
-        # 4. Qarzdor (to'lov qilmagan va tarifi > 0)
-        else:
-            st_code = 'unpaid'
-
-        # Kechikish hisobi (Faqat to'lamagan qarzdorlar uchun)
-        is_overdue = False
-        delay_days = 0
-        if not is_mahalla and st_code == 'unpaid' and rate_val > 0:
-            if req_month < curr_month_str:
-                is_overdue = True
-                delay_days = max(1, (today - due_date).days)
-                overdue_count += 1
-            elif today > due_date:
-                is_overdue = True
-                delay_days = (today - due_date).days
-                overdue_count += 1
-
-        # Qarz hisobi:
-        if is_mahalla or has_text_payment:
-            debt_val = 0
-        elif num_paid > 0:
-            debt_val = max(0, rate_val - num_paid) if rate_val > 0 else 0
-        elif rate_val <= 0:
-            debt_val = 0
-        else:
-            debt_val = rate_val
-
-        total_debt += debt_val
-
-        # Status va hisoblagichlar:
-        if is_mahalla:
-            if num_paid > 0:
-                paid_count += 1
-                status_display = f"To'langan ({raw_paid})"
-            elif has_text_payment and raw_paid.lower() != 'mahalla':
-                status_display = f"Mahalla ({raw_paid})"
             else:
-                status_display = "Mahalla"
-        elif st_code == 'paid':
-            paid_count += 1
-            if num_paid > 0:
-                status_display = f"To'langan ({num_paid:,} so'm)".replace(',', ' ')
-            elif has_text_payment:
-                status_display = f"To'langan ({raw_paid})"
+                joined_d = s.joined_date or today
+                due_day = min(joined_d.day, max_day_in_month)
+                due_date = date(req_year, req_mon, due_day)
+
+            due_date_str = due_date.strftime('%d.%m.%Y')
+
+            # Holat aniqlash
+            if is_mahalla:
+                st_code = 'local'
+            elif num_paid > 0 or has_text_payment or (pay and pay.status == 'paid' and raw_paid not in ('', '0')):
+                st_code = 'paid'
+            elif rate_val <= 0:
+                st_code = 'free'
             else:
-                status_display = "To'langan"
-        elif st_code == 'free':
-            status_display = "Bepul (Tarifsiz)"
-        else:
-            unpaid_count += 1
-            status_display = "Muddati o'tgan" if is_overdue else "To'lanmagan"
+                st_code = 'unpaid'
 
-        joined_str = s.joined_date.strftime('%d.%m.%Y') if s.joined_date else "-"
-        joined_iso = s.joined_date.strftime('%Y-%m-%d') if s.joined_date else ""
-        phone_str = f"{s.phone_1} {s.phone_2 or ''}".strip()
+            is_overdue = False
+            delay_days = 0
+            if not is_mahalla and st_code == 'unpaid' and rate_val > 0:
+                if req_month < curr_month_str:
+                    is_overdue = True
+                    delay_days = max(1, (today - due_date).days)
+                elif today > due_date:
+                    is_overdue = True
+                    delay_days = (today - due_date).days
 
-        row_item = {
-            'index': idx,
-            'student': s,
-            'student_id': s.id,
-            'student_name': f"{s.first_name} {s.last_name}",
-            'is_local': is_loc,
-            'is_mahalla': is_mahalla,
-            'group': grp,
-            'group_name': grp.name if grp else "-",
-            'group_id': grp.id if grp else None,
-            'subject_name': subject_name,
-            'teacher_name': teacher_name,
-            'joined_date': joined_str,
-            'joined_date_iso': joined_iso,
-            'due_date': due_date,
-            'due_date_str': due_date_str,
-            'is_overdue': is_overdue,
-            'delay_days': delay_days,
-            'delay_text': f"{delay_days} kun kechikdi" if is_overdue else "",
-            'payment_date': pay_date_str,
-            'payment_date_iso': pay_date_iso,
-            'payment_rate': rate_val,
-            'payment_rate_formatted': f"{rate_val:,}".replace(',', ' '),
-            'amount_paid': raw_paid,
-            'amount_paid_formatted': f"{num_paid:,}".replace(',', ' ') if num_paid > 0 else (raw_paid if raw_paid else "-"),
-            'num_paid': num_paid,
-            'has_text_payment': has_text_payment,
-            'status_code': st_code,
-            'status_display': status_display,
-            'phone': phone_str,
-            'notes': pay.notes if pay else "",
-            'payment_id': pay.id if pay else None,
-            'payment_type': pay.payment_type if (pay and getattr(pay, 'payment_type', None)) else 'cash',
-            'payment_type_display': pay.get_payment_type_display() if (pay and hasattr(pay, 'get_payment_type_display')) else "Naqd pul (Cash)",
-            'debt': debt_val,
-            'debt_formatted': f"{debt_val:,}".replace(',', ' '),
-        }
+            if is_mahalla or has_text_payment:
+                debt_val = 0
+            elif num_paid > 0:
+                debt_val = max(0, rate_val - num_paid) if rate_val > 0 else 0
+            elif rate_val <= 0:
+                debt_val = 0
+            else:
+                debt_val = rate_val
 
-        # Filtrlash: Mahalla, to'laganlar va 0 tariflilar Qarzdorlar (unpaid) ro'yxatidan MUTLAQO chiqarilsin
-        if status_filter == 'unpaid':
-            if is_mahalla or st_code != 'unpaid' or rate_val <= 0 or num_paid > 0 or has_text_payment:
-                continue
-        elif status_filter == 'paid':
-            if st_code != 'paid' and not (is_mahalla and num_paid > 0):
-                continue
-        elif status_filter == 'overdue':
-            if is_mahalla or not is_overdue:
-                continue
-        elif status_filter == 'local':
-            if not (is_mahalla or has_text_payment):
-                continue
+            if is_mahalla:
+                if num_paid > 0:
+                    status_display = f"To'langan ({raw_paid})"
+                elif has_text_payment and raw_paid.lower() != 'mahalla':
+                    status_display = f"Mahalla ({raw_paid})"
+                else:
+                    status_display = "Mahalla"
+            elif st_code == 'paid':
+                if num_paid > 0:
+                    status_display = f"To'langan ({num_paid:,} so'm)".replace(',', ' ')
+                elif has_text_payment:
+                    status_display = f"To'langan ({raw_paid})"
+                else:
+                    status_display = "To'langan"
+            elif st_code == 'free':
+                status_display = "Bepul (Tarifsiz)"
+            else:
+                status_display = "Muddati o'tgan" if is_overdue else "To'lanmagan"
 
-        rows.append(row_item)
+            joined_str = s.joined_date.strftime('%d.%m.%Y') if s.joined_date else "-"
+            joined_iso = s.joined_date.strftime('%Y-%m-%d') if s.joined_date else ""
+            phone_str = f"{s.phone_1} {s.phone_2 or ''}".strip()
+
+            if status_filter == 'paid':
+                if st_code != 'paid' and not (is_mahalla and num_paid > 0):
+                    continue
+            elif status_filter == 'local':
+                if not (is_mahalla or has_text_payment):
+                    continue
+
+            rows.append({
+                'index': idx,
+                'student': s,
+                'student_id': s.id,
+                'student_name': f"{s.first_name} {s.last_name}",
+                'is_local': is_mahalla,
+                'is_mahalla': is_mahalla,
+                'group': grp,
+                'group_name': grp.name if grp else "-",
+                'group_id': grp.id if grp else None,
+                'subject_name': subject_name,
+                'teacher_name': teacher_name,
+                'joined_date': joined_str,
+                'joined_date_iso': joined_iso,
+                'due_date': due_date,
+                'due_date_str': due_date_str,
+                'is_overdue': is_overdue,
+                'delay_days': delay_days,
+                'delay_text': f"{delay_days} kun kechikdi" if is_overdue else "",
+                'payment_date': pay_date_str,
+                'payment_date_iso': pay_date_iso,
+                'payment_rate': rate_val,
+                'payment_rate_formatted': f"{rate_val:,}".replace(',', ' '),
+                'amount_paid': raw_paid,
+                'amount_paid_formatted': f"{num_paid:,}".replace(',', ' ') if num_paid > 0 else (raw_paid if raw_paid else "-"),
+                'num_paid': num_paid,
+                'has_text_payment': has_text_payment,
+                'status_code': st_code,
+                'status_display': status_display,
+                'phone': phone_str,
+                'notes': pay.notes if pay else "",
+                'payment_id': pay.id if pay else None,
+                'payment_type': pay.payment_type if (pay and getattr(pay, 'payment_type', None)) else 'cash',
+                'payment_type_display': pay.get_payment_type_display() if (pay and hasattr(pay, 'get_payment_type_display')) else "Naqd pul (Cash)",
+                'debt': debt_val,
+                'debt_formatted': f"{debt_val:,}".replace(',', ' '),
+            })
 
     for i, r in enumerate(rows, start=1):
         r['index'] = i
 
-    pct_cash = round((total_cash / total_paid) * 100) if total_paid > 0 else 0
-    pct_terminal = round((total_terminal / total_paid) * 100) if total_paid > 0 else 0
-    pct_payme = round((total_payme / total_paid) * 100) if total_paid > 0 else 0
-    pct_click = round((total_click / total_paid) * 100) if total_paid > 0 else 0
+    pct_cash = round((total_cash / total_paid_sum) * 100) if total_paid_sum > 0 else 0
+    pct_terminal = round((total_terminal / total_paid_sum) * 100) if total_paid_sum > 0 else 0
+    pct_payme = round((total_payme / total_paid_sum) * 100) if total_paid_sum > 0 else 0
+    pct_click = round((total_click / total_paid_sum) * 100) if total_paid_sum > 0 else 0
 
     stats = {
-        'total_students': len(students_list),
+        'total_students': unique_all_count,
         'paid_count': paid_count,
         'unpaid_count': unpaid_count,
         'overdue_count': overdue_count,
         'local_count': local_count,
-        'total_rate': total_rate,
-        'total_rate_formatted': f"{total_rate:,}".replace(',', ' '),
-        'total_paid': total_paid,
-        'total_paid_formatted': f"{total_paid:,}".replace(',', ' '),
+        'total_rate': total_rate_sum,
+        'total_rate_formatted': f"{total_rate_sum:,}".replace(',', ' '),
+        'total_paid': total_paid_sum,
+        'total_paid_formatted': f"{total_paid_sum:,}".replace(',', ' '),
         'total_cash': total_cash,
         'total_cash_formatted': f"{total_cash:,}".replace(',', ' '),
         'total_terminal': total_terminal,
@@ -1113,8 +1376,8 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
         'pct_terminal': pct_terminal,
         'pct_payme': pct_payme,
         'pct_click': pct_click,
-        'debt_sum': total_debt,
-        'debt_sum_formatted': f"{total_debt:,}".replace(',', ' '),
+        'debt_sum': debt_sum,
+        'debt_sum_formatted': f"{debt_sum:,}".replace(',', ' '),
         'daily_collected': daily_collected,
         'daily_collected_formatted': f"{daily_collected:,}".replace(',', ' '),
         'req_year': req_year,
@@ -1208,37 +1471,6 @@ def admin_payments_all(request):
             q_filter |= Q(first_name__icontains=w) | Q(last_name__icontains=w) | Q(phone_1__icontains=w) | Q(phone_2__icontains=w)
         students_qs = students_qs.filter(q_filter)
 
-    # Qarzdorlar filtri: Mahalla (is_local=True), arxiv/ketganlar va to'lov qilganlar QuerySet'dan to'liq chiqarib tashlansin
-    if status_filter == 'unpaid':
-        mahalla_pay_ids = MonthlyPayment.objects.filter(
-            month=req_month,
-            notes__icontains='mahalla'
-        ).values('student_id')
-
-        paid_student_ids = MonthlyPayment.objects.filter(
-            month=req_month
-        ).exclude(
-            Q(amount_paid__isnull=True) |
-            Q(amount_paid__exact='') |
-            Q(amount_paid__exact='0') |
-            Q(status='unpaid')
-        ).values('student_id')
-
-        students_qs = students_qs.filter(
-            is_active=True,
-            left_date__isnull=True,
-            payment_rate__gt=0,
-            time_slot__isnull=False
-        ).exclude(
-            is_local=True
-        ).exclude(
-            id__in=deleted_ids
-        ).exclude(
-            id__in=mahalla_pay_ids
-        ).exclude(
-            id__in=paid_student_ids
-        )
-
     rows, stats = _build_payments_data(
         students_qs, req_month, status_filter,
         is_group_specific=bool(group_id and group_id.isdigit())
@@ -1281,37 +1513,6 @@ def admin_group_payments(request, group_id):
         for w in words:
             q_filter |= Q(first_name__icontains=w) | Q(last_name__icontains=w) | Q(phone_1__icontains=w) | Q(phone_2__icontains=w)
         students_qs = students_qs.filter(q_filter)
-
-    # Qarzdorlar filtri: Mahalla (is_local=True), arxiv/ketganlar va to'lov qilganlar QuerySet'dan to'liq chiqarib tashlansin
-    if status_filter == 'unpaid':
-        mahalla_pay_ids = MonthlyPayment.objects.filter(
-            month=req_month,
-            notes__icontains='mahalla'
-        ).values('student_id')
-
-        paid_student_ids = MonthlyPayment.objects.filter(
-            month=req_month
-        ).exclude(
-            Q(amount_paid__isnull=True) |
-            Q(amount_paid__exact='') |
-            Q(amount_paid__exact='0') |
-            Q(status='unpaid')
-        ).values('student_id')
-
-        students_qs = students_qs.filter(
-            is_active=True,
-            left_date__isnull=True,
-            payment_rate__gt=0,
-            time_slot__isnull=False
-        ).exclude(
-            is_local=True
-        ).exclude(
-            id__in=deleted_ids
-        ).exclude(
-            id__in=mahalla_pay_ids
-        ).exclude(
-            id__in=paid_student_ids
-        )
 
     rows, stats = _build_payments_data(students_qs, req_month, status_filter, is_group_specific=True)
 
@@ -1576,37 +1777,6 @@ def export_payments_excel(request):
         base_title = "Barcha Guruhlar Umumiy To'lovlar Jadvali"
         base_filename = "Humo_Umumiy_Toluvlar"
         group_info = "Barcha guruhlar"
-
-    # Qarzdorlar filtri: Mahalla (is_local=True), arxiv/ketganlar va to'lov qilganlar QuerySet'dan to'liq chiqarib tashlansin
-    if status_filter == 'unpaid':
-        mahalla_pay_ids = MonthlyPayment.objects.filter(
-            month=req_month,
-            notes__icontains='mahalla'
-        ).values('student_id')
-
-        paid_student_ids = MonthlyPayment.objects.filter(
-            month=req_month
-        ).exclude(
-            Q(amount_paid__isnull=True) |
-            Q(amount_paid__exact='') |
-            Q(amount_paid__exact='0') |
-            Q(status='unpaid')
-        ).values('student_id')
-
-        students_qs = students_qs.filter(
-            is_active=True,
-            left_date__isnull=True,
-            payment_rate__gt=0,
-            time_slot__isnull=False
-        ).exclude(
-            is_local=True
-        ).exclude(
-            id__in=deleted_ids
-        ).exclude(
-            id__in=mahalla_pay_ids
-        ).exclude(
-            id__in=paid_student_ids
-        )
 
     if status_filter == 'paid':
         type_label = "To'liq To'laganlar"
