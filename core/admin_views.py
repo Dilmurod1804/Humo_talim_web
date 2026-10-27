@@ -877,11 +877,16 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
     max_day_in_month = calendar.monthrange(req_year, req_mon)[1]
     curr_month_str = today.strftime('%Y-%m')
 
-    # Faqat faol o'quvchilar ro'yxati (Arxivlangan, ketgan yoki DeletedStudent bo'lganlar hisobga olinmaydi)
+    # Faqat faol va guruhga biriktirilgan o'quvchilar ro'yxati (Arxivlangan, ketgan yoki DeletedStudent bo'lganlar hisobga olinmaydi)
     deleted_ids = DeletedStudent.objects.filter(student_id__isnull=False).values_list('student_id', flat=True)
     students_list = list(
         students_qs
-        .filter(is_active=True, left_date__isnull=True)
+        .filter(
+            is_active=True,
+            left_date__isnull=True,
+            time_slot__isnull=False,
+            time_slot__group__isnull=False
+        )
         .exclude(id__in=deleted_ids)
         .select_related('time_slot__group__teacher', 'time_slot__group')
         .distinct()
@@ -894,7 +899,13 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
 
     # Markaz bo'yicha barcha faol o'quvchilar orasida Mahalla deb belgilangan telefon raqamlari
     all_mahalla_phones = set(
-        Student.objects.filter(is_active=True, left_date__isnull=True, is_local=True)
+        Student.objects.filter(
+            is_active=True,
+            left_date__isnull=True,
+            time_slot__isnull=False,
+            time_slot__group__isnull=False,
+            is_local=True
+        )
         .exclude(phone_1='')
         .values_list('phone_1', flat=True)
     )
@@ -993,6 +1004,7 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
     unique_all_count = len(person_info)
     local_count = sum(1 for p in person_info.values() if p['status'] == 'local')
     paid_count = sum(1 for p in person_info.values() if p['status'] == 'paid')
+    free_count = sum(1 for p in person_info.values() if p['status'] == 'free')
     unpaid_count = sum(1 for p in person_info.values() if p['status'] == 'unpaid')
     overdue_count = sum(1 for p in person_info.values() if p['is_overdue'])
     debt_sum = sum(p['debt'] for p in person_info.values() if p['status'] == 'unpaid')
@@ -1303,6 +1315,9 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
             elif status_filter == 'local':
                 if not (is_mahalla or has_text_payment):
                     continue
+            elif status_filter == 'free':
+                if st_code != 'free':
+                    continue
 
             rows.append({
                 'index': idx,
@@ -1356,6 +1371,7 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
         'unpaid_count': unpaid_count,
         'overdue_count': overdue_count,
         'local_count': local_count,
+        'free_count': free_count,
         'total_rate': total_rate_sum,
         'total_rate_formatted': f"{total_rate_sum:,}".replace(',', ' '),
         'total_paid': total_paid_sum,
@@ -1455,6 +1471,8 @@ def admin_payments_all(request):
     students_qs = Student.objects.filter(
         is_active=True,
         left_date__isnull=True,
+        time_slot__isnull=False,
+        time_slot__group__isnull=False,
     ).exclude(
         id__in=deleted_ids
     ).select_related(
@@ -1503,6 +1521,8 @@ def admin_group_payments(request, group_id):
         time_slot__group=group,
         is_active=True,
         left_date__isnull=True,
+        time_slot__isnull=False,
+        time_slot__group__isnull=False,
     ).exclude(
         id__in=deleted_ids
     ).select_related('time_slot')
@@ -1760,6 +1780,8 @@ def export_payments_excel(request):
             time_slot__group=group,
             is_active=True,
             left_date__isnull=True,
+            time_slot__isnull=False,
+            time_slot__group__isnull=False,
         ).exclude(
             id__in=deleted_ids
         ).select_related('time_slot')
@@ -1771,6 +1793,8 @@ def export_payments_excel(request):
         students_qs = Student.objects.filter(
             is_active=True,
             left_date__isnull=True,
+            time_slot__isnull=False,
+            time_slot__group__isnull=False,
         ).exclude(
             id__in=deleted_ids
         ).select_related('time_slot__group__teacher', 'time_slot__group')
@@ -1828,7 +1852,15 @@ def admin_export_excel(request):
 
     ws_all = wb.active
     ws_all.title = "Barcha O'quvchilar"
-    all_students = Student.objects.select_related('time_slot__group__teacher').all().order_by(
+    deleted_ids = DeletedStudent.objects.filter(student_id__isnull=False).values_list('student_id', flat=True)
+    all_students = Student.objects.filter(
+        is_active=True,
+        left_date__isnull=True,
+        time_slot__isnull=False,
+        time_slot__group__isnull=False,
+    ).exclude(
+        id__in=deleted_ids
+    ).select_related('time_slot__group__teacher').order_by(
         'time_slot__group__teacher__first_name',
         'time_slot__group__teacher__last_name',
         'time_slot__group__name',
@@ -1862,9 +1894,16 @@ def admin_group_export_excel(request, group_id):
     payments = MonthlyPayment.objects.filter(month=curr_month)
     payment_map = {p.student_id: p.amount_paid for p in payments}
 
-    students = Student.objects.select_related('time_slot__group__teacher').filter(
-        time_slot__group=group
-    ).order_by('first_name', 'last_name')
+    deleted_ids = DeletedStudent.objects.filter(student_id__isnull=False).values_list('student_id', flat=True)
+    students = Student.objects.filter(
+        time_slot__group=group,
+        is_active=True,
+        left_date__isnull=True,
+        time_slot__isnull=False,
+        time_slot__group__isnull=False,
+    ).exclude(
+        id__in=deleted_ids
+    ).select_related('time_slot__group__teacher').order_by('first_name', 'last_name')
 
     wb = openpyxl.Workbook()
     ws = wb.active
