@@ -156,8 +156,9 @@
                                     {% endif %}
                                     <li><hr class="dropdown-divider my-1"></li>
                                     <li>
-                                        <a class="dropdown-item small text-danger fw-semibold" href="#"
-                                           onclick="openAdminDeleteModal({{ student.id }}, '{{ student.first_name }} {{ student.last_name|escapejs }}'); return false;">
+                                        <a class="dropdown-item small text-danger fw-semibold btn-admin-delete-trigger" href="#"
+                                           data-student-id="{{ student.id }}"
+                                           data-student-name="{{ student.first_name }} {{ student.last_name }}">
                                             <i class="bi bi-trash-fill me-2 text-danger"></i>O'chirish (Arxiv)
                                         </a>
                                     </li>
@@ -202,8 +203,9 @@
                     {% endfor %}
                     
                     <td>
-                        <button type="button" class="btn btn-sm btn-outline-danger btn-icon-circle"
-                                onclick="openAdminDeleteModal({{ student.id }}, '{{ student.first_name }} {{ student.last_name|escapejs }}')"
+                        <button type="button" class="btn btn-sm btn-outline-danger btn-icon-circle btn-admin-delete-trigger"
+                                data-student-id="{{ student.id }}"
+                                data-student-name="{{ student.first_name }} {{ student.last_name }}"
                                 title="O'chirish">
                             <i class="bi bi-trash-fill"></i>
                         </button>
@@ -362,6 +364,16 @@
     let activePayCell = null;
 
     // ── O'QUVCHINI O'CHIRISH MODALI ─────────────────────────
+    document.addEventListener('click', function(e) {
+        const btn = e.target.closest('.btn-admin-delete-trigger');
+        if (btn) {
+            e.preventDefault();
+            const sid = btn.getAttribute('data-student-id');
+            const sname = btn.getAttribute('data-student-name') || '—';
+            openAdminDeleteModal(sid, sname);
+        }
+    });
+
     function openAdminDeleteModal(studentId, studentName) {
         const modalEl = document.getElementById('adminDeleteStudentModal');
         const formEl = document.getElementById('adminDeleteStudentForm');

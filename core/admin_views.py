@@ -520,25 +520,32 @@ def admin_student_create(request, timeslot_id):
 
 @admin_required
 def admin_student_delete(request, id):
-    if not _admin_only(request):
+    """O'quvchini guruhdan o'chirish va Arxivga o'tkazish (Admin va Menejer uchun)."""
+    if not (is_admin_or_manager(request) or _admin_only(request)):
+        if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+            return JsonResponse({'status': 'error', 'msg': "Ruxsat etilmagan amal!"}, status=403)
         return redirect('home')
+
     student = get_object_or_404(Student, id=id)
+
     if request.method == 'POST':
         reason = request.POST.get('reason', '').strip()
         if contains_cyrillic(reason):
-            messages.error(request, "O'chirish sababida faqat lotin harflaridan foydalaning!")
-            reason = "Admin tomonidan o'chirildi"
+            messages.warning(request, "O'chirish sababida faqat lotin harflaridan foydalaning.")
+            reason = "Admin tomonidan arxivlandi"
+        elif not reason:
+            reason = "Guruhdan chiqarildi"
 
         group_id = student.time_slot.group.id if (student.time_slot and student.time_slot.group) else None
         time_slot_id = student.time_slot.id if student.time_slot else None
         group_name = student.time_slot.group.name if (student.time_slot and student.time_slot.group) else "Noma'lum"
-        st_full_name = f"{student.first_name} {student.last_name}"
+        st_full_name = f"{student.first_name} {student.last_name}".strip()
 
         DeletedStudent.objects.create(
             student_name=st_full_name,
             phones=f"{student.phone_1}, {student.phone_2 or ''}".rstrip(', '),
             group_name=group_name,
-            reason=reason or "Admin tomonidan o'chirildi",
+            reason=reason,
             first_name=student.first_name,
             last_name=student.last_name,
             age=student.age,
@@ -551,13 +558,27 @@ def admin_student_delete(request, id):
         student.left_date = date.today()
         student.time_slot = None
         student.save()
-        messages.success(request, f"O'quvchi '{st_full_name}' arxivga o'tkazildi.")
+
+        # AJAX so'rovi bo'lsa JSON qaytarish
+        if request.headers.get('x-requested-with') == 'XMLHttpRequest' or 'application/json' in request.headers.get('Accept', ''):
+            return JsonResponse({
+                'status': 'success',
+                'msg': f"O'quvchi '{st_full_name}' arxivga muvaffaqiyatli o'tkazildi.",
+                'student_id': id
+            })
+
+        messages.success(request, f"O'quvchi '{st_full_name}' arxivga muvaffaqiyatli o'tkazildi.")
         next_url = request.POST.get('next') or request.GET.get('next')
         if next_url:
             return redirect(next_url)
         if group_id:
             return redirect('admin_group_detail', id=group_id)
         return redirect('admin_dashboard')
+
+    # GET so'rovi bo'lsa
+    next_url = request.GET.get('next')
+    if next_url:
+        return redirect(next_url)
     return redirect('admin_dashboard')
 
 
@@ -925,18 +946,20 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
 
         due_date_str = due_date.strftime('%d.%m.%Y')
 
-        # Holat aniqlash (Mahalla o'quvchisi hech qachon 'unpaid' bo'lmaydi)
+        # Holat aniqlash (Mahalla va 0 tarifli o'quvchi hech qachon 'unpaid' bo'lmaydi)
         if is_mahalla:
             st_code = 'local'
+        elif rate_val <= 0:
+            st_code = 'free'
         elif has_paid_val:
             st_code = 'paid'
         else:
             st_code = 'unpaid'
 
-        # Kechikish hisobi (Mahalla o'quvchilari kechikkan deb hisoblanmaydi)
+        # Kechikish hisobi (Mahalla va bepul o'quvchilar kechikkan deb hisoblanmaydi)
         is_overdue = False
         delay_days = 0
-        if not is_mahalla and st_code == 'unpaid':
+        if not is_mahalla and st_code == 'unpaid' and rate_val > 0:
             if req_month < curr_month_str:
                 is_overdue = True
                 delay_days = max(1, (today - due_date).days)
@@ -946,8 +969,8 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
                 delay_days = (today - due_date).days
                 overdue_count += 1
 
-        # Qarz hisobi: matnli to'lov ('mahalla', 'B.U' va h.k.) yoki mahalliy bo'lsa QARZ 0!
-        if is_mahalla or has_text_payment:
+        # Qarz hisobi: matnli to'lov ('mahalla', 'B.U' va h.k.), mahalliy yoki 0 tarif bo'lsa QARZ 0!
+        if is_mahalla or has_text_payment or rate_val <= 0:
             debt_val = 0
         elif num_paid > 0:
             debt_val = max(0, rate_val - num_paid)
@@ -966,6 +989,8 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
                 status_display = f"Mahalla ({raw_paid})"
             else:
                 status_display = "Mahalla"
+        elif st_code == 'free':
+            status_display = "Bepul (Tarifsiz)"
         elif st_code == 'paid':
             paid_count += 1
             status_display = f"To'langan ({raw_paid})" if has_text_payment else "To'langan"
@@ -1015,9 +1040,9 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
             'debt_formatted': f"{debt_val:,}".replace(',', ' '),
         }
 
-        # Filtrlash: Mahalla o'quvchilari Qarzdorlar (unpaid) ro'yxatidan MUTLAQO chiqarilsin
+        # Filtrlash: Mahalla va 0 tarifli o'quvchilar Qarzdorlar (unpaid) ro'yxatidan MUTLAQO chiqarilsin
         if status_filter == 'unpaid':
-            if is_mahalla or st_code != 'unpaid':
+            if is_mahalla or rate_val <= 0 or st_code != 'unpaid':
                 continue
         elif status_filter == 'paid':
             if st_code != 'paid' or (is_mahalla and num_paid == 0):
@@ -1163,10 +1188,9 @@ def admin_payments_all(request):
     # Qarzdorlar filtri: Mahalla (is_local=True), arxiv/ketganlar va to'lov qilganlar QuerySet'dan to'liq chiqarib tashlansin
     if status_filter == 'unpaid':
         mahalla_pay_ids = MonthlyPayment.objects.filter(
-            month=req_month
-        ).filter(
-            Q(amount_paid__icontains='mahalla') | Q(notes__icontains='mahalla')
-        ).values_list('student_id', flat=True)
+            month=req_month,
+            notes__icontains='mahalla'
+        ).values('student_id')
 
         paid_student_ids = MonthlyPayment.objects.filter(
             month=req_month
@@ -1175,11 +1199,22 @@ def admin_payments_all(request):
             Q(amount_paid__exact='') |
             Q(amount_paid__exact='0') |
             Q(status='unpaid')
-        ).values_list('student_id', flat=True)
+        ).values('student_id')
 
-        students_qs = students_qs.exclude(is_local=True)\
-                                 .exclude(id__in=mahalla_pay_ids)\
-                                 .exclude(id__in=paid_student_ids)
+        students_qs = students_qs.filter(
+            is_active=True,
+            left_date__isnull=True,
+            payment_rate__gt=0,
+            time_slot__isnull=False
+        ).exclude(
+            is_local=True
+        ).exclude(
+            id__in=deleted_ids
+        ).exclude(
+            id__in=mahalla_pay_ids
+        ).exclude(
+            id__in=paid_student_ids
+        )
 
     rows, stats = _build_payments_data(
         students_qs, req_month, status_filter,
@@ -1227,10 +1262,9 @@ def admin_group_payments(request, group_id):
     # Qarzdorlar filtri: Mahalla (is_local=True), arxiv/ketganlar va to'lov qilganlar QuerySet'dan to'liq chiqarib tashlansin
     if status_filter == 'unpaid':
         mahalla_pay_ids = MonthlyPayment.objects.filter(
-            month=req_month
-        ).filter(
-            Q(amount_paid__icontains='mahalla') | Q(notes__icontains='mahalla')
-        ).values_list('student_id', flat=True)
+            month=req_month,
+            notes__icontains='mahalla'
+        ).values('student_id')
 
         paid_student_ids = MonthlyPayment.objects.filter(
             month=req_month
@@ -1239,11 +1273,22 @@ def admin_group_payments(request, group_id):
             Q(amount_paid__exact='') |
             Q(amount_paid__exact='0') |
             Q(status='unpaid')
-        ).values_list('student_id', flat=True)
+        ).values('student_id')
 
-        students_qs = students_qs.exclude(is_local=True)\
-                                 .exclude(id__in=mahalla_pay_ids)\
-                                 .exclude(id__in=paid_student_ids)
+        students_qs = students_qs.filter(
+            is_active=True,
+            left_date__isnull=True,
+            payment_rate__gt=0,
+            time_slot__isnull=False
+        ).exclude(
+            is_local=True
+        ).exclude(
+            id__in=deleted_ids
+        ).exclude(
+            id__in=mahalla_pay_ids
+        ).exclude(
+            id__in=paid_student_ids
+        )
 
     rows, stats = _build_payments_data(students_qs, req_month, status_filter, is_group_specific=True)
 
@@ -1512,10 +1557,9 @@ def export_payments_excel(request):
     # Qarzdorlar filtri: Mahalla (is_local=True), arxiv/ketganlar va to'lov qilganlar QuerySet'dan to'liq chiqarib tashlansin
     if status_filter == 'unpaid':
         mahalla_pay_ids = MonthlyPayment.objects.filter(
-            month=req_month
-        ).filter(
-            Q(amount_paid__icontains='mahalla') | Q(notes__icontains='mahalla')
-        ).values_list('student_id', flat=True)
+            month=req_month,
+            notes__icontains='mahalla'
+        ).values('student_id')
 
         paid_student_ids = MonthlyPayment.objects.filter(
             month=req_month
@@ -1524,11 +1568,22 @@ def export_payments_excel(request):
             Q(amount_paid__exact='') |
             Q(amount_paid__exact='0') |
             Q(status='unpaid')
-        ).values_list('student_id', flat=True)
+        ).values('student_id')
 
-        students_qs = students_qs.exclude(is_local=True)\
-                                 .exclude(id__in=mahalla_pay_ids)\
-                                 .exclude(id__in=paid_student_ids)
+        students_qs = students_qs.filter(
+            is_active=True,
+            left_date__isnull=True,
+            payment_rate__gt=0,
+            time_slot__isnull=False
+        ).exclude(
+            is_local=True
+        ).exclude(
+            id__in=deleted_ids
+        ).exclude(
+            id__in=mahalla_pay_ids
+        ).exclude(
+            id__in=paid_student_ids
+        )
 
     if status_filter == 'paid':
         type_label = "To'liq To'laganlar"

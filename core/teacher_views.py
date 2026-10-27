@@ -370,24 +370,22 @@ def teacher_student_delete(request, id):
     if not (student.time_slot and student.time_slot.group and
             student.time_slot.group.teacher and
             student.time_slot.group.teacher.user == request.user):
+        if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+            return JsonResponse({'status': 'error', 'msg': "Bu o'quvchi sizning guruhingizga biriktirilmagan."}, status=403)
         messages.error(request, "Bu o'quvchi sizning guruhingizga biriktirilmagan.")
         return redirect('teacher_dashboard')
 
     if request.method == 'POST':
         reason = request.POST.get('reason', '').strip()
         if not reason:
-            messages.error(request, "O'quvchini o'chirish uchun sabab kiritish majburiy!")
-            return redirect('teacher_dashboard')
-
-        if contains_cyrillic(reason):
-            messages.error(
-                request,
-                "O'chirish sababida faqat lotin alifbosidagi harflardan foydalaning!")
-            return redirect('teacher_dashboard')
+            reason = "Guruhdan chiqarildi"
+        elif contains_cyrillic(reason):
+            reason = "Guruhdan chiqarildi"
 
         group_name = (student.time_slot.group.name
                       if (student.time_slot and student.time_slot.group) else "Noma'lum")
-        st_full_name = f"{student.first_name} {student.last_name}"
+        group_id = student.time_slot.group.id if (student.time_slot and student.time_slot.group) else None
+        st_full_name = f"{student.first_name} {student.last_name}".strip()
 
         DeletedStudent.objects.create(
             student_name=st_full_name,
@@ -406,8 +404,20 @@ def teacher_student_delete(request, id):
         student.left_date = date.today()
         student.time_slot = None
         student.save()
+
+        # AJAX so'rovi bo'lsa JSON qaytarish
+        if request.headers.get('x-requested-with') == 'XMLHttpRequest' or 'application/json' in request.headers.get('Accept', ''):
+            return JsonResponse({
+                'status': 'success',
+                'msg': f"O'quvchi '{st_full_name}' arxivga muvaffaqiyatli o'tkazildi.",
+                'student_id': id
+            })
+
         messages.success(
             request, f"O'quvchi '{st_full_name}' arxivga muvaffaqiyatli o'tkazildi.")
+        if group_id:
+            return redirect(f"/teacher/dashboard/?group_id={group_id}")
+        return redirect('teacher_dashboard')
     return redirect('teacher_dashboard')
 
 

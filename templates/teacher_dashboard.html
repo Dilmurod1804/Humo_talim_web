@@ -155,8 +155,9 @@
                                         {% endif %}
                                         <li><hr class="dropdown-divider my-1"></li>
                                         <li>
-                                            <a class="dropdown-item small text-danger fw-semibold" href="#"
-                                               onclick="openTeacherDeleteModal({{ student.id }}, '{{ student.first_name }} {{ student.last_name|escapejs }}'); return false;">
+                                            <a class="dropdown-item small text-danger fw-semibold btn-trigger-teacher-delete" href="#"
+                                               data-student-id="{{ student.id }}"
+                                               data-student-name="{{ student.first_name }} {{ student.last_name }}">
                                                 <i class="bi bi-trash-fill me-2 text-danger"></i>Guruhdan chiqarish
                                             </a>
                                         </li>
@@ -202,8 +203,9 @@
 
 
                         <td>
-                            <button type="button" class="btn btn-sm btn-outline-danger border-0 action-delete-btn"
-                                    onclick="openTeacherDeleteModal({{ student.id }}, '{{ student.first_name }} {{ student.last_name|escapejs }}')"
+                            <button type="button" class="btn btn-sm btn-outline-danger border-0 action-delete-btn btn-trigger-teacher-delete"
+                                    data-student-id="{{ student.id }}"
+                                    data-student-name="{{ student.first_name }} {{ student.last_name }}"
                                     title="O'quvchini guruhdan chiqarish">
                                 <i class="bi bi-trash-fill"></i>
                             </button>
@@ -344,6 +346,16 @@
     let activePayCell = null;
 
     // ── O'QITUVCHI: O'QUVCHINI O'CHIRISH MODALI ─────────────
+    document.addEventListener('click', function(e) {
+        const btn = e.target.closest('.btn-trigger-teacher-delete');
+        if (btn) {
+            e.preventDefault();
+            const sid = btn.getAttribute('data-student-id');
+            const sname = btn.getAttribute('data-student-name') || '—';
+            openTeacherDeleteModal(sid, sname);
+        }
+    });
+
     function openTeacherDeleteModal(studentId, studentName) {
         const modalEl = document.getElementById('teacherDeleteModal');
         const formEl = document.getElementById('teacherDeleteForm');
