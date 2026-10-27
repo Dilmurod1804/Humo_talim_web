@@ -528,10 +528,16 @@
                                 <i class="bi bi-geo-alt-fill"></i>
                                 {{ row.status_display }}
                             </span>
-                            {% elif row.status_code == 'paid' %}
+                            {% elif row.status_code == 'paid' or row.num_paid > 0 %}
                             <span class="fw-bold d-inline-flex align-items-center gap-1 px-3 py-1 rounded-3"
                                   style="background:rgba(16,185,129,0.12);color:#047857;border:1.5px solid rgba(16,185,129,0.3);font-size:0.82rem;">
                                 <i class="bi bi-check-circle-fill"></i>
+                                {{ row.status_display }}
+                            </span>
+                            {% elif row.status_code == 'free' %}
+                            <span class="fw-bold d-inline-flex align-items-center gap-1 px-3 py-1 rounded-3"
+                                  style="background:rgba(107,114,128,0.12);color:#4b5563;border:1.5px solid rgba(107,114,128,0.3);font-size:0.82rem;">
+                                <i class="bi bi-dash-circle"></i>
                                 {{ row.status_display }}
                             </span>
                             {% else %}

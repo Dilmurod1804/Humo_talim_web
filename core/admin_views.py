@@ -770,12 +770,25 @@ def admin_temp_student_delete(request, id):
 def _clean_amount(val) -> int:
     """
     To'lov qiymatidan sof raqamni ajratib oladi.
+    500000, '500 000', '500,000', '500000.00', '500 000 so'm' kabi formatlarni to'g'ri int qiladi.
     Agar to'lov qiymati matn ('mahalla', 'B.U' va h.k.) yoki bo'sh bo'lsa 0 qaytaradi.
     """
     if not val:
         return 0
-    s = str(val).replace(' ', '').replace("'", '').replace(',', '').strip()
-    return int(s) if s.isdigit() else 0
+    if isinstance(val, (int, float)):
+        return int(val)
+    s = str(val).strip()
+    if not s or s.lower() in ('0', 'none', '-', 'null'):
+        return 0
+    for w in ("so'm", "som", "so`m", "uzs"):
+        s = s.replace(w, '').replace(w.upper(), '')
+    if '.' in s and s.replace('.', '').replace(' ', '').replace(',', '').isdigit():
+        try:
+            return int(float(s.replace(' ', '').replace(',', '')))
+        except Exception:
+            pass
+    digits = "".join(c for c in s if c.isdigit())
+    return int(digits) if digits else 0
 
 
 def _is_text_payment(val) -> bool:
@@ -946,17 +959,21 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
 
         due_date_str = due_date.strftime('%d.%m.%Y')
 
-        # Holat aniqlash (Mahalla va 0 tarifli o'quvchi hech qachon 'unpaid' bo'lmaydi)
+        # Holat aniqlash:
+        # 1. Mahalla o'quvchisi
         if is_mahalla:
             st_code = 'local'
+        # 2. Haqiqatan to'lov qilgan o'quvchi (amount_paid > 0 yoki matnli to'lov yoki status='paid')
+        elif num_paid > 0 or has_text_payment or (pay and pay.status == 'paid' and raw_paid not in ('', '0')):
+            st_code = 'paid'
+        # 3. Tarifsiz o'quvchi (to'lov qilmagan va tarifi 0)
         elif rate_val <= 0:
             st_code = 'free'
-        elif has_paid_val:
-            st_code = 'paid'
+        # 4. Qarzdor (to'lov qilmagan va tarifi > 0)
         else:
             st_code = 'unpaid'
 
-        # Kechikish hisobi (Mahalla va bepul o'quvchilar kechikkan deb hisoblanmaydi)
+        # Kechikish hisobi (Faqat to'lamagan qarzdorlar uchun)
         is_overdue = False
         delay_days = 0
         if not is_mahalla and st_code == 'unpaid' and rate_val > 0:
@@ -969,18 +986,19 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
                 delay_days = (today - due_date).days
                 overdue_count += 1
 
-        # Qarz hisobi: matnli to'lov ('mahalla', 'B.U' va h.k.), mahalliy yoki 0 tarif bo'lsa QARZ 0!
-        if is_mahalla or has_text_payment or rate_val <= 0:
+        # Qarz hisobi:
+        if is_mahalla or has_text_payment:
             debt_val = 0
         elif num_paid > 0:
-            debt_val = max(0, rate_val - num_paid)
+            debt_val = max(0, rate_val - num_paid) if rate_val > 0 else 0
+        elif rate_val <= 0:
+            debt_val = 0
         else:
             debt_val = rate_val
 
         total_debt += debt_val
 
         # Status va hisoblagichlar:
-        # Mahalla o'quvchilari qarzdorlar soniga (unpaid_count) MUTLAQO sanalmasin!
         if is_mahalla:
             if num_paid > 0:
                 paid_count += 1
@@ -989,11 +1007,16 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
                 status_display = f"Mahalla ({raw_paid})"
             else:
                 status_display = "Mahalla"
-        elif st_code == 'free':
-            status_display = "Bepul (Tarifsiz)"
         elif st_code == 'paid':
             paid_count += 1
-            status_display = f"To'langan ({raw_paid})" if has_text_payment else "To'langan"
+            if num_paid > 0:
+                status_display = f"To'langan ({num_paid:,} so'm)".replace(',', ' ')
+            elif has_text_payment:
+                status_display = f"To'langan ({raw_paid})"
+            else:
+                status_display = "To'langan"
+        elif st_code == 'free':
+            status_display = "Bepul (Tarifsiz)"
         else:
             unpaid_count += 1
             status_display = "Muddati o'tgan" if is_overdue else "To'lanmagan"
@@ -1040,12 +1063,12 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
             'debt_formatted': f"{debt_val:,}".replace(',', ' '),
         }
 
-        # Filtrlash: Mahalla va 0 tarifli o'quvchilar Qarzdorlar (unpaid) ro'yxatidan MUTLAQO chiqarilsin
+        # Filtrlash: Mahalla, to'laganlar va 0 tariflilar Qarzdorlar (unpaid) ro'yxatidan MUTLAQO chiqarilsin
         if status_filter == 'unpaid':
-            if is_mahalla or rate_val <= 0 or st_code != 'unpaid':
+            if is_mahalla or st_code != 'unpaid' or rate_val <= 0 or num_paid > 0 or has_text_payment:
                 continue
         elif status_filter == 'paid':
-            if st_code != 'paid' or (is_mahalla and num_paid == 0):
+            if st_code != 'paid' and not (is_mahalla and num_paid > 0):
                 continue
         elif status_filter == 'overdue':
             if is_mahalla or not is_overdue:
