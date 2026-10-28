@@ -338,7 +338,12 @@ async function startCheckInProcess() {
             body: fd
         });
 
-        const res = await resp.json();
+        let res = null;
+        try {
+            res = await resp.json();
+        } catch(e) {
+            res = { success: false, message: `Server javobida xatolik (HTTP ${resp.status})` };
+        }
         scanLaser.style.display = 'none';
         mobCheckInBtn.disabled = false;
         mobCheckInBtn.innerHTML = '<i class="bi bi-camera-fill me-2"></i> Davomatni Qayd Etish';

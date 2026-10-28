@@ -4,6 +4,7 @@ Admin paneli: guruhlar, o'qituvchilar, dars vaqtlari, o'quvchilar,
 to'lovlar, davomat, Excel eksport va chat.
 """
 from core.face_service import compare_two_faces
+import json
 import os
 import random
 import string
@@ -2758,29 +2759,61 @@ def face_id_verify_api(request):
     if request.method != 'POST':
         return JsonResponse({'success': False, 'message': "Faqat POST so'rovi qabul qilinadi"}, status=405)
 
-    img_data = request.POST.get('image')
-    file_obj = request.FILES.get('photo')
-    user_id = request.POST.get('user_id')
-    lat = request.POST.get('latitude')
-    lon = request.POST.get('longitude')
-    is_kiosk = request.POST.get('is_kiosk') == '1'
-    bypass_geo = (request.POST.get('bypass_geo') == '1') or (is_kiosk and (lat in (None, '', 'null', 'undefined') or lon in (None, '', 'null', 'undefined')))
+    # 1. JSON yoki FormData (POST) ma'lumotlarini universal qabul qilish
+    payload = {}
+    if request.content_type and 'application/json' in request.content_type.lower():
+        try:
+            payload = json.loads(request.body.decode('utf-8'))
+        except Exception:
+            payload = {}
+    elif request.body and not request.POST and not request.FILES:
+        try:
+            payload = json.loads(request.body.decode('utf-8'))
+        except Exception:
+            payload = {}
 
-    # Rasm obyekti
+    img_data = payload.get('image') or payload.get('photo') or request.POST.get('image') or request.POST.get('photo')
+    file_obj = request.FILES.get('photo') or request.FILES.get('image')
+    user_id = payload.get('user_id') or request.POST.get('user_id')
+    lat = payload.get('latitude') if 'latitude' in payload else request.POST.get('latitude')
+    lon = payload.get('longitude') if 'longitude' in payload else request.POST.get('longitude')
+    
+    is_kiosk_raw = payload.get('is_kiosk', request.POST.get('is_kiosk', '0'))
+    is_kiosk = str(is_kiosk_raw) in ('1', 'true', 'True')
+    
+    bypass_geo_raw = payload.get('bypass_geo', request.POST.get('bypass_geo', '0'))
+    bypass_geo = (str(bypass_geo_raw) in ('1', 'true', 'True')) or (is_kiosk and (lat in (None, '', 'null', 'undefined') or lon in (None, '', 'null', 'undefined')))
+
+    # 2. Rasm obyektini yaratish
     scan_file = None
     if file_obj:
         scan_file = file_obj
     elif img_data:
         try:
-            if ',' in img_data:
-                header, img_data = img_data.split(',', 1)
-            decoded = base64.b64decode(img_data)
-            scan_file = ContentFile(decoded, name=f"scan_{uuid.uuid4().hex[:8]}.jpg")
+            if isinstance(img_data, str):
+                if ',' in img_data:
+                    _, img_data = img_data.split(',', 1)
+                img_data = img_data.strip().replace(' ', '+')
+                missing_padding = len(img_data) % 4
+                if missing_padding:
+                    img_data += '=' * (4 - missing_padding)
+                decoded = base64.b64decode(img_data)
+                scan_file = ContentFile(decoded, name=f"scan_{uuid.uuid4().hex[:8]}.jpg")
         except Exception as e:
-            return JsonResponse({'success': False, 'message': f"Tasvirni o'qishda xatolik: {e}"}, status=400)
+            return JsonResponse({
+                'success': False,
+                'is_face_error': True,
+                'detected': False,
+                'message': f"Tasvirni o'qishda xatolik yuz berdi: {str(e)}"
+            }, status=200)
 
     if not scan_file:
-        return JsonResponse({'success': False, 'message': "Tasvir topilmadi! Iltimos qaytadan skanerlang."}, status=400)
+        return JsonResponse({
+            'success': False,
+            'is_face_error': True,
+            'detected': False,
+            'message': "Tasvir topilmadi! Iltimos, kamera kadrini tekshiring."
+        }, status=200)
 
     target_user = None
     similarity_score = 0.0
@@ -2789,29 +2822,38 @@ def face_id_verify_api(request):
         try:
             target_user = CustomUser.objects.get(id=user_id)
         except CustomUser.DoesNotExist:
-            return JsonResponse({'success': False, 'message': "Tanlangan xodim topilmadi."}, status=404)
+            return JsonResponse({'success': False, 'message': "Tanlangan xodim topilmadi."}, status=200)
     else:
         # Avtomatik AI yuz qidirish (barcha faol menejer va o'qituvchilar 128-D embedding bo'yicha)
-        match = match_staff_by_face(scan_file)
-        if match:
-            role, staff, score, dist = match
-            target_user = staff.user
-            similarity_score = score
+        try:
+            match = match_staff_by_face(scan_file)
+            if match:
+                role, staff, score, dist = match
+                target_user = staff.user
+                similarity_score = score
+        except Exception as e:
+            print(f"match_staff_by_face error: {e}")
 
     # Agar match topilmasa, lekin tizimga kirgan foydalanuvchi xodim (menejer, o'qituvchi, admin) bo'lsa
-    if not target_user and request.user.is_authenticated and getattr(request.user, 'role', '') in ('manager', 'teacher', 'admin'):
-        staff_obj = getattr(request.user, 'manager_profile', None) or getattr(request.user, 'teacher_profile', None)
+    req_user = getattr(request, 'user', None)
+    if not target_user and req_user and req_user.is_authenticated and getattr(req_user, 'role', '') in ('manager', 'teacher', 'admin'):
+        staff_obj = getattr(req_user, 'manager_profile', None) or getattr(req_user, 'teacher_profile', None)
         if staff_obj and staff_obj.photo and os.path.exists(staff_obj.photo.path):
-            score, is_match, dist = compare_two_faces(staff_obj.photo.path, scan_file)
-            if is_match and score >= 60.0:
-                target_user = request.user
-                similarity_score = score
+            try:
+                score, is_match, dist = compare_two_faces(staff_obj.photo.path, scan_file)
+                if is_match and score >= 60.0:
+                    target_user = req_user
+                    similarity_score = score
+            except Exception as e:
+                print(f"compare_two_faces error: {e}")
 
     if not target_user:
         return JsonResponse({
             'success': False,
-            'message': "Yuz aniqlanmadi yoki xodim topilmadi! Tizimda ushbu yuzga mos keluvchi xodim topilmadi."
-        }, status=400)
+            'is_face_error': True,
+            'detected': False,
+            'message': "Yuz aniqlanmadi yoki xodim topilmadi! Tizimda ushbu yuzga mos keluvchi xodim profili topilmadi."
+        }, status=200)
 
     try:
         res = process_face_check_in(
