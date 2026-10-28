@@ -145,21 +145,24 @@ def teacher_dashboard(request):
     if not teacher:
         return redirect('staff_my_face_logs')
 
-    # Guruh biriktirilganligini tekshirish
+    # Guruh biriktirilganligini tekshirish - O'qituvchiga tegishli BARCHA guruhlar
     teacher_groups = teacher.groups.all().order_by('name')
     if not teacher_groups.exists():
         messages.info(request, "Sizga hali birorta guruh biriktirilmagan. Siz faqat Face ID va Xodimlar panelidan foydalanishingiz mumkin.")
         return redirect('staff_my_face_logs')
 
-    # URL yoki parametr orqali aniq guruh bo'yicha filterlash (Matematika, Ingliz tili va h.k. aralashib ketmasligi uchun)
+    # URL yoki parametr orqali aniq bitta guruh bo'yicha ixtiyoriy filtrlash
     req_group_id = request.GET.get('group_id')
+    selected_group = None
     if req_group_id and str(req_group_id).isdigit():
-        selected_group = get_object_or_404(teacher.groups, id=int(req_group_id))
-    else:
-        selected_group = teacher_groups.first()
+        selected_group = teacher.groups.filter(id=int(req_group_id)).first()
 
-    # FAQAT tanlangan 1 ta guruh va unga tegishli o'quvchilar olinadi
-    groups = teacher.groups.filter(id=selected_group.id).prefetch_related('time_slots__students')
+    # Agar aniq guruh tanlangan bo'lsa - faqat o'sha guruh,
+    # aks holda o'qituvchiga biriktirilgan BARCHA guruhlar (fanidan qat'i nazar: matematika, ingliz tili va h.k.) to'liq ko'rsatiladi
+    if selected_group:
+        groups = teacher.groups.filter(id=selected_group.id).prefetch_related('time_slots__students')
+    else:
+        groups = teacher_groups.prefetch_related('time_slots__students')
 
     req_month = request.GET.get('month', date.today().strftime('%Y-%m'))
     try:

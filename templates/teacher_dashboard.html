@@ -41,9 +41,18 @@
     <div class="card-body p-3 d-flex align-items-center justify-content-between flex-wrap gap-2">
         <div class="d-flex align-items-center gap-2 flex-wrap">
             <span class="fw-bold text-muted small text-uppercase me-2"><i class="bi bi-collection-fill text-primary me-1"></i>Mening Guruhlarim:</span>
+            <!-- Barcha guruhlarni birgalikda ko'rish tugmasi -->
+            <a href="?month={{ current_month }}"
+               class="btn btn-sm d-flex align-items-center gap-2 px-3 py-2 {% if not selected_group %}btn-primary text-white shadow-sm fw-bold{% else %}btn-outline-secondary bg-white text-dark{% endif %}"
+               style="border-radius:12px; font-size:0.88rem; transition: all 0.2s ease;">
+                <i class="bi bi-grid-fill"></i>
+                <span>Barcha guruhlar</span>
+                <span class="badge {% if not selected_group %}bg-white text-primary{% else %}bg-secondary text-white{% endif %} ms-1">{{ teacher_groups.count }}</span>
+            </a>
+            <!-- Har bir guruh bo'yicha alohida ko'rish tugmalari -->
             {% for tg in teacher_groups %}
             <a href="?group_id={{ tg.id }}&month={{ current_month }}"
-               class="btn btn-sm d-flex align-items-center gap-2 px-3 py-2 {% if tg.id == selected_group.id %}btn-primary text-white shadow-sm fw-bold{% else %}btn-outline-secondary bg-white text-dark{% endif %}"
+               class="btn btn-sm d-flex align-items-center gap-2 px-3 py-2 {% if selected_group and tg.id == selected_group.id %}btn-primary text-white shadow-sm fw-bold{% else %}btn-outline-secondary bg-white text-dark{% endif %}"
                style="border-radius:12px; font-size:0.88rem; transition: all 0.2s ease;">
                 <i class="bi bi-journal-bookmark-fill"></i>
                 <span>{{ tg.name }}</span>
@@ -52,7 +61,13 @@
             {% endfor %}
         </div>
         <div class="text-muted small">
-            Hozirgi guruh: <b class="text-dark">{{ selected_group.name }}</b>
+            Hozirgi ko'rinish: 
+            {% if selected_group %}
+                <b class="text-dark">{{ selected_group.name }}</b>
+                {% if selected_group.subject %}<span class="badge bg-secondary ms-1">{{ selected_group.subject }}</span>{% endif %}
+            {% else %}
+                <span class="badge bg-primary text-white"><i class="bi bi-check-all me-1"></i>Barcha guruhlar ({{ teacher_groups.count }} ta)</span>
+            {% endif %}
         </div>
     </div>
 </div>
@@ -60,11 +75,23 @@
 
 {% for group in groups %}
 <div class="glass-card mb-4">
-    <div class="p-4 border-bottom d-flex align-items-center gap-3">
-        <div style="background: linear-gradient(135deg, #667eea, #764ba2); border-radius:12px; width:46px; height:46px; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
-            <i class="bi bi-book-fill text-white fs-5"></i>
+    <div class="p-4 border-bottom d-flex align-items-center justify-content-between flex-wrap gap-2">
+        <div class="d-flex align-items-center gap-3">
+            <div style="background: linear-gradient(135deg, #667eea, #764ba2); border-radius:12px; width:46px; height:46px; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                <i class="bi bi-book-fill text-white fs-5"></i>
+            </div>
+            <div>
+                <h4 class="fw-bold text-dark mb-0">{{ group.name }}</h4>
+                {% if group.subject and group.subject != group.name %}
+                <small class="text-muted"><i class="bi bi-mortarboard-fill me-1 text-primary"></i>Fan: <b class="text-dark">{{ group.subject }}</b></small>
+                {% endif %}
+            </div>
         </div>
-        <h4 class="fw-bold text-dark mb-0">{{ group.name }}</h4>
+        <div class="d-flex align-items-center gap-2">
+            <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 rounded-pill px-3 py-2 fw-semibold">
+                {{ group.time_slots.count }} ta dars vaqti
+            </span>
+        </div>
     </div>
 
     {% for ts in group.time_slots.all %}
