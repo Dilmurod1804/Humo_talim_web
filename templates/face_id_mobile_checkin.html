@@ -72,9 +72,9 @@
 
 <script>
 // Markaz koordinatalari va geofence sozlamalari
-const CENTER_LAT = {{ settings.latitude|default:"41.311081" }};
-const CENTER_LON = {{ settings.longitude|default:"69.240562" }};
-const ALLOWED_RADIUS = {{ settings.allowed_radius_meters|default:"150" }};
+const CENTER_LAT = parseFloat("{{ settings.latitude|default:'41.311081' }}".replace(',', '.')) || 41.311081;
+const CENTER_LON = parseFloat("{{ settings.longitude|default:'69.240562' }}".replace(',', '.')) || 69.240562;
+const ALLOWED_RADIUS = parseFloat("{{ settings.allowed_radius_meters|default:'150' }}".replace(',', '.')) || 150;
 const IS_GEOFENCING_ENABLED = {{ settings.is_geofencing_enabled|yesno:"true,false" }};
 const VERIFY_API_URL = "{% url 'face_id_verify_api' %}";
 const CSRF_TOKEN = "{{ csrf_token }}";

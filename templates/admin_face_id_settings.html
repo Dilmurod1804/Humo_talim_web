@@ -49,11 +49,11 @@
                     <div class="row g-2 mb-4">
                         <div class="col-6">
                             <label class="form-label small text-white opacity-75 fw-semibold mb-1">Kenglik (Latitude):</label>
-                            <input type="number" step="any" name="latitude" id="latInput" class="form-control rounded-3 font-monospace bg-dark text-white border-secondary" value="{{ settings.latitude }}" required>
+                            <input type="number" step="any" name="latitude" id="latInput" class="form-control rounded-3 font-monospace bg-dark text-white border-secondary" value="{{ settings.latitude|stringformat:'.8f' }}" required>
                         </div>
                         <div class="col-6">
                             <label class="form-label small text-white opacity-75 fw-semibold mb-1">Uzunlik (Longitude):</label>
-                            <input type="number" step="any" name="longitude" id="lonInput" class="form-control rounded-3 font-monospace bg-dark text-white border-secondary" value="{{ settings.longitude }}" required>
+                            <input type="number" step="any" name="longitude" id="lonInput" class="form-control rounded-3 font-monospace bg-dark text-white border-secondary" value="{{ settings.longitude|stringformat:'.8f' }}" required>
                         </div>
                         <div class="col-12 mt-2">
                             <button type="button" class="btn btn-sm btn-outline-info rounded-pill w-100 fw-semibold" onclick="detectCurrentLocation()">

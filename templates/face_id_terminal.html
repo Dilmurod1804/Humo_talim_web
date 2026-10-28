@@ -773,9 +773,9 @@
 <!-- ══════════════════════════════════════════════════════════════ -->
 <script>
     // 1. TIZIM VA GEOLOKATSIYA SOZLAMALARI
-    const centerLat = {{ settings.latitude|default:"41.311081" }};
-    const centerLon = {{ settings.longitude|default:"69.240562" }};
-    const allowedRadius = {{ settings.allowed_radius_meters|default:"100" }};
+    const centerLat = parseFloat("{{ settings.latitude|default:'41.311081' }}".replace(',', '.')) || 41.311081;
+    const centerLon = parseFloat("{{ settings.longitude|default:'69.240562' }}".replace(',', '.')) || 69.240562;
+    const allowedRadius = parseFloat("{{ settings.allowed_radius_meters|default:'100' }}".replace(',', '.')) || 100;
     const isGeofencingEnabled = {{ settings.is_geofencing_enabled|yesno:"true,false" }};
     const verifyApiUrl = "{% url 'face_id_verify_api' %}";
     const csrfToken = "{{ csrf_token }}";
