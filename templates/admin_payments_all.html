@@ -457,11 +457,18 @@
                                 {% endif %}
                                 <div>
                                     <div class="d-flex align-items-center gap-2 flex-wrap">
-                                        <span class="fw-bold text-dark fs-6">{{ row.student_name }}</span>
+                                        <a href="{% url 'admin_student_edit' row.student_id %}?next={{ request.get_full_path|urlencode }}"
+                                           class="fw-bold text-dark fs-6 text-decoration-none"
+                                           style="transition: color 0.15s ease;"
+                                           onmouseover="this.style.color='#2563eb'"
+                                           onmouseout="this.style.color='#1e293b'"
+                                           title="O'quvchini tahrirlash (Mahalla, ism, telefon va b.)">
+                                            {{ row.student_name }}
+                                        </a>
                                         {% if row.is_local %}
                                         <span class="badge rounded-pill fw-semibold px-2 py-0"
                                               style="background:rgba(14,165,233,0.15);color:#0284c7;border:1px solid rgba(14,165,233,0.3);font-size:0.72rem;"
-                                              title="Mahalladan kelgan o'quvchi">
+                                              title="Mahalladan kelgan o'quvchi (Imtiyozli)">
                                             <i class="bi bi-geo-alt-fill me-1"></i>Mahalla
                                         </span>
                                         {% endif %}
