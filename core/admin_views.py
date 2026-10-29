@@ -803,8 +803,27 @@ def _is_text_payment(val) -> bool:
     s = str(val).strip()
     if not s or s in ('0', '-', 'None'):
         return False
-    digits = s.replace(' ', '').replace("'", '').replace(',', '')
+    # '500000', '500 000', '500,000', '500000.00', '0.00' — bular raqam, matn emas
+    digits = s.replace(' ', '').replace("'", '').replace(',', '').replace('.', '')
     return not digits.isdigit()
+
+
+def _payment_paid_info(pay):
+    """
+    To'lov yozuvi bo'yicha YAGONA va qat'iy "to'langanmi?" qarori.
+    Qaytaradi: (raw_paid, num_paid, has_text_payment, is_paid)
+      is_paid = True, agar:
+        - amount_paid > 0 (raqamli summa), YOKI
+        - amount_paid ga matn yozilgan ('B.U', 'tekin' va h.k.), YOKI
+        - status == 'paid'
+    """
+    if not pay:
+        return '', 0, False, False
+    raw_paid = str(pay.amount_paid or '').strip()
+    num_paid = _clean_amount(raw_paid)
+    has_text = _is_text_payment(raw_paid)
+    is_paid = (num_paid > 0) or has_text or (pay.status == 'paid')
+    return raw_paid, num_paid, has_text, is_paid
 
 
 def _is_mahalla_student(student, pay=None) -> bool:
@@ -870,10 +889,14 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
     """
     today = date.today()
     try:
-        req_year, req_mon = map(int, req_month.split('-'))
+        req_year, req_mon = map(int, str(req_month).strip().split('-')[:2])
+        if not (1 <= req_mon <= 12):
+            raise ValueError
     except Exception:
         req_year, req_mon = today.year, today.month
-        req_month = f"{req_year:04d}-{req_mon:02d}"
+    # Har doim 'YYYY-MM' formatiga keltiramiz ('2026-9' -> '2026-09'),
+    # aks holda MonthlyPayment.month bilan mos kelmay, to'laganlar qarzdor bo'lib qoladi.
+    req_month = f"{req_year:04d}-{req_mon:02d}"
 
     max_day_in_month = calendar.monthrange(req_year, req_mon)[1]
     curr_month_str = today.strftime('%Y-%m')
@@ -895,8 +918,14 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
     )
     student_ids = [s.id for s in students_list]
 
-    payments = MonthlyPayment.objects.filter(student_id__in=student_ids, month=req_month)
-    payment_map = {p.student_id: p for p in payments}
+    payments = list(MonthlyPayment.objects.filter(student_id__in=student_ids, month=req_month))
+    # Bir o'quvchiga bir oyda bitta yozuv (unique_together), lekin ehtiyot uchun
+    # "to'langan" yozuvni ustun qo'yamiz — to'lagan hech qachon qarzdor bo'lib qolmasin.
+    payment_map = {}
+    for p in payments:
+        prev = payment_map.get(p.student_id)
+        if prev is None or (not _payment_paid_info(prev)[3] and _payment_paid_info(p)[3]):
+            payment_map[p.student_id] = p
 
     # Barcha satrlar (har bir o'quvchi-guruh biriktiruvi alohida qator)
     all_rows = []
@@ -910,9 +939,7 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
 
     for s in students_list:
         pay = payment_map.get(s.id)
-        raw_paid = str(pay.amount_paid if pay else '').strip()
-        num_paid = _clean_amount(raw_paid)
-        has_text_payment = _is_text_payment(raw_paid)
+        raw_paid, num_paid, has_text_payment, is_paid = _payment_paid_info(pay)
 
         # Mahalla faqat ushbu o'quvchi (guruh biriktiruvi) is_local=True bo'lsa yoki
         # ayni shu oy uchun to'lovida 'mahalla' deb ko'rsatilgan bo'lsa hisoblanadi.
@@ -931,7 +958,7 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
         pay_date_iso = pay_date_obj.strftime('%Y-%m-%d') if pay_date_obj else ""
 
         # To'lov muddati
-        has_paid_val = (num_paid > 0) or has_text_payment or is_mahalla
+        has_paid_val = is_paid or is_mahalla
         if pay_date_obj and has_paid_val:
             yr, mn = pay_date_obj.year, pay_date_obj.month + 1
             if mn > 12:
@@ -959,7 +986,8 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
                 status_display = f"Mahalla ({raw_paid})"
             else:
                 status_display = "Mahalla"
-        elif num_paid > 0 or has_text_payment or (pay and pay.status == 'paid' and raw_paid not in ('', '0')):
+        elif is_paid:
+            # QAT'IY: amount_paid > 0, matnli to'lov yoki status='paid' -> faqat "To'lagan"
             st_code = 'paid'
             debt_val = max(0, rate_val - num_paid) if (num_paid > 0 and rate_val > 0) else 0
             is_overdue = False
@@ -1022,6 +1050,7 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
             'amount_paid': raw_paid,
             'amount_paid_formatted': f"{num_paid:,}".replace(',', ' ') if num_paid > 0 else (raw_paid if raw_paid else "-"),
             'num_paid': num_paid,
+            'is_paid': is_paid,
             'has_text_payment': has_text_payment,
             'status_code': st_code,
             'status_display': status_display,
@@ -1035,16 +1064,24 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
         })
 
     # Filtr bo'yicha saralash
+    #   paid   -> to'lagan (amount_paid > 0 / matnli / status='paid'), mahalla bo'lsa ham pul to'lagan bo'lsa
+    #   unpaid -> FAQAT: to'lamagan + mahalla emas + bepul emas
     rows = []
     for r in all_rows:
+        is_truly_unpaid = (
+            r['status_code'] == 'unpaid'
+            and not r['is_paid']
+            and not r['is_mahalla']
+            and r['status_code'] != 'free'
+        )
         if status_filter == 'unpaid':
-            if r['status_code'] != 'unpaid' or r['is_mahalla']:
+            if not is_truly_unpaid:
                 continue
         elif status_filter == 'overdue':
-            if not r['is_overdue'] or r['is_mahalla']:
+            if not (is_truly_unpaid and r['is_overdue']):
                 continue
         elif status_filter == 'paid':
-            if r['status_code'] != 'paid' and not (r['is_mahalla'] and r['num_paid'] > 0):
+            if not (r['status_code'] == 'paid' or (r['is_mahalla'] and r['num_paid'] > 0)):
                 continue
         elif status_filter == 'local':
             if not (r['is_mahalla'] or r['has_text_payment']):
