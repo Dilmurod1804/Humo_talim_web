@@ -163,17 +163,14 @@ def _get_student_person_key(student) -> str:
 
 def get_active_students_qs(group=None, group_id=None, search_q: str = ''):
     """
-    Faol, guruhga biriktirilgan va arxivlanmagan (DeletedStudent da yo'q) o'quvchilar
-    uchun markazlashgan va optimallashtirilgan Django ORM QuerySet.
-    6 ta view'dagi takroriy kod o'rnini bosadi va bitta SQL so'rovda ishlaydi.
+    Faol (`is_active=True`) va guruhga (`time_slot__group`) biriktirilgan o'quvchilar
+    uchun markazlashgan Django ORM QuerySet.
+    Guruh jurnali (`admin_group_detail`) va To'lovlar (`admin_payments_all`) bir xil
+    shart asosida ishlashini ta'minlaydi.
     """
-    deleted_subquery = DeletedStudent.objects.filter(student_id=OuterRef('pk'))
     qs = (
-        Student.objects.annotate(_is_deleted=Exists(deleted_subquery))
-        .filter(
-            _is_deleted=False,
+        Student.objects.filter(
             is_active=True,
-            left_date__isnull=True,
             time_slot__isnull=False,
             time_slot__group__isnull=False,
         )
@@ -278,13 +275,9 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
     max_day_in_month = calendar.monthrange(req_year, req_mon)[1]
     curr_month_str = today.strftime('%Y-%m')
 
-    deleted_subquery = DeletedStudent.objects.filter(student_id=OuterRef('pk'))
     students_list = list(
-        students_qs.annotate(_is_deleted=Exists(deleted_subquery))
-        .filter(
-            _is_deleted=False,
+        students_qs.filter(
             is_active=True,
-            left_date__isnull=True,
             time_slot__isnull=False,
             time_slot__group__isnull=False,
         )

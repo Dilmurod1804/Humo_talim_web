@@ -158,6 +158,11 @@ def admin_timeslot_delete(request, id):
     timeslot = get_object_or_404(TimeSlot, id=id)
     group_id = timeslot.group_id
     if request.method == 'POST':
+        # Agar guruhda boshqa dars vaqti (TimeSlot) mavjud bo'lsa,
+        # o'quvchilar guruhdan uzilib qolmasligi uchun ularni o'sha TimeSlot'ga ko'chiramiz.
+        fallback_ts = TimeSlot.objects.filter(group_id=group_id).exclude(id=timeslot.id).first()
+        if fallback_ts:
+            timeslot.students.update(time_slot=fallback_ts)
         timeslot.delete()
         messages.success(request, "Dars vaqti o'chirildi.")
     return redirect('admin_group_detail', id=group_id)
@@ -425,11 +430,12 @@ def admin_deleted_student_delete_permanent(request, id):
 
 @admin_required
 def admin_student_edit(request, id):
-    """Admin tomonidan o'quvchi ma'lumotlarini tahrirlash."""
+    """Admin tomonidan o'quvchi ma'lumotlarini (jumladan guruh/dars vaqti va faolligini) tahrirlash."""
     if not _admin_only(request):
         return redirect('home')
     student = get_object_or_404(Student, id=id)
     next_url = request.GET.get('next') or request.POST.get('next', '')
+    timeslots = TimeSlot.objects.select_related('group', 'group__teacher').order_by('group__name', 'start_time')
 
     if request.method == 'POST':
         first_name = request.POST.get('first_name', '').strip()
@@ -438,6 +444,7 @@ def admin_student_edit(request, id):
         phone_1 = request.POST.get('phone_1', '').strip()
         phone_2 = request.POST.get('phone_2', '').strip()
         payment_rate_raw = request.POST.get('payment_rate', '').strip()
+        timeslot_id_raw = request.POST.get('time_slot_id', '').strip()
 
         if contains_cyrillic(first_name) or contains_cyrillic(last_name):
             messages.error(request, "Ism va familiyada faqat lotin alifbosidan foydalaning!")
@@ -450,6 +457,19 @@ def admin_student_edit(request, id):
             if payment_rate_raw.isdigit():
                 student.payment_rate = int(payment_rate_raw)
 
+            if timeslot_id_raw and timeslot_id_raw.isdigit():
+                student.time_slot = get_object_or_404(TimeSlot, id=int(timeslot_id_raw))
+
+            if 'is_active' in request.POST:
+                student.is_active = request.POST.get('is_active') in ('1', 'on', 'true', True)
+            elif student.time_slot_id:
+                student.is_active = True
+
+            # Agar o'quvchi faol va guruhga biriktirilgan bo'lsa, eski ketgan sana va arxiv qoldiqlarini tozalaymiz
+            if student.is_active:
+                student.left_date = None
+                DeletedStudent.objects.filter(student_id=student.id).delete()
+
             joined_date_raw = request.POST.get('joined_date', '').strip()
             if joined_date_raw:
                 try:
@@ -457,7 +477,9 @@ def admin_student_edit(request, id):
                 except ValueError as err:
                     if str(err) == 'future':
                         messages.error(request, "Kelgan sana kelajakdagi sana bo'lishi mumkin emas! Bugungi yoki o'tgan sanani kiriting.")
-                        return render(request, 'student_edit.html', {'student': student, 'next': next_url, 'role': 'admin'})
+                        return render(request, 'student_edit.html', {
+                            'student': student, 'next': next_url, 'role': 'admin', 'timeslots': timeslots,
+                        })
 
             student.is_local = request.POST.get('is_local') in ('1', 'on', 'true', True)
             student.save()
@@ -468,7 +490,12 @@ def admin_student_edit(request, id):
                 return redirect('admin_group_detail', id=student.time_slot.group_id)
             return redirect('admin_dashboard')
 
-    return render(request, 'student_edit.html', {'student': student, 'next': next_url, 'role': 'admin'})
+    return render(request, 'student_edit.html', {
+        'student': student,
+        'next': next_url,
+        'role': 'admin',
+        'timeslots': timeslots,
+    })
 
 
 # ─────────────────────────────────────────────────────────────

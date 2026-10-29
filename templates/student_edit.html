@@ -61,6 +61,36 @@
                     <input type="text" name="phone_2" class="form-control" placeholder="+998901234567" value="{{ student.phone_2|default:'' }}">
                 </div>
 
+                {% if role == 'admin' and timeslots %}
+                <div class="col-12">
+                    <label class="form-label fw-semibold text-muted small">
+                        <i class="bi bi-collection-fill text-primary me-1"></i>Guruh va Dars vaqti (TimeSlot)
+                    </label>
+                    <select name="time_slot_id" class="form-select">
+                        <option value="">— Dars vaqtini tanlang —</option>
+                        {% for ts in timeslots %}
+                        <option value="{{ ts.id }}" {% if student.time_slot_id == ts.id %}selected{% endif %}>
+                            {{ ts.group.name }} ({{ ts.days }} | {{ ts.start_time|time:"H:i" }}–{{ ts.end_time|time:"H:i" }}) — {{ ts.group.teacher|default:"O'qituvchisiz" }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    {% if not student.time_slot %}
+                    <small class="text-danger fw-semibold d-block mt-1">
+                        <i class="bi bi-exclamation-triangle-fill me-1"></i>Diqqat: O'quvchi hozir hech qaysi dars vaqtiga biriktirilmagan (shu sababli guruh va to'lovlar ro'yxatida ko'rinmaydi).
+                    </small>
+                    {% endif %}
+                </div>
+
+                <div class="col-12">
+                    <div class="form-check form-switch p-3 rounded-3 border bg-light d-flex align-items-center gap-3">
+                        <input class="form-check-input ms-0 mt-0" type="checkbox" name="is_active" value="1" id="isActiveCheck" {% if student.is_active %}checked{% endif %} style="width:2.5em; height:1.4em; cursor:pointer;">
+                        <label class="form-check-label fw-bold text-dark mb-0" for="isActiveCheck" style="cursor:pointer;">
+                            <i class="bi bi-check-circle-fill text-success me-1"></i> Faol o'quvchi (Guruh va to'lovlarda ko'rinadi)
+                        </label>
+                    </div>
+                </div>
+                {% endif %}
+
                 <div class="col-12 mt-3">
                     <div class="form-check form-switch p-3 rounded-3 border bg-light d-flex align-items-center gap-3">
                         <input class="form-check-input ms-0 mt-0" type="checkbox" name="is_local" value="1" id="isLocalCheck" {% if student.is_local %}checked{% endif %} style="width:2.5em; height:1.4em; cursor:pointer;">

@@ -172,14 +172,17 @@
                         </div>
                     </div>
 
-                    <!-- Amallar: Guruhga o'tish, Rasmni almashtirish va O'chirish -->
+                    <!-- Amallar: Guruhga o'tish, Tahrirlash, Rasmni almashtirish va O'chirish -->
                     <div class="d-flex flex-wrap align-items-center justify-content-between pt-2 mt-2 border-top gap-2">
-                        <div class="d-flex align-items-center gap-2">
+                        <div class="d-flex align-items-center gap-2 flex-wrap">
                             {% if st.time_slot and st.time_slot.group %}
                             <a href="{% url 'admin_group_detail' st.time_slot.group.id %}" class="btn btn-sm btn-outline-primary rounded-pill px-3">
                                 <i class="bi bi-box-arrow-in-right me-1"></i> Jurnal
                             </a>
                             {% endif %}
+                            <a href="{% url 'admin_student_edit' st.id %}?next={{ request.get_full_path|urlencode }}" class="btn btn-sm {% if not st.time_slot or not st.is_active %}btn-warning text-dark fw-bold{% else %}btn-outline-dark{% endif %} rounded-pill px-3">
+                                <i class="bi bi-pencil-square me-1"></i> {% if not st.time_slot %}Guruhga biriktirish{% else %}Tahrirlash{% endif %}
+                            </a>
                             <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3" onclick="triggerPhotoUpload({{ st.id }})" title="Rasmni almashtirish">
                                 <i class="bi bi-camera-fill me-1 text-primary"></i> Rasm
                             </button>
