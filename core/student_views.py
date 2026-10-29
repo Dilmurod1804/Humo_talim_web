@@ -18,7 +18,9 @@ from .models import (
     Attendance, CustomUser, DeletedStudent, FaceIDLog, Group,
     Manager, Message, Student, Teacher, TemporaryStudent, TimeSlot,
 )
-from .payment_views import _is_ajax, heal_student_group_links, normalize_month_str
+from .payment_views import (
+    _is_ajax, get_active_students_qs, heal_student_group_links, normalize_month_str,
+)
 from .schedule_helper import parse_schedule_weekdays
 from .services import optimize_student_photo
 from .teacher_views import _make_days_data, _student_visible_in_month
@@ -79,10 +81,10 @@ def admin_dashboard(request):
         for w in query.split():
             q_filter |= Q(first_name__icontains=w) | Q(last_name__icontains=w)
         search_results = (
-            Student.objects.filter(q_filter)
-            .select_related('time_slot__group__teacher')
+            get_active_students_qs()
+            .filter(q_filter)
             .prefetch_related('monthly_payments')
-            .order_by('-is_active', 'first_name', 'last_name')
+            .order_by('first_name', 'last_name')
         )
 
     groups = Group.objects.select_related('teacher').prefetch_related('time_slots__students')
@@ -195,10 +197,13 @@ def admin_group_detail(request, id):
     req_month, y, m = normalize_month_str(request.GET.get('month'))
     days_data, num_days = _make_days_data(y, m)
     timeslots = list(group.time_slots.prefetch_related('students'))
+    deleted_ids = set(
+        DeletedStudent.objects.filter(student_id__isnull=False).values_list('student_id', flat=True)
+    )
 
     student_ids = [
         s.id for ts in timeslots for s in ts.students.all()
-        if _student_visible_in_month(s, y, m)
+        if s.id not in deleted_ids and _student_visible_in_month(s, y, m)
     ]
 
     attendance_map = {sid: {} for sid in student_ids}
@@ -212,7 +217,10 @@ def admin_group_detail(request, id):
 
     for ts in timeslots:
         ts_weekdays = parse_schedule_weekdays(ts.days)
-        ts.active_students = [s for s in ts.students.all() if _student_visible_in_month(s, y, m)]
+        ts.active_students = [
+            s for s in ts.students.all()
+            if s.id not in deleted_ids and _student_visible_in_month(s, y, m)
+        ]
         for s in ts.active_students:
             s_att = attendance_map.get(s.id, {})
             s.attendance_matrix = [

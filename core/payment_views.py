@@ -161,63 +161,67 @@ def _get_student_person_key(student) -> str:
     return f"name_{fn}_{ln}" if (fn or ln) else f"id_{student.id}"
 
 
-def heal_student_group_links():
+def _enforce_archive_exclusions():
     """
-    Ma'lumotlar bazasidagi o'quvchi-guruh bog'lanishlaridagi nomuvofiqliklarni avtomatik tuzatadi:
-      1. Guruhga (`time_slot`) biriktirilgan, ammo arxivda (`DeletedStudent`) bo'lmagan holda
-         `is_active=False` yoki `left_date` qolib ketgan o'quvchilarni `is_active=True, left_date=None` qiladi.
-      2. Faol (`is_active=True`) o'quvchilarning qolib ketgan `left_date` va `DeletedStudent` qoldiqlarini tozalaydi.
-      3. Faol (`is_active=True`), ammo `time_slot=None` bo'lib qolgan o'quvchilarni (agar `DeletedStudent`
-         yoki guruh tarixida `time_slot_id` / `group_name` mavjud bo'lsa) o'z guruhining `TimeSlot`iga qayta ulaydi.
+    Arxiv jadvalida (`DeletedStudent`) mavjud bo'lgan har qanday o'quvchining
+    asosiy `Student` yozuvi qat'iy ravishda `is_active=False` bo'lishini ta'minlaydi.
+    (Agar eski arxiv yozuvlarida `student_id` bo'sh bo'lsa, ism-familiya va telefon orqali bog'laydi).
     """
-    deleted_student_ids = set(
+    # 1. student_id ko'rsatilgan arxiv yozuvlari bo'yicha is_active=False qilish
+    deleted_ids = list(
         DeletedStudent.objects.filter(student_id__isnull=False).values_list('student_id', flat=True)
     )
+    if deleted_ids:
+        Student.objects.filter(id__in=deleted_ids, is_active=True).update(is_active=False)
 
-    # 1. Guruhga biriktirilgan va arxivlanmagan o'quvchi nofaol qolib ketgan bo'lsa -> faollashtiramiz
-    Student.objects.filter(
-        time_slot__isnull=False,
-        time_slot__group__isnull=False,
-        is_active=False,
-    ).exclude(id__in=deleted_student_ids).update(is_active=True, left_date=None)
+    # 2. student_id bo'sh bo'lgan eski DeletedStudent yozuvlarini tekshirish
+    for ds in DeletedStudent.objects.filter(student_id__isnull=True):
+        fn = (ds.first_name or '').strip()
+        ln = (ds.last_name or '').strip()
+        if not (fn and ln) and ds.student_name:
+            parts = ds.student_name.strip().split(None, 1)
+            fn = parts[0] if parts else ''
+            ln = parts[1] if len(parts) > 1 else ''
+        if fn:
+            qs = Student.objects.filter(first_name__iexact=fn, last_name__iexact=ln)
+            if ds.phone_1:
+                qs = qs.filter(phone_1=ds.phone_1.strip())
+            matched = qs.first()
+            if matched:
+                ds.student_id = matched.id
+                ds.save(update_fields=['student_id'])
+                if matched.is_active:
+                    matched.is_active = False
+                    matched.save(update_fields=['is_active'])
 
-    # 2. Faol o'quvchilarda left_date yoki DeletedStudent qoldig'i bo'lsa -> tozalaymiz
-    active_ids = list(Student.objects.filter(is_active=True).values_list('id', flat=True))
-    if active_ids:
-        Student.objects.filter(id__in=active_ids, left_date__isnull=False).update(left_date=None)
-        if deleted_student_ids.intersection(active_ids):
-            for s in Student.objects.filter(id__in=deleted_student_ids.intersection(active_ids), is_active=True, time_slot__isnull=True):
-                ds = DeletedStudent.objects.filter(student_id=s.id).order_by('-deleted_at').first()
-                if ds:
-                    ts = None
-                    if ds.time_slot_id:
-                        ts = TimeSlot.objects.filter(id=ds.time_slot_id).first()
-                    if not ts and ds.group_name:
-                        ts = TimeSlot.objects.filter(group__name__iexact=ds.group_name.strip()).first()
-                    if ts:
-                        s.time_slot = ts
-                        s.save(update_fields=['time_slot'])
-            DeletedStudent.objects.filter(student_id__in=active_ids).delete()
+    # 3. left_date belgilangan (ketgan) o'quvchilar ham faol hisoblanmasin
+    Student.objects.filter(left_date__isnull=False, is_active=True).update(is_active=False)
 
 
-def get_active_students_qs(group=None, group_id=None, search_q: str = '', require_group: bool = False):
+def heal_student_group_links():
+    """Backward compatibility alias: faqat arxiv cheklovlarini sinxronlaydi."""
+    _enforce_archive_exclusions()
+
+
+def get_active_students_qs(group=None, group_id=None, search_q: str = '', require_group: bool = True):
     """
-    Faol (`is_active=True`) o'quvchilar uchun markazlashgan Django ORM QuerySet.
-    - Agar aniq guruh (`group` yoki `group_id`) berilsa yoki `require_group=True` bo'lsa,
-      shu guruhning `TimeSlot`iga biriktirilgan faol o'quvchilarni qaytaradi.
-    - Umumiy ro'yxatda (`admin_payments_all`) barcha `is_active=True` o'quvchilarni qaytaradi
-      (hatto `time_slot` vaqtincha uzilib qolgan bo'lsa ham, o'quvchi yashirinib qolmaydi).
+    Faol (`is_active=True`), ketmagan (`left_date__isnull=True`), guruhga biriktirilgan
+    (`time_slot__isnull=False`) va arxivda (`DeletedStudent`) bo'lmagan o'quvchilar QuerySet'i.
+    Arxivdagi yoki o'chirilgan o'quvchilar to'lovlar, qarzdorlar va hisobotlarda MUTLAQO ko'rinmaydi.
     """
-    heal_student_group_links()
-    qs = Student.objects.filter(is_active=True).select_related(
-        'time_slot__group__teacher', 'time_slot__group'
+    _enforce_archive_exclusions()
+    deleted_subquery = DeletedStudent.objects.filter(student_id=OuterRef('pk'))
+    qs = (
+        Student.objects.annotate(_is_deleted=Exists(deleted_subquery))
+        .filter(
+            _is_deleted=False,
+            is_active=True,
+            left_date__isnull=True,
+            time_slot__isnull=False,
+            time_slot__group__isnull=False,
+        )
+        .select_related('time_slot__group__teacher', 'time_slot__group')
     )
-    if group is not None:
-        qs = qs.filter(time_slot__group=group)
-    elif group_id and str(group_id).isdigit():
-        qs = qs.filter(time_slot__group_id=int(group_id))
-    elif require_group:
-        qs = qs.filter(time_slot__isnull=False, time_slot__group__isnull=False)
     if group is not None:
         qs = qs.filter(time_slot__group=group)
     elif group_id and str(group_id).isdigit():
@@ -247,8 +251,18 @@ def filter_students_by_payment_status(students_qs, req_month: str, status_filter
       2. To'lagan o'quvchi QAT'IY ravishda `unpaid` ro'yxatidan chiqariladi (`_has_paid=False`).
       3. Faqat to'lov qilmagan, mahalla (`is_local=False`) va bepul bo'lmaganlar `unpaid` ga kiradi.
     """
+    _enforce_archive_exclusions()
     req_month, _, _ = normalize_month_str(req_month)
     empty_values = ['', '0', '0.0', '0.00', '-', 'none', 'None', 'null', 'NULL']
+    deleted_subquery = DeletedStudent.objects.filter(student_id=OuterRef('pk'))
+
+    students_qs = students_qs.annotate(_is_deleted=Exists(deleted_subquery)).filter(
+        _is_deleted=False,
+        is_active=True,
+        left_date__isnull=True,
+        time_slot__isnull=False,
+        time_slot__group__isnull=False,
+    )
 
     paid_payment_qs = MonthlyPayment.objects.filter(
         student_id=OuterRef('pk'),
@@ -317,21 +331,31 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
     max_day_in_month = calendar.monthrange(req_year, req_mon)[1]
     curr_month_str = today.strftime('%Y-%m')
 
-    heal_student_group_links()
-    base_filter = {'is_active': True}
-    if is_group_specific:
-        base_filter['time_slot__isnull'] = False
-        base_filter['time_slot__group__isnull'] = False
-
+    _enforce_archive_exclusions()
+    deleted_subquery = DeletedStudent.objects.filter(student_id=OuterRef('pk'))
     students_list = list(
-        students_qs.filter(**base_filter)
+        students_qs.annotate(_is_deleted=Exists(deleted_subquery))
+        .filter(
+            _is_deleted=False,
+            is_active=True,
+            left_date__isnull=True,
+            time_slot__isnull=False,
+            time_slot__group__isnull=False,
+        )
         .select_related('time_slot__group__teacher', 'time_slot__group')
         .distinct()
         .order_by('first_name', 'last_name', 'id')
     )
     student_ids = [s.id for s in students_list]
 
-    payments = list(MonthlyPayment.objects.filter(student_id__in=student_ids, month=req_month))
+    payments = list(
+        MonthlyPayment.objects.filter(
+            student_id__in=student_ids,
+            student__is_active=True,
+            student__left_date__isnull=True,
+            month=req_month,
+        )
+    )
     payment_map = {}
     for p in payments:
         prev = payment_map.get(p.student_id)
@@ -542,8 +566,15 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
 
 
 def get_payment_type_aggregates(month=None, start_date=None, end_date=None):
-    """To'lov turlari (Naqd, Terminal, Payme, Click) bo'yicha tushumlar yig'indisini qaytaradi."""
-    qs = MonthlyPayment.objects.all()
+    """To'lov turlari (Naqd, Terminal, Payme, Click) bo'yicha faqat faol o'quvchilar tushumlarini qaytaradi."""
+    _enforce_archive_exclusions()
+    deleted_ids = DeletedStudent.objects.filter(student_id__isnull=False).values_list('student_id', flat=True)
+    qs = MonthlyPayment.objects.filter(
+        student__is_active=True,
+        student__left_date__isnull=True,
+        student__time_slot__isnull=False,
+        student__time_slot__group__isnull=False,
+    ).exclude(student_id__in=deleted_ids)
     if month:
         norm_m, _, _ = normalize_month_str(month)
         qs = qs.filter(month=norm_m)

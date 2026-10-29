@@ -39,11 +39,10 @@ from .schedule_helper import parse_schedule_weekdays
 
 def _student_visible_in_month(st, year=None, month=None):
     """
-    O'quvchi faol bo'lsa (is_active=True), joined_date kelajakda yoki o'tmishda
-    bo'lishidan qat'i nazar doimo jurnalda ko'rinadi.
-    Arxivlangan/o'chirilgan (is_active=False) o'quvchilar guruh jurnalidan chiqariladi.
+    O'quvchi faqat faol bo'lsa (is_active=True) va ketgan sanasi bo'lmasa (left_date is None)
+    jurnalda ko'rinadi. Arxivlangan/o'chirilgan o'quvchilar mutlaqo chiqarilmaydi.
     """
-    return bool(getattr(st, 'is_active', True))
+    return bool(getattr(st, 'is_active', False) and getattr(st, 'left_date', None) is None)
 
 
 def _build_attendance_matrix(students, days_data, attendance_map):
@@ -171,21 +170,18 @@ def teacher_dashboard(request):
         y, m = date.today().year, date.today().month
         req_month = f"{y}-{m:02d}"
 
-    # Guruhga biriktirilgan, ammo arxivda (DeletedStudent) bo'lmagan o'quvchilar is_active=True bo'lishini ta'minlaymiz
-    deleted_ids = DeletedStudent.objects.filter(student_id__isnull=False).values_list('student_id', flat=True)
-    Student.objects.filter(
-        time_slot__group__in=teacher_groups,
-        is_active=False,
-    ).exclude(id__in=deleted_ids).update(is_active=True, left_date=None)
+    deleted_ids = set(
+        DeletedStudent.objects.filter(student_id__isnull=False).values_list('student_id', flat=True)
+    )
 
     days_data, num_days = _make_days_data(y, m)
 
-    # Guruhda bo'lgan barcha bolalar
+    # Guruhda bo'lgan barcha faol (arxivlanmagan) bolalar
     student_ids = []
     for g in groups:
         for ts in g.time_slots.all():
             for s in ts.students.all():
-                if _student_visible_in_month(s, y, m):
+                if s.id not in deleted_ids and _student_visible_in_month(s, y, m):
                     student_ids.append(s.id)
 
     attendance_map = {sid: {} for sid in student_ids}
@@ -202,7 +198,7 @@ def teacher_dashboard(request):
             ts_weekdays = parse_schedule_weekdays(ts.days)
             ts.active_students = [
                 s for s in ts.students.all()
-                if _student_visible_in_month(s, y, m)
+                if s.id not in deleted_ids and _student_visible_in_month(s, y, m)
             ]
             for s in ts.active_students:
                 matrix = []
@@ -522,9 +518,17 @@ def teacher_export_excel(request):
     payment_map = {p.student_id: p.amount_paid for p in payments}
 
     req_group_id = request.GET.get('group_id')
-    students = Student.objects.select_related('time_slot__group__teacher').filter(
-        time_slot__group__teacher=teacher,
-        is_active=True
+    deleted_ids = DeletedStudent.objects.filter(student_id__isnull=False).values_list('student_id', flat=True)
+    students = (
+        Student.objects.select_related('time_slot__group__teacher')
+        .filter(
+            time_slot__group__teacher=teacher,
+            is_active=True,
+            left_date__isnull=True,
+            time_slot__isnull=False,
+            time_slot__group__isnull=False,
+        )
+        .exclude(id__in=deleted_ids)
     )
     if req_group_id and str(req_group_id).isdigit():
         students = students.filter(time_slot__group_id=int(req_group_id))
