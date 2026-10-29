@@ -18,6 +18,7 @@
             <form method="post" class="row g-3">
                 {% csrf_token %}
                 <input type="hidden" name="next" value="{{ next }}">
+                <input type="hidden" name="form_type" value="full_edit">
                 
                 <div class="col-12">
                     <div class="alert alert-info py-2 px-3 small rounded-3 mb-0" style="background:rgba(99,102,241,0.12); border:1px solid rgba(99,102,241,0.25); color:#4338ca;">

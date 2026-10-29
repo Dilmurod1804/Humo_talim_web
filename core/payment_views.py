@@ -18,7 +18,7 @@ from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 
 from .auth_views import _admin_only, admin_required
-from .models import AuditLog, DeletedStudent, Group, MonthlyPayment, Student, Teacher
+from .models import AuditLog, DeletedStudent, Group, MonthlyPayment, Student, Teacher, TimeSlot
 from .payment_excel import generate_payments_excel
 from .teacher_views import _populate_excel_sheet
 
@@ -161,21 +161,63 @@ def _get_student_person_key(student) -> str:
     return f"name_{fn}_{ln}" if (fn or ln) else f"id_{student.id}"
 
 
-def get_active_students_qs(group=None, group_id=None, search_q: str = ''):
+def heal_student_group_links():
     """
-    Faol (`is_active=True`) va guruhga (`time_slot__group`) biriktirilgan o'quvchilar
-    uchun markazlashgan Django ORM QuerySet.
-    Guruh jurnali (`admin_group_detail`) va To'lovlar (`admin_payments_all`) bir xil
-    shart asosida ishlashini ta'minlaydi.
+    Ma'lumotlar bazasidagi o'quvchi-guruh bog'lanishlaridagi nomuvofiqliklarni avtomatik tuzatadi:
+      1. Guruhga (`time_slot`) biriktirilgan, ammo arxivda (`DeletedStudent`) bo'lmagan holda
+         `is_active=False` yoki `left_date` qolib ketgan o'quvchilarni `is_active=True, left_date=None` qiladi.
+      2. Faol (`is_active=True`) o'quvchilarning qolib ketgan `left_date` va `DeletedStudent` qoldiqlarini tozalaydi.
+      3. Faol (`is_active=True`), ammo `time_slot=None` bo'lib qolgan o'quvchilarni (agar `DeletedStudent`
+         yoki guruh tarixida `time_slot_id` / `group_name` mavjud bo'lsa) o'z guruhining `TimeSlot`iga qayta ulaydi.
     """
-    qs = (
-        Student.objects.filter(
-            is_active=True,
-            time_slot__isnull=False,
-            time_slot__group__isnull=False,
-        )
-        .select_related('time_slot__group__teacher', 'time_slot__group')
+    deleted_student_ids = set(
+        DeletedStudent.objects.filter(student_id__isnull=False).values_list('student_id', flat=True)
     )
+
+    # 1. Guruhga biriktirilgan va arxivlanmagan o'quvchi nofaol qolib ketgan bo'lsa -> faollashtiramiz
+    Student.objects.filter(
+        time_slot__isnull=False,
+        time_slot__group__isnull=False,
+        is_active=False,
+    ).exclude(id__in=deleted_student_ids).update(is_active=True, left_date=None)
+
+    # 2. Faol o'quvchilarda left_date yoki DeletedStudent qoldig'i bo'lsa -> tozalaymiz
+    active_ids = list(Student.objects.filter(is_active=True).values_list('id', flat=True))
+    if active_ids:
+        Student.objects.filter(id__in=active_ids, left_date__isnull=False).update(left_date=None)
+        if deleted_student_ids.intersection(active_ids):
+            for s in Student.objects.filter(id__in=deleted_student_ids.intersection(active_ids), is_active=True, time_slot__isnull=True):
+                ds = DeletedStudent.objects.filter(student_id=s.id).order_by('-deleted_at').first()
+                if ds:
+                    ts = None
+                    if ds.time_slot_id:
+                        ts = TimeSlot.objects.filter(id=ds.time_slot_id).first()
+                    if not ts and ds.group_name:
+                        ts = TimeSlot.objects.filter(group__name__iexact=ds.group_name.strip()).first()
+                    if ts:
+                        s.time_slot = ts
+                        s.save(update_fields=['time_slot'])
+            DeletedStudent.objects.filter(student_id__in=active_ids).delete()
+
+
+def get_active_students_qs(group=None, group_id=None, search_q: str = '', require_group: bool = False):
+    """
+    Faol (`is_active=True`) o'quvchilar uchun markazlashgan Django ORM QuerySet.
+    - Agar aniq guruh (`group` yoki `group_id`) berilsa yoki `require_group=True` bo'lsa,
+      shu guruhning `TimeSlot`iga biriktirilgan faol o'quvchilarni qaytaradi.
+    - Umumiy ro'yxatda (`admin_payments_all`) barcha `is_active=True` o'quvchilarni qaytaradi
+      (hatto `time_slot` vaqtincha uzilib qolgan bo'lsa ham, o'quvchi yashirinib qolmaydi).
+    """
+    heal_student_group_links()
+    qs = Student.objects.filter(is_active=True).select_related(
+        'time_slot__group__teacher', 'time_slot__group'
+    )
+    if group is not None:
+        qs = qs.filter(time_slot__group=group)
+    elif group_id and str(group_id).isdigit():
+        qs = qs.filter(time_slot__group_id=int(group_id))
+    elif require_group:
+        qs = qs.filter(time_slot__isnull=False, time_slot__group__isnull=False)
     if group is not None:
         qs = qs.filter(time_slot__group=group)
     elif group_id and str(group_id).isdigit():
@@ -275,12 +317,14 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
     max_day_in_month = calendar.monthrange(req_year, req_mon)[1]
     curr_month_str = today.strftime('%Y-%m')
 
+    heal_student_group_links()
+    base_filter = {'is_active': True}
+    if is_group_specific:
+        base_filter['time_slot__isnull'] = False
+        base_filter['time_slot__group__isnull'] = False
+
     students_list = list(
-        students_qs.filter(
-            is_active=True,
-            time_slot__isnull=False,
-            time_slot__group__isnull=False,
-        )
+        students_qs.filter(**base_filter)
         .select_related('time_slot__group__teacher', 'time_slot__group')
         .distinct()
         .order_by('first_name', 'last_name', 'id')

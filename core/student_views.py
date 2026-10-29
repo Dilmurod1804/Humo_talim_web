@@ -18,7 +18,7 @@ from .models import (
     Attendance, CustomUser, DeletedStudent, FaceIDLog, Group,
     Manager, Message, Student, Teacher, TemporaryStudent, TimeSlot,
 )
-from .payment_views import _is_ajax, normalize_month_str
+from .payment_views import _is_ajax, heal_student_group_links, normalize_month_str
 from .schedule_helper import parse_schedule_weekdays
 from .services import optimize_student_photo
 from .teacher_views import _make_days_data, _student_visible_in_month
@@ -71,6 +71,7 @@ def admin_dashboard(request):
     if not _admin_only(request):
         return redirect('home')
 
+    heal_student_group_links()
     query = request.GET.get('q', '').strip()
     search_results = []
     if query:
@@ -81,7 +82,7 @@ def admin_dashboard(request):
             Student.objects.filter(q_filter)
             .select_related('time_slot__group__teacher')
             .prefetch_related('monthly_payments')
-            .order_by('first_name', 'last_name')
+            .order_by('-is_active', 'first_name', 'last_name')
         )
 
     groups = Group.objects.select_related('teacher').prefetch_related('time_slots__students')
@@ -190,9 +191,10 @@ def admin_group_detail(request, id):
             messages.success(request, "Yangi dars vaqti muvaffaqiyatli qo'shildi.")
         return redirect('admin_group_detail', id=group.id)
 
+    heal_student_group_links()
     req_month, y, m = normalize_month_str(request.GET.get('month'))
     days_data, num_days = _make_days_data(y, m)
-    timeslots = group.time_slots.prefetch_related('students')
+    timeslots = list(group.time_slots.prefetch_related('students'))
 
     student_ids = [
         s.id for ts in timeslots for s in ts.students.all()
@@ -481,7 +483,8 @@ def admin_student_edit(request, id):
                             'student': student, 'next': next_url, 'role': 'admin', 'timeslots': timeslots,
                         })
 
-            student.is_local = request.POST.get('is_local') in ('1', 'on', 'true', True)
+            if request.POST.get('form_type') == 'full_edit' or 'is_local' in request.POST:
+                student.is_local = request.POST.get('is_local') in ('1', 'on', 'true', True)
             student.save()
             messages.success(request, "O'quvchi ma'lumotlari yangilandi.")
             if next_url:

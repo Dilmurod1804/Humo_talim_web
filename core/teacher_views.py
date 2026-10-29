@@ -171,6 +171,13 @@ def teacher_dashboard(request):
         y, m = date.today().year, date.today().month
         req_month = f"{y}-{m:02d}"
 
+    # Guruhga biriktirilgan, ammo arxivda (DeletedStudent) bo'lmagan o'quvchilar is_active=True bo'lishini ta'minlaymiz
+    deleted_ids = DeletedStudent.objects.filter(student_id__isnull=False).values_list('student_id', flat=True)
+    Student.objects.filter(
+        time_slot__group__in=teacher_groups,
+        is_active=False,
+    ).exclude(id__in=deleted_ids).update(is_active=True, left_date=None)
+
     days_data, num_days = _make_days_data(y, m)
 
     # Guruhda bo'lgan barcha bolalar

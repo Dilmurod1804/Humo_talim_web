@@ -22,6 +22,7 @@ from .payment_views import (  # noqa: F401 — ichki yordamchi funksiyalar ekspo
     filter_students_by_payment_status,
     get_active_students_qs,
     get_payment_type_aggregates,
+    heal_student_group_links,
     normalize_month_str,
 )
 from .face_id_views import _safe_decimal  # noqa: F401
