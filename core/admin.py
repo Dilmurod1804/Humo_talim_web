@@ -25,6 +25,7 @@ except Exception:
 def sync_users_to_face_id(modeladmin, request, queryset):
     settings_obj = FaceIDSettings.get_settings()
     created_profiles = 0
+    synced_faces = 0
     for user in queryset:
         if user.role == 'teacher' and not hasattr(user, 'teacher_profile'):
             Teacher.objects.create(
@@ -50,7 +51,16 @@ def sync_users_to_face_id(modeladmin, request, queryset):
                 late_fine_rate=settings_obj.default_late_fine_rate
             )
             created_profiles += 1
-    messages.success(request, f"{queryset.count()} ta foydalanuvchi tekshirildi, {created_profiles} ta yangi profil Face ID ga biriktirildi.")
+
+        if fs and getattr(user, 'role', '') in ('teacher', 'manager'):
+            if fs.sync_staff_face_embedding(user):
+                synced_faces += 1
+
+    messages.success(
+        request,
+        f"{queryset.count()} ta foydalanuvchi tekshirildi, {created_profiles} ta yangi profil yaratildi, "
+        f"{synced_faces} ta yuz biometrik matritsasi yangilandi."
+    )
 
 
 class CustomUserAdmin(UserAdmin):
@@ -67,12 +77,18 @@ class CustomUserAdmin(UserAdmin):
     staff_display_name.short_description = "F.I.SH"
 
     def face_id_status(self, obj):
-        prof = obj.staff_profile
+        prof = getattr(obj, 'teacher_profile', None) if obj.role == 'teacher' else (
+            getattr(obj, 'manager_profile', None) if obj.role == 'manager' else obj.staff_profile
+        )
         if not prof:
             return format_html('<span style="color:#94a3b8;">Profil yo\'q</span>')
+        if getattr(prof, 'has_face_embedding', False):
+            return format_html('<span style="color:#10b981; font-weight:bold;">✔ Face ID Faol</span>')
         if prof.photo:
             try:
                 if os.path.exists(prof.photo.path):
+                    if fs and fs.get_or_create_face_embedding(prof) is not None:
+                        return format_html('<span style="color:#10b981; font-weight:bold;">✔ Face ID Faol</span>')
                     return format_html('<span style="color:#10b981; font-weight:bold;">✔ Yuz yuklangan</span>')
             except Exception:
                 pass
@@ -97,6 +113,8 @@ def sync_teachers_face_id(modeladmin, request, queryset):
         if not teacher.late_fine_rate:
             teacher.late_fine_rate = settings_obj.default_late_fine_rate
         teacher.save()
+        if fs and teacher.photo:
+            fs.sync_staff_face_embedding(teacher)
         updated += 1
     messages.success(request, f"{updated} ta o'qituvchi Face ID tizimiga muvaffaqiyatli sinxronlandi.")
 
@@ -118,17 +136,16 @@ class TeacherAdmin(admin.ModelAdmin):
     photo_preview.short_description = "Yuz Rasmi"
 
     def face_id_biometric_badge(self, obj):
+        if getattr(obj, 'has_face_embedding', False):
+            return format_html('<span style="background:#d1fae5; color:#047857; padding:3px 8px; border-radius:12px; font-weight:600; font-size:11px;">✔ Face ID Faol</span>')
         if not obj.photo:
             return format_html('<span style="background:#fee2e2; color:#b91c1c; padding:3px 8px; border-radius:12px; font-weight:600; font-size:11px;">Rasm yo\'q</span>')
         try:
             if not os.path.exists(obj.photo.path):
                 return format_html('<span style="background:#fef3c7; color:#b45309; padding:3px 8px; border-radius:12px; font-weight:600; font-size:11px;">Fayl topilmadi</span>')
             if HAS_OPENCV and fs:
-                img = fs._load_cv_image_from_file_or_path(obj.photo.path)
-                if img is not None:
-                    roi, _ = fs.extract_face_roi(img)
-                    if roi is not None:
-                        return format_html('<span style="background:#d1fae5; color:#047857; padding:3px 8px; border-radius:12px; font-weight:600; font-size:11px;">✔ Face ID Faol</span>')
+                if fs.get_or_create_face_embedding(obj) is not None:
+                    return format_html('<span style="background:#d1fae5; color:#047857; padding:3px 8px; border-radius:12px; font-weight:600; font-size:11px;">✔ Face ID Faol</span>')
             return format_html('<span style="background:#fef3c7; color:#b45309; padding:3px 8px; border-radius:12px; font-weight:600; font-size:11px;">⚠ Yuz aniq emas</span>')
         except Exception:
             return format_html('<span style="background:#fee2e2; color:#b91c1c; padding:3px 8px; border-radius:12px; font-weight:600; font-size:11px;">Xatolik</span>')
@@ -148,6 +165,8 @@ def sync_managers_face_id(modeladmin, request, queryset):
         if not m.work_end_time:
             m.work_end_time = settings_obj.default_work_end_time
         m.save()
+        if fs and m.photo:
+            fs.sync_staff_face_embedding(m)
     messages.success(request, f"{queryset.count()} ta menejer Face ID tizimiga sinxronlandi.")
 
 
@@ -168,17 +187,16 @@ class ManagerAdmin(admin.ModelAdmin):
     photo_preview.short_description = "Yuz Rasmi"
 
     def face_id_biometric_badge(self, obj):
+        if getattr(obj, 'has_face_embedding', False):
+            return format_html('<span style="background:#d1fae5; color:#047857; padding:3px 8px; border-radius:12px; font-weight:600; font-size:11px;">✔ Face ID Faol</span>')
         if not obj.photo:
             return format_html('<span style="background:#fee2e2; color:#b91c1c; padding:3px 8px; border-radius:12px; font-weight:600; font-size:11px;">Rasm yo\'q</span>')
         try:
             if not os.path.exists(obj.photo.path):
                 return format_html('<span style="background:#fef3c7; color:#b45309; padding:3px 8px; border-radius:12px; font-weight:600; font-size:11px;">Fayl topilmadi</span>')
             if HAS_OPENCV and fs:
-                img = fs._load_cv_image_from_file_or_path(obj.photo.path)
-                if img is not None:
-                    roi, _ = fs.extract_face_roi(img)
-                    if roi is not None:
-                        return format_html('<span style="background:#d1fae5; color:#047857; padding:3px 8px; border-radius:12px; font-weight:600; font-size:11px;">✔ Face ID Faol</span>')
+                if fs.get_or_create_face_embedding(obj) is not None:
+                    return format_html('<span style="background:#d1fae5; color:#047857; padding:3px 8px; border-radius:12px; font-weight:600; font-size:11px;">✔ Face ID Faol</span>')
             return format_html('<span style="background:#fef3c7; color:#b45309; padding:3px 8px; border-radius:12px; font-weight:600; font-size:11px;">⚠ Yuz aniq emas</span>')
         except Exception:
             return format_html('<span style="background:#fee2e2; color:#b91c1c; padding:3px 8px; border-radius:12px; font-weight:600; font-size:11px;">Xatolik</span>')

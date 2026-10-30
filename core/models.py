@@ -17,6 +17,19 @@ class CustomUser(AbstractUser):
 
     @property
     def staff_profile(self):
+        if self.role == 'teacher':
+            try:
+                if hasattr(self, 'teacher_profile') and self.teacher_profile:
+                    return self.teacher_profile
+            except Exception:
+                pass
+        elif self.role == 'manager':
+            try:
+                if hasattr(self, 'manager_profile') and self.manager_profile:
+                    return self.manager_profile
+            except Exception:
+                pass
+
         try:
             if hasattr(self, 'teacher_profile') and self.teacher_profile:
                 return self.teacher_profile
@@ -27,6 +40,7 @@ class CustomUser(AbstractUser):
                 return self.manager_profile
         except Exception:
             pass
+
         if self.role == 'manager':
             from .models import Manager
             m, _ = Manager.objects.get_or_create(
@@ -40,6 +54,29 @@ class CustomUser(AbstractUser):
             )
             return m
         return None
+
+    @property
+    def photo(self):
+        """Foydalanuvchi rasmini to'g'ridan-to'g'ri teacher_profile yoki manager_profile orqali olish."""
+        prof = self.staff_profile
+        return getattr(prof, 'photo', None) if prof else None
+
+    @property
+    def face_embedding(self):
+        """Foydalanuvchi yuz matritsasini teacher_profile yoki manager_profile orqali olish."""
+        prof = self.staff_profile
+        return getattr(prof, 'face_embedding', '') if prof else ''
+
+    @face_embedding.setter
+    def face_embedding(self, value):
+        prof = self.staff_profile
+        if prof is not None and hasattr(prof, 'face_embedding'):
+            prof.face_embedding = value
+
+    @property
+    def has_face_embedding(self):
+        prof = self.staff_profile
+        return bool(prof and getattr(prof, 'has_face_embedding', False))
 
     @property
     def staff_full_name(self):

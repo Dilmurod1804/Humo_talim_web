@@ -29,6 +29,8 @@ from .face_service import (
     compare_two_faces,
     extract_face_embedding,
     get_or_create_face_embedding,
+    get_user_face_data,
+    get_user_staff_profile,
     match_staff_by_face,
     process_face_check_in,
     sync_all_face_embeddings,
@@ -64,12 +66,14 @@ def _generate_staff_credentials(prefix: str, first_name: str) -> tuple[str, str]
     return login_str, pwd_str
 
 
-def _check_staff_face_detected(staff_obj, has_cv: bool = True, fs_module=None) -> bool:
+def _check_staff_face_detected(staff_or_user, has_cv: bool = True, fs_module=None) -> bool:
     """
-    Xodimning Face ID biometrik shabloni (`face_embedding`) mavjudligini tekshiradi.
+    Xodimning (`user.teacher_profile` yoki `user.manager_profile`) Face ID biometrik shabloni
+    (`face_embedding`) mavjudligini tekshiradi.
     Agar xodimda rasm (`photo`) biriktirilgan bo'lsa-yu, lekin Face ID bazasida uning
     shabloni (`face_embedding`) bo'lmasa, uni avtomatik generatsiya qilib bazaga bog'laydi.
     """
+    staff_obj, photo_field, _ = get_user_face_data(staff_or_user)
     if not staff_obj:
         return False
 
@@ -78,7 +82,7 @@ def _check_staff_face_detected(staff_obj, has_cv: bool = True, fs_module=None) -
         return True
 
     # 2. Agar rasmi bor bo'lsa, lekin face_embedding bo'sh bo'lsa -> avtomatik bog'laymiz
-    if getattr(staff_obj, 'photo', None):
+    if photo_field:
         emb = get_or_create_face_embedding(staff_obj)
         if emb is not None:
             return True
@@ -627,16 +631,31 @@ def face_id_verify_api(request):
 
     if user_id:
         try:
-            target_user = CustomUser.objects.filter(
+            target_user = CustomUser.objects.select_related('teacher_profile', 'manager_profile').filter(
                 id=user_id,
                 role__in=('teacher', 'manager', 'admin'),
             ).first()
+            if not target_user:
+                # Agar user_id sifatida Teacher.id yoki Manager.id yuborilgan bo'lsa:
+                t_obj = Teacher.objects.select_related('user').filter(id=user_id).first()
+                m_obj = Manager.objects.select_related('user').filter(id=user_id).first() if not t_obj else None
+                staff_match = t_obj or m_obj
+                if staff_match and staff_match.user:
+                    target_user = staff_match.user
             if not target_user:
                 return JsonResponse({
                     'success': False,
                     'is_face_error': True,
                     'message': "Face ID faqat markaz xodimlari (o'qituvchi va menejerlar) uchun mo'ljallangan!",
                 }, status=200)
+
+            # Agar sessiyadagi foydalanuvchi admin bo'lsa (uning teacher_profile/manager_profile yo'q),
+            # kadrda qaysi o'qituvchi yoki menejer turganini bazadan avtomatik qidirib ko'ramiz
+            if getattr(target_user, 'role', '') == 'admin' and not get_user_staff_profile(target_user):
+                match = match_staff_by_face(scan_file)
+                if match:
+                    _, matched_staff, similarity_score, _ = match
+                    target_user = matched_staff.user
         except Exception:
             return JsonResponse({'success': False, 'message': "Tanlangan xodim topilmadi."}, status=200)
     else:
@@ -650,7 +669,7 @@ def face_id_verify_api(request):
 
     req_user = getattr(request, 'user', None)
     if not target_user and req_user and req_user.is_authenticated and getattr(req_user, 'role', '') in ('manager', 'teacher', 'admin'):
-        staff_obj = getattr(req_user, 'manager_profile', None) or getattr(req_user, 'teacher_profile', None)
+        staff_obj = get_user_staff_profile(req_user)
         if staff_obj:
             try:
                 staff_feat = get_or_create_face_embedding(staff_obj)
@@ -681,10 +700,10 @@ def face_id_verify_api(request):
         if similarity_score > 0 and 'match_score' not in res:
             res['match_score'] = similarity_score
 
-        staff_obj = getattr(target_user, 'manager_profile', None) or getattr(target_user, 'teacher_profile', None)
-        if staff_obj and staff_obj.photo:
+        staff_obj, staff_photo, _ = get_user_face_data(target_user)
+        if staff_obj and staff_photo:
             try:
-                res['photo_url'] = staff_obj.photo.url
+                res['photo_url'] = staff_photo.url
             except Exception:
                 pass
         return JsonResponse(res)

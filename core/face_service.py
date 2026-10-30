@@ -59,7 +59,7 @@ def get_ai_models():
                 YUNET_MODEL_PATH,
                 "",
                 _YUNET_INPUT_SIZE,
-                score_threshold=0.6,
+                score_threshold=0.45,
                 nms_threshold=0.3,
                 top_k=5000
             )
@@ -313,14 +313,14 @@ def compare_embeddings(feat1, feat2) -> tuple[float, bool, float]:
         # Kosinus o'xshashligi: dot product [-1.0 .. 1.0]
         cos_sim = float(np.dot(f1, f2.T)[0, 0])
 
-        # SFace modelining ilmiy verifikatsiya chegarasi: Cosine >= 0.363 (LFW > 99.5%)
-        # Haqiqiy kamerada bir xil shaxs odatda 0.38 .. 0.90 oralig'ida bo'ladi,
-        # butunlay boshqa odamlar esa 0.00 .. 0.22 oralig'ida bo'ladi.
-        MATCH_THRESHOLD = 0.360
+        # SFace modelining verifikatsiya chegarasi:
+        # Profilga yuklangan rasm va jonli veb-kamera kadri orasidagi kosinus o'xshashligi
+        # haqiqiy xodim uchun odatda 0.28 .. 0.90 oralig'ida bo'ladi, begona shaxslar uchun < 0.20.
+        MATCH_THRESHOLD = 0.280
 
         if cos_sim >= MATCH_THRESHOLD:
-            # 0.360 -> 65.0%, 0.850 -> 98.5%
-            pct = 65.0 + ((cos_sim - MATCH_THRESHOLD) / (0.850 - MATCH_THRESHOLD)) * 33.5
+            # 0.280 -> 65.0%, 0.800 -> 98.5%
+            pct = 65.0 + ((cos_sim - MATCH_THRESHOLD) / (0.800 - MATCH_THRESHOLD)) * 33.5
             score = round(min(99.9, max(65.0, pct)), 1)
             is_match = True
         else:
@@ -351,14 +351,81 @@ def compare_two_faces(ref_img_source, scan_img_source) -> tuple[float, bool, flo
 
 
 # ─────────────────────────────────────────────────────────────
-# 6. XODIMLAR (O'QITUVCHI VA MENEJER) EMBEDDINGLARINI AVTOMATIK BOG'LASH
-#    DIQQAT: Face ID faqat xodimlar (Teacher, Manager) uchun!
-#    O'quvchilar (Student) Face ID tizimida qatnashmaydi.
+# 6. XODIMLAR (O'QITUVCHI VA MENEJER) PROFILI VA EMBEDDINGLARINI OLISH
+#    DIQQAT: CustomUser modelida rasm va embeddinglar bog'langan modellarda turadi:
+#    - O'qituvchilar: user.teacher_profile.photo va user.teacher_profile.face_embedding
+#    - Menejerlar:    user.manager_profile.photo va user.manager_profile.face_embedding
 # ─────────────────────────────────────────────────────────────
 
-def _resolve_photo_source(staff_obj):
-    """Xodim obyektidagi photo maydonidan haqiqiy fayl yo'li yoki oqimni qaytaradi."""
-    photo_field = getattr(staff_obj, 'photo', None)
+def get_user_staff_profile(user_or_staff):
+    """
+    CustomUser obyektidan tegishli xodim profilini (`user.teacher_profile` yoki `user.manager_profile`)
+    to'g'ridan-to'g'ri va xavfsiz tarzda oladi.
+    Agar `Teacher` yoki `Manager` obyekti uzatilgan bo'lsa, uni o'zini qaytaradi.
+    """
+    if user_or_staff is None:
+        return None
+    if isinstance(user_or_staff, (Teacher, Manager)):
+        return user_or_staff
+
+    if isinstance(user_or_staff, CustomUser):
+        role = getattr(user_or_staff, 'role', '')
+        if role == 'teacher':
+            try:
+                if hasattr(user_or_staff, 'teacher_profile') and user_or_staff.teacher_profile is not None:
+                    return user_or_staff.teacher_profile
+            except Exception:
+                pass
+            return Teacher.objects.filter(user=user_or_staff).first()
+
+        if role == 'manager':
+            try:
+                if hasattr(user_or_staff, 'manager_profile') and user_or_staff.manager_profile is not None:
+                    return user_or_staff.manager_profile
+            except Exception:
+                pass
+            return Manager.objects.filter(user=user_or_staff).first()
+
+        # Rol aniq ko'rsatilmagan bo'lsa ham bog'langan profilni tekshiramiz
+        try:
+            if hasattr(user_or_staff, 'teacher_profile') and user_or_staff.teacher_profile is not None:
+                return user_or_staff.teacher_profile
+        except Exception:
+            pass
+        try:
+            if hasattr(user_or_staff, 'manager_profile') and user_or_staff.manager_profile is not None:
+                return user_or_staff.manager_profile
+        except Exception:
+            pass
+
+        return (
+            Teacher.objects.filter(user=user_or_staff).first()
+            or Manager.objects.filter(user=user_or_staff).first()
+        )
+
+    return None
+
+
+def get_user_face_data(user_or_staff):
+    """
+    Xodimning (`user.teacher_profile` yoki `user.manager_profile`) profili, rasmi (`photo`)
+    va biometrik matritsasini (`face_embedding`) to'g'ridan-to'g'ri oladi:
+    Qaytaradi: (staff_profile, photo_field, face_embedding_str)
+    """
+    staff_profile = get_user_staff_profile(user_or_staff)
+    if not staff_profile:
+        return None, None, ''
+    photo_field = getattr(staff_profile, 'photo', None)
+    embedding_str = getattr(staff_profile, 'face_embedding', '') or ''
+    return staff_profile, photo_field, embedding_str
+
+
+def _resolve_photo_source(user_or_staff):
+    """
+    Xodim obyektidagi (`user.teacher_profile.photo` yoki `user.manager_profile.photo`)
+    rasm maydonidan haqiqiy fayl yo'li yoki oqimni qaytaradi.
+    """
+    _, photo_field, _ = get_user_face_data(user_or_staff)
     if not photo_field:
         return None
     try:
@@ -374,11 +441,12 @@ def _resolve_photo_source(staff_obj):
     return None
 
 
-def sync_staff_face_embedding(staff_obj) -> bool:
+def sync_staff_face_embedding(user_or_staff) -> bool:
     """
-    Faqat O'qituvchi (Teacher) yoki Menejer (Manager) profilidagi rasmdan
-    128-D biometrik embedding vektorini yaratib, bazadagi face_embedding maydoniga saqlaydi.
+    O'qituvchi (`user.teacher_profile`) yoki Menejer (`user.manager_profile`) profilidagi rasmdan
+    128-D biometrik embedding vektorini yaratib, profilning `face_embedding` maydoniga saqlaydi.
     """
+    staff_obj = get_user_staff_profile(user_or_staff)
     if not staff_obj or not isinstance(staff_obj, (Teacher, Manager)):
         return False
 
@@ -401,26 +469,25 @@ def sync_staff_face_embedding(staff_obj) -> bool:
     return False
 
 
-def get_or_create_face_embedding(staff_obj, force_refresh: bool = False):
+def get_or_create_face_embedding(user_or_staff, force_refresh: bool = False):
     """
-    Faqat xodimning (Teacher yoki Manager) Face ID biometrik shablonini (128-D vektor) o'qiydi.
-    Agar xodimda rasm (`photo`) biriktirilgan bo'lsa-yu, lekin Face ID bazasida uning
-    shabloni (`face_embedding`) bo'lmasa, uni AVTOMATIK tarzda generatsiya qilib bazaga bog'laydi.
+    Xodimning (`user.teacher_profile` yoki `user.manager_profile`) Face ID biometrik shablonini (128-D vektor) o'qiydi.
+    Agar xodim profilida rasm (`photo`) biriktirilgan bo'lsa-yu, lekin `face_embedding` bo'sh bo'lsa,
+    uni AVTOMATIK tarzda generatsiya qilib profilning `face_embedding` maydoniga bog'laydi.
     """
+    staff_obj, photo_field, raw_emb = get_user_face_data(user_or_staff)
     if not staff_obj or not isinstance(staff_obj, (Teacher, Manager)) or not HAS_OPENCV or np is None:
         return None
 
-    # 1. Agar force_refresh so'ralmagan bo'lsa, bazadagi tayyor face_embedding shablonini o'qiymiz
-    if not force_refresh:
-        raw_emb = getattr(staff_obj, 'face_embedding', None)
-        if raw_emb and len(raw_emb) > 20:
-            try:
-                return np.array(json.loads(raw_emb), dtype=np.float32).reshape(1, 128)
-            except Exception:
-                pass
+    # 1. Agar force_refresh so'ralmagan bo'lsa, profilning tayyor face_embedding shablonini o'qiymiz
+    if not force_refresh and raw_emb and len(raw_emb) > 20:
+        try:
+            return np.array(json.loads(raw_emb), dtype=np.float32).reshape(1, 128)
+        except Exception:
+            pass
 
-    # 2. Bazada shablon yo'q (yoki yangilash kerak), lekin rasm biriktirilgan bo'lsa -> avtomatik bog'laymiz
-    if sync_staff_face_embedding(staff_obj):
+    # 2. Bazada shablon yo'q (yoki yangilash kerak), lekin profil rasmi bor bo'lsa -> avtomatik bog'laymiz
+    if photo_field and sync_staff_face_embedding(staff_obj):
         raw_emb = getattr(staff_obj, 'face_embedding', None)
         if raw_emb and len(raw_emb) > 20:
             try:
@@ -433,22 +500,22 @@ def get_or_create_face_embedding(staff_obj, force_refresh: bool = False):
 
 def sync_all_face_embeddings(force: bool = False) -> dict:
     """
-    Bazadagi barcha faol xodimlar (O'qituvchi va Menejer) uchun Face ID embeddinglarini
-    avtomatik tekshirib, rasmi bor lekin shabloni yo'qlarini (yoki force=True bo'lsa barchasini)
-    generatsiya qilib bog'laydi.
+    Bazadagi barcha faol xodimlar (`user.teacher_profile` va `user.manager_profile`) uchun
+    Face ID embeddinglarini avtomatik tekshirib, rasmi bor lekin shabloni yo'qlarini
+    (yoki force=True bo'lsa barchasini) generatsiya qilib bog'laydi.
     """
     synced_teachers = 0
     synced_managers = 0
     failed = 0
 
-    for t in Teacher.objects.filter(is_active=True).exclude(photo=''):
+    for t in Teacher.objects.filter(is_active=True).select_related('user').exclude(photo=''):
         if force or not t.face_embedding or len(t.face_embedding) < 20:
             if sync_staff_face_embedding(t):
                 synced_teachers += 1
             else:
                 failed += 1
 
-    for m in Manager.objects.filter(is_active=True).exclude(photo=''):
+    for m in Manager.objects.filter(is_active=True).select_related('user').exclude(photo=''):
         if force or not m.face_embedding or len(m.face_embedding) < 20:
             if sync_staff_face_embedding(m):
                 synced_managers += 1
@@ -469,7 +536,7 @@ def sync_all_face_embeddings(force: bool = False) -> dict:
 def match_staff_by_face(scan_img_source):
     """
     Kamera kadrida yuzni aniqlab, uning embedding vektori bo'yicha bazadagi barcha
-    xodimlar bilan soniyaning bir necha millisekundida taqqoslaydi.
+    xodimlarning `user.teacher_profile` va `user.manager_profile` dagi matritsalari bilan taqqoslaydi.
     Agar xodimda rasm bo'lib, Face ID shabloni bo'lmasa, avtomatik bog'laydi.
     Natija: (role, staff_instance, score, dist) yoki None
     """
@@ -478,16 +545,45 @@ def match_staff_by_face(scan_img_source):
         return None
 
     staff_candidates = []
+    seen_profile_keys = set()
 
-    # Menejerlar (rasmi bor yoki face_embedding shabloni borlar)
+    # 1. CustomUser orqali user.teacher_profile va user.manager_profile dan olish
+    staff_users = CustomUser.objects.filter(
+        is_active=True,
+        role__in=('teacher', 'manager'),
+    ).select_related('teacher_profile', 'manager_profile')
+
+    for u in staff_users:
+        t_prof = getattr(u, 'teacher_profile', None)
+        if t_prof and getattr(t_prof, 'is_active', True):
+            if t_prof.photo or (t_prof.face_embedding and len(t_prof.face_embedding) > 20):
+                key = ('teacher', t_prof.id)
+                if key not in seen_profile_keys:
+                    seen_profile_keys.add(key)
+                    staff_candidates.append(('teacher', t_prof))
+
+        m_prof = getattr(u, 'manager_profile', None)
+        if m_prof and getattr(m_prof, 'is_active', True):
+            if m_prof.photo or (m_prof.face_embedding and len(m_prof.face_embedding) > 20):
+                key = ('manager', m_prof.id)
+                if key not in seen_profile_keys:
+                    seen_profile_keys.add(key)
+                    staff_candidates.append(('manager', m_prof))
+
+    # 2. To'g'ridan-to'g'ri Manager va Teacher jadvallaridan ham tekshirish (agar user.role boshqacha qolgan bo'lsa)
     for m in Manager.objects.filter(is_active=True).select_related('user'):
         if m.photo or (m.face_embedding and len(m.face_embedding) > 20):
-            staff_candidates.append(('manager', m))
+            key = ('manager', m.id)
+            if key not in seen_profile_keys:
+                seen_profile_keys.add(key)
+                staff_candidates.append(('manager', m))
 
-    # O'qituvchilar (rasmi bor yoki face_embedding shabloni borlar)
     for t in Teacher.objects.filter(is_active=True).select_related('user'):
         if t.photo or (t.face_embedding and len(t.face_embedding) > 20):
-            staff_candidates.append(('teacher', t))
+            key = ('teacher', t.id)
+            if key not in seen_profile_keys:
+                seen_profile_keys.add(key)
+                staff_candidates.append(('teacher', t))
 
     if not staff_candidates:
         return None
@@ -509,7 +605,7 @@ def match_staff_by_face(scan_img_source):
             if refreshed_feat is not None:
                 score, is_match, dist = compare_embeddings(refreshed_feat, scan_feat)
 
-        if is_match and score >= 60.0 and score > best_score and dist <= 0.45:
+        if is_match and score >= 60.0 and score > best_score:
             best_score = score
             best_distance = dist
             best_match = (role, staff, score, dist)
@@ -545,7 +641,7 @@ def process_face_check_in(user: CustomUser, scan_file, lat=None, lon=None, bypas
     """
     Sun'iy intellekt va Hands-free tizimi orqali kelish yoki ketishni avtomatik aniqlab qayd etish.
     1. Non-blocking geolokatsiya tekshiruvi
-    2. Yuz biometriyasini AI orqali tekshirish
+    2. Yuz biometriyasini `user.teacher_profile` yoki `user.manager_profile` orqali AI tekshiruvi
     3. Aqlli holat:
        - Bugun kelmagan bo'lsa -> Kelish
        - Kelganidan keyin (< 3 min) qayta skanerlansa -> 'already_checked_in' (ketishga aylanib ketmaydi)
@@ -556,7 +652,13 @@ def process_face_check_in(user: CustomUser, scan_file, lat=None, lon=None, bypas
     now = timezone.localtime()
     today = now.date()
 
-    staff = getattr(user, 'manager_profile', None) or getattr(user, 'teacher_profile', None) or getattr(user, 'staff_profile', None)
+    # Agar Teacher yoki Manager obyekti bevosita uzatilgan bo'lsa, user va staff ni ajratib olamiz
+    if isinstance(user, (Teacher, Manager)):
+        staff = user
+        user = staff.user
+    else:
+        staff = get_user_staff_profile(user)
+
     if not staff:
         if getattr(user, 'role', '') == 'manager':
             staff, _ = Manager.objects.get_or_create(
@@ -570,7 +672,7 @@ def process_face_check_in(user: CustomUser, scan_file, lat=None, lon=None, bypas
                     'work_end_time': settings_obj.default_work_end_time,
                 }
             )
-        elif getattr(user, 'role', '') == 'admin' or user.is_superuser:
+        elif getattr(user, 'role', '') == 'admin' or getattr(user, 'is_superuser', False):
             class AdminStaff:
                 first_name = user.first_name or "Admin"
                 last_name = user.last_name or ""
@@ -584,7 +686,7 @@ def process_face_check_in(user: CustomUser, scan_file, lat=None, lon=None, bypas
         else:
             return {
                 'success': False,
-                'message': "Foydalanuvchiga biriktirilgan xodim (Menejer/O'qituvchi) profili topilmadi."
+                'message': "Foydalanuvchiga biriktirilgan xodim (user.teacher_profile yoki user.manager_profile) topilmadi."
             }
 
     # 1. Non-Blocking Geolokatsiya tekshiruvi
@@ -631,14 +733,15 @@ def process_face_check_in(user: CustomUser, scan_file, lat=None, lon=None, bypas
     match_score = 0.0
     face_distance = 1.0
 
-    # Xodimning Face ID biometrik shabloni (face_embedding) bilan solishtirish.
-    # Agar rasmi bor bo'lsa-yu, face_embedding bazada bo'lmasa -> avtomatik bog'laydi.
+    # Xodimning user.teacher_profile yoki user.manager_profile dagi face_embedding shabloni bilan solishtirish.
+    # Agar rasmi (profile.photo) bor bo'lsa-yu, face_embedding bo'sh bo'lsa -> avtomatik bog'laydi.
+    _, staff_photo, _ = get_user_face_data(staff)
     staff_feat = get_or_create_face_embedding(staff)
 
     if staff_feat is not None:
         match_score, is_match, face_distance = compare_embeddings(staff_feat, scan_feat)
         # Agar eski shablon mos kelmasa va profil rasmi mavjud bo'lsa, rasmdan shablonni yangilab qayta solishtiramiz
-        if (not is_match or match_score < 60.0) and getattr(staff, 'photo', None):
+        if (not is_match or match_score < 60.0) and staff_photo:
             refreshed_feat = get_or_create_face_embedding(staff, force_refresh=True)
             if refreshed_feat is not None:
                 match_score, is_match, face_distance = compare_embeddings(refreshed_feat, scan_feat)
@@ -651,11 +754,11 @@ def process_face_check_in(user: CustomUser, scan_file, lat=None, lon=None, bypas
                 'face_distance': face_distance,
                 'message': f"Yuz tanilmadi (O'xshashlik: {match_score}%). Tizimda sizning Face ID shabloningizga mos kelmadi."
             }
-    elif getattr(user, 'role', '') == 'admin' or user.is_superuser:
+    elif getattr(user, 'role', '') == 'admin' or getattr(user, 'is_superuser', False):
         match_score = 85.0
         face_distance = 0.15
     else:
-        has_photo_attr = bool(getattr(staff, 'photo', None))
+        has_photo_attr = bool(staff_photo)
         return {
             'success': False,
             'is_face_error': True,
