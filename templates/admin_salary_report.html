@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}Oylik Maosh, Shtraflar va Bonuslar — HummoKids Admin{% endblock %}
+{% block title %}Oylik Maosh, Shtraflar va Bonuslar — HumoTa'lim Admin{% endblock %}
 
 {% block content %}
 <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3 mb-4">
@@ -8,12 +8,15 @@
             <i class="bi bi-cash-stack me-2 text-success"></i>Oylik Maosh, Shtraflar va Bonuslar Hisob-kitobi
         </h2>
         <p class="text-white mb-0 opacity-75">
-            Formula: <b>Yakuniy Oylik = Asosiy Maosh - (Barcha Shtraflar) + (Bonuslar)</b>. Har oyning 10-sanasigacha tayyor hisobot.
+            Formula: <b>Yakuniy Oylik = Asosiy Maosh - (Barcha Shtraflar) + (Bonuslar)</b>. Har oyning 10-sanasigacha
+            tayyor hisobot.
         </p>
     </div>
 
     <div class="d-flex gap-2 flex-wrap">
-        <a href="{% url 'admin_salary_export_excel' %}?month={{ current_month }}" class="btn btn-success fw-bold rounded-pill px-4 shadow-sm" style="background:linear-gradient(135deg,#10b981,#059669); border:none;">
+        <a href="{% url 'admin_salary_export_excel' %}?month={{ current_month }}"
+            class="btn btn-success fw-bold rounded-pill px-4 shadow-sm"
+            style="background:linear-gradient(135deg,#10b981,#059669); border:none;">
             <i class="bi bi-file-earmark-excel-fill me-1"></i> Excelga Yuklash
         </a>
         <a href="{% url 'admin_face_id_logs' %}" class="btn btn-outline-light rounded-pill px-3 fw-semibold">
@@ -27,9 +30,12 @@
     <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
         <form method="get" class="d-flex align-items-center gap-2 m-0">
             <label class="text-white fw-bold small mb-0"><i class="bi bi-calendar-month me-1"></i>Hisobot Oyi:</label>
-            <input type="month" name="month" class="form-control rounded-pill bg-white text-dark fw-bold border-0 shadow-sm" value="{{ current_month }}" onchange="this.form.submit()" style="width: auto;">
+            <input type="month" name="month"
+                class="form-control rounded-pill bg-white text-dark fw-bold border-0 shadow-sm"
+                value="{{ current_month }}" onchange="this.form.submit()" style="width: auto;">
         </form>
-        <div class="badge bg-warning bg-opacity-25 text-warning border border-warning border-opacity-40 rounded-pill px-3 py-2 small">
+        <div
+            class="badge bg-warning bg-opacity-25 text-warning border border-warning border-opacity-40 rounded-pill px-3 py-2 small">
             <i class="bi bi-bell-fill me-1"></i> Eslatma: Oylik maoshlar har oyning 10-sanasigacha to'lanadi
         </div>
     </div>
@@ -56,7 +62,8 @@
         </div>
     </div>
     <div class="col-6 col-lg-2">
-        <div class="glass-card p-3 text-center h-100" style="background:rgba(255,255,255,0.95); border-top: 3px solid #f59e0b;">
+        <div class="glass-card p-3 text-center h-100"
+            style="background:rgba(255,255,255,0.95); border-top: 3px solid #f59e0b;">
             <div class="text-warning small fw-bold mb-1">
                 <i class="bi bi-cash-coin me-1"></i> Jami Avanslar
             </div>
@@ -65,7 +72,8 @@
         </div>
     </div>
     <div class="col-6 col-lg-2">
-        <div class="glass-card p-3 text-center h-100" style="background:rgba(255,255,255,0.95); border-top: 3px solid #6366f1;">
+        <div class="glass-card p-3 text-center h-100"
+            style="background:rgba(255,255,255,0.95); border-top: 3px solid #6366f1;">
             <div class="text-primary small fw-semibold mb-1">
                 <i class="bi bi-gift-fill me-1"></i> Jami Bonuslar
             </div>
@@ -74,11 +82,13 @@
         </div>
     </div>
     <div class="col-12 col-lg-4">
-        <div class="glass-card p-3 text-center h-100" style="background:rgba(255,255,255,0.95); border: 2px solid #10b981;">
+        <div class="glass-card p-3 text-center h-100"
+            style="background:rgba(255,255,255,0.95); border: 2px solid #10b981;">
             <div class="text-success small fw-bold mb-1">
                 <i class="bi bi-check-circle-fill me-1"></i> Yakuniy To'lanadigan Oylik Jamg'armasi
             </div>
-            <h4 class="fw-black text-success mb-0">{{ total_net_payroll|floatformat:0 }} <small class="fs-6 text-muted font-normal">so'm</small></h4>
+            <h4 class="fw-black text-success mb-0">{{ total_net_payroll|floatformat:0 }} <small
+                    class="fs-6 text-muted font-normal">so'm</small></h4>
             <small class="text-muted">Asosiy - Shtraflar - Avanslar + Bonuslar</small>
         </div>
     </div>
@@ -114,14 +124,17 @@
                     <td class="ps-4">
                         <div class="d-flex align-items-center gap-3">
                             {% if r.staff.photo %}
-                            <img src="{{ r.staff.photo.url }}" alt="Photo" style="width: 44px; height: 44px; border-radius: 12px; object-fit: cover; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
+                            <img src="{{ r.staff.photo.url }}" alt="Photo"
+                                style="width: 44px; height: 44px; border-radius: 12px; object-fit: cover; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
                             {% else %}
-                            <div style="width: 44px; height: 44px; border-radius: 12px; background: linear-gradient(135deg, #4f46e5, #06b6d4); color:#fff; display: flex; align-items: center; justify-content: center; font-weight: bold;">
+                            <div
+                                style="width: 44px; height: 44px; border-radius: 12px; background: linear-gradient(135deg, #4f46e5, #06b6d4); color:#fff; display: flex; align-items: center; justify-content: center; font-weight: bold;">
                                 {{ r.staff.first_name|slice:":1" }}{{ r.staff.last_name|slice:":1" }}
                             </div>
                             {% endif %}
                             <div>
-                                <div class="fw-bold text-dark fs-6">{{ r.staff.first_name }} {{ r.staff.last_name }}</div>
+                                <div class="fw-bold text-dark fs-6">{{ r.staff.first_name }} {{ r.staff.last_name }}
+                                </div>
                                 <small class="text-muted"><i class="bi bi-telephone-fill me-1 text-success"></i>{{ r.staff.phone|default:"Telefon yo'q" }}</small>
                             </div>
                         </div>
@@ -137,7 +150,8 @@
 
                     <td>
                         {% if r.total_late_count > 0 %}
-                        <span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-30 rounded-pill px-3 py-1 fw-bold">
+                        <span
+                            class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-30 rounded-pill px-3 py-1 fw-bold">
                             {{ r.total_late_count }} marta ({{ r.total_late_minutes }} daqiqa)
                         </span>
                         {% else %}
@@ -159,7 +173,8 @@
                     <td>
                         {% if r.total_advance_amount > 0 %}
                         <div class="fw-bold text-warning">-{{ r.total_advance_amount|floatformat:0 }} so'm</div>
-                        <small class="badge bg-warning bg-opacity-10 text-dark rounded-pill px-2 py-0" style="font-size:0.7rem;">{{ r.advances|length }} ta avans</small>
+                        <small class="badge bg-warning bg-opacity-10 text-dark rounded-pill px-2 py-0"
+                            style="font-size:0.7rem;">{{ r.advances|length }} ta avans</small>
                         {% else %}
                         <span class="text-muted small">0 so'm</span>
                         {% endif %}
@@ -168,14 +183,16 @@
                     <td>
                         {% if r.total_bonus_amount > 0 %}
                         <div class="fw-bold text-primary">+{{ r.total_bonus_amount|floatformat:0 }} so'm</div>
-                        <small class="badge bg-primary bg-opacity-10 text-primary rounded-pill px-2 py-0" style="font-size:0.7rem;">{{ r.bonuses|length }} ta bonus</small>
+                        <small class="badge bg-primary bg-opacity-10 text-primary rounded-pill px-2 py-0"
+                            style="font-size:0.7rem;">{{ r.bonuses|length }} ta bonus</small>
                         {% else %}
                         <span class="text-muted small">0 so'm</span>
                         {% endif %}
                     </td>
 
                     <td>
-                        <div class="d-inline-flex align-items-center gap-1 p-2 rounded-3" style="background: rgba(16, 185, 129, 0.1); border: 1.5px solid rgba(16, 185, 129, 0.3);">
+                        <div class="d-inline-flex align-items-center gap-1 p-2 rounded-3"
+                            style="background: rgba(16, 185, 129, 0.1); border: 1.5px solid rgba(16, 185, 129, 0.3);">
                             <i class="bi bi-check-circle-fill text-success"></i>
                             <span class="fw-black text-success fs-6">{{ r.net_salary|floatformat:0 }} so'm</span>
                         </div>
@@ -184,10 +201,13 @@
 
                     <td class="text-end pe-4">
                         <div class="btn-group">
-                            <button type="button" class="btn btn-sm btn-outline-primary rounded-pill me-1 px-3 fw-semibold" data-bs-toggle="modal" data-bs-target="#bonusModal{{ r.staff.id }}">
+                            <button type="button"
+                                class="btn btn-sm btn-outline-primary rounded-pill me-1 px-3 fw-semibold"
+                                data-bs-toggle="modal" data-bs-target="#bonusModal{{ r.staff.id }}">
                                 <i class="bi bi-gift-fill me-1"></i> Bonus
                             </button>
-                            <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3 fw-semibold" data-bs-toggle="modal" data-bs-target="#staffLogsModal{{ r.staff.id }}">
+                            <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3 fw-semibold"
+                                data-bs-toggle="modal" data-bs-target="#staffLogsModal{{ r.staff.id }}">
                                 <i class="bi bi-list-ul me-1"></i> Jurnal
                             </button>
                         </div>
@@ -226,11 +246,14 @@
                 <div class="modal-body p-4">
                     <div class="mb-3">
                         <label class="form-label fw-semibold small">Bonus Summasi (so'm):</label>
-                        <input type="number" step="1000" name="amount" class="form-control form-control-lg rounded-3 fw-bold text-primary" placeholder="Masalan: 200000" required>
+                        <input type="number" step="1000" name="amount"
+                            class="form-control form-control-lg rounded-3 fw-bold text-primary"
+                            placeholder="Masalan: 200000" required>
                     </div>
                     <div class="mb-3">
                         <label class="form-label fw-semibold small">Bonus Sababi / Izoh:</label>
-                        <input type="text" name="reason" class="form-control rounded-3" value="Erta kelganlik / Faollik uchun bonus" required>
+                        <input type="text" name="reason" class="form-control rounded-3"
+                            value="Erta kelganlik / Faollik uchun bonus" required>
                     </div>
 
                     {% if r.bonuses %}
@@ -243,7 +266,9 @@
                                     <strong class="text-primary">+{{ b.amount|floatformat:0 }} so'm</strong>
                                     <div class="text-muted" style="font-size:0.78rem;">{{ b.reason }} ({{ b.date|date:"d.m.Y" }})</div>
                                 </div>
-                                <a href="{% url 'admin_bonus_delete' b.id %}" onclick="return confirm('Bonusni bekor qilishni xohlaysizmi?')" class="btn btn-sm btn-outline-danger rounded-pill px-2 py-0" title="O'chirish">
+                                <a href="{% url 'admin_bonus_delete' b.id %}"
+                                    onclick="return confirm('Bonusni bekor qilishni xohlaysizmi?')"
+                                    class="btn btn-sm btn-outline-danger rounded-pill px-2 py-0" title="O'chirish">
                                     <i class="bi bi-trash"></i>
                                 </a>
                             </li>
@@ -253,7 +278,8 @@
                     {% endif %}
                 </div>
                 <div class="modal-footer bg-light border-0">
-                    <button type="button" class="btn btn-secondary rounded-pill px-4" data-bs-dismiss="modal">Bekor qilish</button>
+                    <button type="button" class="btn btn-secondary rounded-pill px-4" data-bs-dismiss="modal">Bekor
+                        qilish</button>
                     <button type="submit" class="btn btn-primary rounded-pill px-4 fw-bold">Bonusni Saqlash</button>
                 </div>
             </form>
@@ -275,7 +301,8 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body p-4">
-                <div class="p-3 mb-3 rounded-3 d-flex justify-content-between align-items-center bg-light border flex-wrap gap-2">
+                <div
+                    class="p-3 mb-3 rounded-3 d-flex justify-content-between align-items-center bg-light border flex-wrap gap-2">
                     <div>
                         <small class="text-muted d-block">Asosiy Stavka:</small>
                         <b class="text-dark">{{ r.base_salary|floatformat:0 }} so'm</b>
@@ -324,7 +351,8 @@
                                 <td>{% if log.fine_percent_applied > 0 %}{{ log.fine_percent_applied }}%{% else %}-{% endif %}</td>
                                 <td>
                                     {% if log.fine_amount_deducted > 0 %}
-                                    <span class="text-danger fw-bold">-{{ log.fine_amount_deducted|floatformat:0 }} so'm</span>
+                                    <span class="text-danger fw-bold">-{{ log.fine_amount_deducted|floatformat:0 }}
+                                        so'm</span>
                                     {% else %}
                                     <span class="text-muted">0</span>
                                     {% endif %}
@@ -332,7 +360,8 @@
                             </tr>
                             {% empty %}
                             <tr>
-                                <td colspan="7" class="text-center text-muted py-3">Ushbu oyda Face ID qaydlari yo'q.</td>
+                                <td colspan="7" class="text-center text-muted py-3">Ushbu oyda Face ID qaydlari yo'q.
+                                </td>
                             </tr>
                             {% endfor %}
                         </tbody>
@@ -340,7 +369,8 @@
                 </div>
             </div>
             <div class="modal-footer bg-light border-0">
-                <button type="button" class="btn btn-secondary rounded-pill px-4" data-bs-dismiss="modal">Yopish</button>
+                <button type="button" class="btn btn-secondary rounded-pill px-4"
+                    data-bs-dismiss="modal">Yopish</button>
             </div>
         </div>
     </div>

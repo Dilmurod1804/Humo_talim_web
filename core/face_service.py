@@ -148,14 +148,23 @@ def resize_image_for_detection(img, max_dim=640):
 # 4. AI FACE EMBEDDING (128-D VEKTOR CHIQARISH)
 # ─────────────────────────────────────────────────────────────
 
-def extract_face_embedding(image_source):
+def extract_face_embedding(image_source, allow_portrait_fallback: bool = False):
     """
-    Rasm manbasidan (fayl, path, bytes) yuzni aniqlab, 128-o'lchamli Deep Feature (Embedding) vektorini chiqaradi.
+    Rasm manbasidan (fayl, path, bytes, ImageFieldFile) yuzni aniqlab,
+    128-o'lchamli Deep Feature (Embedding) vektorini chiqaradi.
     Qaytaradi: (embedding_numpy_array (1, 128), face_box (x, y, w, h), confidence_score)
     Agar yuz topilmasa: (None, None, 0.0)
     """
     if not HAS_OPENCV or cv2 is None:
         return None, None, 0.0
+
+    # Agar Django ImageFieldFile / FieldFile uzatilgan bo'lsa, uning path yoki fayl oqimini olamiz
+    if hasattr(image_source, 'path'):
+        try:
+            if os.path.exists(image_source.path):
+                image_source = image_source.path
+        except Exception:
+            pass
 
     img = _load_cv_image_from_file_or_path(image_source)
     if img is None:
@@ -163,7 +172,7 @@ def extract_face_embedding(image_source):
 
     detector, recognizer = get_ai_models()
     if detector is None or recognizer is None:
-        return _extract_face_embedding_fallback(img)
+        return _extract_face_embedding_fallback(img, recognizer=recognizer, allow_portrait_fallback=allow_portrait_fallback)
 
     try:
         proc_img, scale = resize_image_for_detection(img, max_dim=640)
@@ -173,13 +182,33 @@ def extract_face_embedding(image_source):
         _, faces = detector.detect(proc_img)
 
         if faces is None or len(faces) == 0:
-            # Agar 640px da topilmasa, asl o'lchamda yoki sezgir parametrlar bilan urinib ko'rish
+            # 1-zaxira: Asl o'lchamda urinib ko'rish
             detector.setInputSize((img.shape[1], img.shape[0]))
             _, faces = detector.detect(img)
-            if faces is None or len(faces) == 0:
-                return _extract_face_embedding_fallback(img)
-            proc_img = img
-            scale = 1.0
+            if faces is not None and len(faces) > 0:
+                proc_img = img
+                scale = 1.0
+
+        if faces is None or len(faces) == 0:
+            # 2-zaxira: Yaqindan olingan profil rasmlari (close-up portrait) uchun atrofga hoshiya (padding) qo'shib aniqlash
+            pad_y, pad_x = int(h * 0.25), int(w * 0.25)
+            padded_img = cv2.copyMakeBorder(proc_img, pad_y, pad_y, pad_x, pad_x, cv2.BORDER_REPLICATE)
+            detector.setInputSize((padded_img.shape[1], padded_img.shape[0]))
+            _, padded_faces = detector.detect(padded_img)
+            if padded_faces is not None and len(padded_faces) > 0:
+                best_face = max(padded_faces, key=lambda f: f[2] * f[3] * f[-1])
+                aligned_face = recognizer.alignCrop(padded_img, best_face)
+                feature = recognizer.feature(aligned_face).astype(np.float32)
+                norm = np.linalg.norm(feature)
+                if norm > 0:
+                    feature = feature / norm
+                bx = max(0, int((best_face[0] - pad_x) / scale))
+                by = max(0, int((best_face[1] - pad_y) / scale))
+                bw = int(best_face[2] / scale)
+                bh = int(best_face[3] / scale)
+                return feature, (bx, by, bw, bh), float(best_face[-1])
+
+            return _extract_face_embedding_fallback(img, recognizer=recognizer, allow_portrait_fallback=allow_portrait_fallback)
 
         # Eng katta va eng ishonchli yuzni tanlash
         best_face = max(faces, key=lambda f: f[2] * f[3] * f[-1])
@@ -200,28 +229,61 @@ def extract_face_embedding(image_source):
 
     except Exception as e:
         print(f"AI Face embedding error: {e}")
-        return _extract_face_embedding_fallback(img)
+        return _extract_face_embedding_fallback(img, recognizer=recognizer, allow_portrait_fallback=allow_portrait_fallback)
 
 
-def _extract_face_embedding_fallback(img):
-    """OpenCV Haar Cascade zaxira detektori (YuNet mavjud bo'lmaganda)."""
+def _extract_face_embedding_fallback(img, recognizer=None, allow_portrait_fallback: bool = False):
+    """
+    OpenCV Haar Cascade zaxira detektori va profil rasmlari uchun SFace fallback.
+    Agar SFace recognizer mavjud bo'lsa, har doim SFace 128-D biometrik vektorini chiqaradi
+    (kamera kadrlaridagi SFace vektorlari bilan 100% mos bo'lishi uchun).
+    """
     try:
+        h, w = img.shape[:2]
         cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
         face_cascade = cv2.CascadeClassifier(cascade_path)
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4, minSize=(60, 60))
-        if len(faces) == 0:
+        faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=3, minSize=(40, 40))
+
+        if len(faces) > 0:
+            x, y, fw, fh = max(faces, key=lambda f: f[2] * f[3])
+            face_crop = img[max(0, y):min(h, y + fh), max(0, x):min(w, x + fw)]
+            conf = 0.78
+        elif allow_portrait_fallback and h >= 40 and w >= 40:
+            # Profil rasmi sifatida yuklangan suratda yuz ramkasi topilmasa, markaziy portret qismini olamiz
+            cy1, cy2 = int(h * 0.08), int(h * 0.92)
+            cx1, cx2 = int(w * 0.08), int(w * 0.92)
+            face_crop = img[cy1:cy2, cx1:cx2]
+            x, y, fw, fh = cx1, cy1, cx2 - cx1, cy2 - cy1
+            conf = 0.65
+        else:
             return None, None, 0.0
 
-        x, y, w, h = max(faces, key=lambda f: f[2] * f[3])
-        roi = gray[y:y+h, x:x+w]
-        resized = cv2.resize(roi, (16, 8), interpolation=cv2.INTER_AREA).flatten().astype(np.float32)
+        if recognizer is not None:
+            aligned = cv2.resize(face_crop, (112, 112), interpolation=cv2.INTER_AREA)
+            feature = recognizer.feature(aligned).astype(np.float32)
+            norm = np.linalg.norm(feature)
+            if norm > 0:
+                feature = feature / norm
+            return feature.reshape(1, 128), (x, y, fw, fh), conf
+
+        roi_gray = cv2.cvtColor(face_crop, cv2.COLOR_BGR2GRAY)
+        resized = cv2.resize(roi_gray, (16, 8), interpolation=cv2.INTER_AREA).flatten().astype(np.float32)
         norm = np.linalg.norm(resized)
         if norm > 0:
             resized = resized / norm
-        return resized.reshape(1, 128), (x, y, w, h), 0.75
+        return resized.reshape(1, 128), (x, y, fw, fh), conf
     except Exception:
         return None, None, 0.0
+
+
+def extract_face_roi(image_source):
+    """
+    Orqaga moslik (backward compatibility) uchun yordamchi funksiya:
+    Rasm manbasidan yuz embeddingi va koordinatasini qaytaradi: (feat, box).
+    """
+    feat, box, _ = extract_face_embedding(image_source, allow_portrait_fallback=True)
+    return feat, box
 
 
 # ─────────────────────────────────────────────────────────────
@@ -279,8 +341,8 @@ def compare_two_faces(ref_img_source, scan_img_source) -> tuple[float, bool, flo
     Ikki rasm manbasini to'g'ridan-to'g'ri AI orqali solishtirish (orqaga moslik uchun).
     Natija: (similarity_score: 0..100, is_match: bool, face_distance: 0.0..1.0)
     """
-    feat1, _, _ = extract_face_embedding(ref_img_source)
-    feat2, _, _ = extract_face_embedding(scan_img_source)
+    feat1, _, _ = extract_face_embedding(ref_img_source, allow_portrait_fallback=True)
+    feat2, _, _ = extract_face_embedding(scan_img_source, allow_portrait_fallback=False)
 
     if feat1 is None or feat2 is None:
         return 0.0, False, 1.0
@@ -289,59 +351,121 @@ def compare_two_faces(ref_img_source, scan_img_source) -> tuple[float, bool, flo
 
 
 # ─────────────────────────────────────────────────────────────
-# 6. XODIMLAR EMBEDDINGLARINI AVTOMATIK SAQLASH VA SINXRONLASH
+# 6. XODIMLAR VA O'QUVCHILAR EMBEDDINGLARINI AVTOMATIK BOG'LASH
 # ─────────────────────────────────────────────────────────────
+
+_MEMORY_EMBEDDING_CACHE: dict[str, list[float]] = {}
+
+
+def _resolve_photo_source(person_obj):
+    """Model obyektidagi photo maydonidan haqiqiy fayl yo'li yoki oqimni qaytaradi."""
+    photo_field = getattr(person_obj, 'photo', None)
+    if not photo_field:
+        return None
+    try:
+        if hasattr(photo_field, 'path') and os.path.exists(photo_field.path):
+            return photo_field.path
+    except Exception:
+        pass
+    try:
+        if hasattr(photo_field, 'file'):
+            return photo_field.file
+    except Exception:
+        pass
+    return None
+
 
 def sync_staff_face_embedding(staff_obj) -> bool:
     """
-    O'qituvchi yoki Menejer profilidagi rasmdan 128-D embedding vektorini yaratib,
-    bazadagi face_embedding maydoniga JSON formatida saqlaydi.
+    O'qituvchi, Menejer yoki O'quvchi profilidagi rasmdan 128-D biometrik embedding
+    vektorini yaratib, bazadagi face_embedding maydoniga (yoki keshga) avtomatik bog'laydi.
     """
-    if not staff_obj or not getattr(staff_obj, 'photo', None):
+    if not staff_obj:
         return False
 
-    photo_path = None
-    try:
-        if hasattr(staff_obj.photo, 'path') and os.path.exists(staff_obj.photo.path):
-            photo_path = staff_obj.photo.path
-    except Exception:
-        photo_path = None
-
-    if not photo_path:
+    photo_source = _resolve_photo_source(staff_obj)
+    if not photo_source:
         return False
 
-    feat, box, conf = extract_face_embedding(photo_path)
+    # Profil rasmi uchun allow_portrait_fallback=True: yaqindan tushirilgan portretlarda ham yuz shablonini yaratadi
+    feat, box, conf = extract_face_embedding(photo_source, allow_portrait_fallback=True)
     if feat is not None:
         try:
             vec_list = feat.flatten().tolist()
-            staff_obj.face_embedding = json.dumps(vec_list)
-            # Faqat face_embedding maydonini yangilash
-            staff_obj.save(update_fields=['face_embedding'])
+            vec_json = json.dumps(vec_list)
+            if hasattr(staff_obj, 'face_embedding'):
+                staff_obj.face_embedding = vec_json
+                if getattr(staff_obj, 'pk', None):
+                    staff_obj.save(update_fields=['face_embedding'])
+            cache_key = f"{staff_obj.__class__.__name__}_{getattr(staff_obj, 'pk', id(staff_obj))}"
+            _MEMORY_EMBEDDING_CACHE[cache_key] = vec_list
             return True
         except Exception as e:
-            print(f"Error saving staff face_embedding: {e}")
+            print(f"Error saving face_embedding: {e}")
             return False
     return False
 
 
-def sync_all_face_embeddings() -> dict:
+def get_or_create_face_embedding(person_obj, force_refresh: bool = False):
+    """
+    Foydalanuvchining (O'qituvchi, Menejer, O'quvchi) Face ID biometrik shablonini (128-D vektor) o'qiydi.
+    Agar foydalanuvchida rasm (`photo`) biriktirilgan bo'lsa-yu, lekin Face ID bazasida uning
+    shabloni (`face_embedding`) bo'lmasa, uni AVTOMATIK tarzda generatsiya qilib bazaga bog'laydi.
+    """
+    if not person_obj or not HAS_OPENCV or np is None:
+        return None
+
+    # 1. Agar force_refresh so'ralmagan bo'lsa, bazadagi tayyor face_embedding shablonini o'qiymiz
+    if not force_refresh:
+        raw_emb = getattr(person_obj, 'face_embedding', None)
+        if raw_emb and len(raw_emb) > 20:
+            try:
+                arr = np.array(json.loads(raw_emb), dtype=np.float32).reshape(1, 128)
+                return arr
+            except Exception:
+                pass
+
+        cache_key = f"{person_obj.__class__.__name__}_{getattr(person_obj, 'pk', id(person_obj))}"
+        if cache_key in _MEMORY_EMBEDDING_CACHE:
+            try:
+                return np.array(_MEMORY_EMBEDDING_CACHE[cache_key], dtype=np.float32).reshape(1, 128)
+            except Exception:
+                pass
+
+    # 2. Bazada shablon yo'q (yoki yangilash kerak), lekin rasm biriktirilgan bo'lsa -> avtomatik bog'laymiz
+    if sync_staff_face_embedding(person_obj):
+        raw_emb = getattr(person_obj, 'face_embedding', None)
+        if raw_emb and len(raw_emb) > 20:
+            try:
+                return np.array(json.loads(raw_emb), dtype=np.float32).reshape(1, 128)
+            except Exception:
+                pass
+        cache_key = f"{person_obj.__class__.__name__}_{getattr(person_obj, 'pk', id(person_obj))}"
+        if cache_key in _MEMORY_EMBEDDING_CACHE:
+            return np.array(_MEMORY_EMBEDDING_CACHE[cache_key], dtype=np.float32).reshape(1, 128)
+
+    return None
+
+
+def sync_all_face_embeddings(force: bool = False) -> dict:
     """
     Bazadagi barcha faol xodimlar (O'qituvchi va Menejer) uchun Face ID embeddinglarini
-    avtomatik tekshirib, yetishmayotganlarini bir marta generatsiya qilib chiqadi.
+    avtomatik tekshirib, rasmi bor lekin shabloni yo'qlarini (yoki force=True bo'lsa barchasini)
+    generatsiya qilib bog'laydi.
     """
     synced_teachers = 0
     synced_managers = 0
     failed = 0
 
     for t in Teacher.objects.filter(is_active=True).exclude(photo=''):
-        if not t.face_embedding or len(t.face_embedding) < 20:
+        if force or not t.face_embedding or len(t.face_embedding) < 20:
             if sync_staff_face_embedding(t):
                 synced_teachers += 1
             else:
                 failed += 1
 
     for m in Manager.objects.filter(is_active=True).exclude(photo=''):
-        if not m.face_embedding or len(m.face_embedding) < 20:
+        if force or not m.face_embedding or len(m.face_embedding) < 20:
             if sync_staff_face_embedding(m):
                 synced_managers += 1
             else:
@@ -362,22 +486,23 @@ def match_staff_by_face(scan_img_source):
     """
     Kamera kadrida yuzni aniqlab, uning embedding vektori bo'yicha bazadagi barcha
     xodimlar bilan soniyaning bir necha millisekundida taqqoslaydi.
+    Agar xodimda rasm bo'lib, Face ID shabloni bo'lmasa, avtomatik bog'laydi.
     Natija: (role, staff_instance, score, dist) yoki None
     """
-    scan_feat, box, conf = extract_face_embedding(scan_img_source)
+    scan_feat, box, conf = extract_face_embedding(scan_img_source, allow_portrait_fallback=False)
     if scan_feat is None:
         return None
 
     staff_candidates = []
 
-    # Menejerlar
-    for m in Manager.objects.filter(is_active=True).exclude(photo=''):
-        if m.photo:
+    # Menejerlar (rasmi bor yoki face_embedding shabloni borlar)
+    for m in Manager.objects.filter(is_active=True).select_related('user'):
+        if m.photo or (m.face_embedding and len(m.face_embedding) > 20):
             staff_candidates.append(('manager', m))
 
-    # O'qituvchilar
-    for t in Teacher.objects.filter(is_active=True).exclude(photo=''):
-        if t.photo:
+    # O'qituvchilar (rasmi bor yoki face_embedding shabloni borlar)
+    for t in Teacher.objects.filter(is_active=True).select_related('user'):
+        if t.photo or (t.face_embedding and len(t.face_embedding) > 20):
             staff_candidates.append(('teacher', t))
 
     if not staff_candidates:
@@ -388,26 +513,17 @@ def match_staff_by_face(scan_img_source):
     best_distance = 1.0
 
     for role, staff in staff_candidates:
-        candidate_feat = None
-        # Agar xodimning embeddingi bazada bo'lsa, uni tezkor yuklash
-        if staff.face_embedding and len(staff.face_embedding) > 20:
-            try:
-                candidate_feat = np.array(json.loads(staff.face_embedding), dtype=np.float32).reshape(1, 128)
-            except Exception:
-                candidate_feat = None
-
-        # Agar hali generatsiya qilinmagan bo'lsa, joyida generatsiya qilish
-        if candidate_feat is None:
-            if sync_staff_face_embedding(staff) and staff.face_embedding:
-                try:
-                    candidate_feat = np.array(json.loads(staff.face_embedding), dtype=np.float32).reshape(1, 128)
-                except Exception:
-                    candidate_feat = None
-
+        candidate_feat = get_or_create_face_embedding(staff)
         if candidate_feat is None:
             continue
 
         score, is_match, dist = compare_embeddings(candidate_feat, scan_feat)
+
+        # Agar eski/noto'g'ri keshlangan shablon bo'lsa va rasm mavjud bo'lsa, shablonni yangilab qayta tekshiramiz
+        if (not is_match or score < 60.0) and getattr(staff, 'photo', None):
+            refreshed_feat = get_or_create_face_embedding(staff, force_refresh=True)
+            if refreshed_feat is not None:
+                score, is_match, dist = compare_embeddings(refreshed_feat, scan_feat)
 
         if is_match and score >= 60.0 and score > best_score and dist <= 0.45:
             best_score = score
@@ -520,7 +636,7 @@ def process_face_check_in(user: CustomUser, scan_file, lat=None, lon=None, bypas
             }
 
     # 2. AI Yuz tekshiruvi
-    scan_feat, box, conf = extract_face_embedding(scan_file)
+    scan_feat, box, conf = extract_face_embedding(scan_file, allow_portrait_fallback=False)
     if scan_feat is None:
         return {
             'success': False,
@@ -531,36 +647,40 @@ def process_face_check_in(user: CustomUser, scan_file, lat=None, lon=None, bypas
     match_score = 0.0
     face_distance = 1.0
 
-    # Xodimning embeddingi bilan solishtirish
-    staff_feat = None
-    if getattr(staff, 'face_embedding', None) and len(staff.face_embedding) > 20:
-        try:
-            staff_feat = np.array(json.loads(staff.face_embedding), dtype=np.float32).reshape(1, 128)
-        except Exception:
-            staff_feat = None
-
-    if staff_feat is None and getattr(staff, 'photo', None):
-        try:
-            if hasattr(staff.photo, 'path') and os.path.exists(staff.photo.path):
-                staff_feat, _, _ = extract_face_embedding(staff.photo.path)
-                if staff_feat is not None:
-                    sync_staff_face_embedding(staff)
-        except Exception:
-            staff_feat = None
+    # Xodimning Face ID biometrik shabloni (face_embedding) bilan solishtirish.
+    # Agar rasmi bor bo'lsa-yu, face_embedding bazada bo'lmasa -> avtomatik bog'laydi.
+    staff_feat = get_or_create_face_embedding(staff)
 
     if staff_feat is not None:
         match_score, is_match, face_distance = compare_embeddings(staff_feat, scan_feat)
+        # Agar eski shablon mos kelmasa va profil rasmi mavjud bo'lsa, rasmdan shablonni yangilab qayta solishtiramiz
+        if (not is_match or match_score < 60.0) and getattr(staff, 'photo', None):
+            refreshed_feat = get_or_create_face_embedding(staff, force_refresh=True)
+            if refreshed_feat is not None:
+                match_score, is_match, face_distance = compare_embeddings(refreshed_feat, scan_feat)
+
         if not is_match or match_score < 60.0:
             return {
                 'success': False,
                 'is_face_error': True,
                 'match_score': match_score,
                 'face_distance': face_distance,
-                'message': f"Yuz tanilmadi (O'xshashlik: {match_score}%). Tizimda sizning profilingizga mos kelmadi."
+                'message': f"Yuz tanilmadi (O'xshashlik: {match_score}%). Tizimda sizning Face ID shabloningizga mos kelmadi."
             }
-    else:
+    elif getattr(user, 'role', '') == 'admin' or user.is_superuser:
         match_score = 85.0
         face_distance = 0.15
+    else:
+        has_photo_attr = bool(getattr(staff, 'photo', None))
+        return {
+            'success': False,
+            'is_face_error': True,
+            'message': (
+                "Profilingizdagi rasm fayli serverdan topilmadi yoki o'qib bo'lmadi. Iltimos, Face ID bo'limidan rasmni qayta yuklang."
+                if has_photo_attr else
+                "Sizning profilingizga Face ID uchun yuz rasmi biriktirilmagan! Iltimos, admin orqali yuz rasmingizni biriktiring."
+            )
+        }
 
     # 3. Bugungi jurnal holati (Smart Arrival / Departure)
     log = FaceIDLog.objects.filter(user=user, date=today).first()

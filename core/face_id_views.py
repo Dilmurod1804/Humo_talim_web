@@ -25,9 +25,14 @@ from .auth_views import admin_only_required, admin_required, is_admin_user
 from .face_service import (
     calculate_haversine_distance,
     calculate_staff_salary_summary,
+    compare_embeddings,
     compare_two_faces,
+    extract_face_embedding,
+    get_or_create_face_embedding,
     match_staff_by_face,
     process_face_check_in,
+    sync_all_face_embeddings,
+    sync_staff_face_embedding,
 )
 from .models import (
     AdvanceRequest, AuditLog, CustomUser, FaceIDLog, FaceIDSettings,
@@ -59,18 +64,27 @@ def _generate_staff_credentials(prefix: str, first_name: str) -> tuple[str, str]
     return login_str, pwd_str
 
 
-def _check_staff_face_detected(staff_obj, has_cv: bool, fs_module) -> bool:
-    """Xodimning rasmida yuz aniqlanganligini OpenCV orqali tekshiradi."""
-    if not (staff_obj.photo and has_cv and fs_module):
+def _check_staff_face_detected(staff_obj, has_cv: bool = True, fs_module=None) -> bool:
+    """
+    Xodimning Face ID biometrik shabloni (`face_embedding`) mavjudligini tekshiradi.
+    Agar xodimda rasm (`photo`) biriktirilgan bo'lsa-yu, lekin Face ID bazasida uning
+    shabloni (`face_embedding`) bo'lmasa, uni avtomatik generatsiya qilib bazaga bog'laydi.
+    """
+    if not staff_obj:
         return False
-    try:
-        if os.path.exists(staff_obj.photo.path):
-            cv_img = fs_module._load_cv_image_from_file_or_path(staff_obj.photo.path)
-            if cv_img is not None:
-                roi, _ = fs_module.extract_face_roi(cv_img)
-                return roi is not None
-    except Exception:
-        pass
+
+    # 1. Agar bazada tayyor face_embedding shabloni bor bo'lsa -> True
+    if getattr(staff_obj, 'has_face_embedding', False):
+        return True
+
+    # 2. Agar rasmi bor bo'lsa, lekin face_embedding bo'sh bo'lsa -> avtomatik bog'laymiz
+    if getattr(staff_obj, 'photo', None):
+        emb = get_or_create_face_embedding(staff_obj)
+        if emb is not None:
+            return True
+        if sync_staff_face_embedding(staff_obj):
+            return True
+
     return False
 
 
@@ -79,7 +93,7 @@ def _serialize_staff_face_status(staff_qs, role: str, role_title: str, has_cv: b
     items = []
     for s in staff_qs:
         has_photo = bool(s.photo)
-        face_detected = _check_staff_face_detected(s, has_cv, fs_module) if has_photo else False
+        face_detected = _check_staff_face_detected(s, has_cv, fs_module) if (has_photo or s.has_face_embedding) else False
         items.append({
             'id': s.id,
             'role': role,
@@ -136,7 +150,7 @@ def admin_teacher_create(request):
             _safe_decimal(late_fine_rate, str(settings_obj.default_late_fine_rate))
             if is_admin_user(request) else settings_obj.default_late_fine_rate
         )
-        Teacher.objects.create(
+        teacher = Teacher.objects.create(
             user=user,
             first_name=first_name,
             last_name=last_name,
@@ -149,6 +163,8 @@ def admin_teacher_create(request):
             work_end_time=work_end_time or '18:00',
             photo=opt_photo,
         )
+        if teacher.photo:
+            sync_staff_face_embedding(teacher)
         messages.success(request, f"O'qituvchi '{first_name} {last_name}' muvaffaqiyatli yaratildi (Face ID fotosi biriktirildi).")
         return redirect('admin_dashboard')
     return render(request, 'admin_teacher_create.html', default_ctx)
@@ -187,6 +203,8 @@ def admin_teacher_edit(request, id):
             teacher.generated_password = new_password
 
         teacher.save()
+        if photo_file or (teacher.photo and not teacher.has_face_embedding):
+            sync_staff_face_embedding(teacher)
         messages.success(request, f"O'qituvchi '{teacher.first_name} {teacher.last_name}' ma'lumotlari muvaffaqiyatli saqlandi.")
         return redirect('admin_dashboard')
 
@@ -253,7 +271,7 @@ def admin_manager_create(request):
             _safe_decimal(late_fine_rate, str(settings_obj.default_late_fine_rate))
             if is_admin_user(request) else settings_obj.default_late_fine_rate
         )
-        Manager.objects.create(
+        manager = Manager.objects.create(
             user=user,
             first_name=first_name,
             last_name=last_name,
@@ -266,6 +284,8 @@ def admin_manager_create(request):
             work_end_time=work_end_time or '18:00',
             photo=opt_photo,
         )
+        if manager.photo:
+            sync_staff_face_embedding(manager)
         messages.success(request, f"Menejer '{first_name} {last_name}' muvaffaqiyatli qo'shildi.")
         return redirect('admin_dashboard')
 
@@ -308,6 +328,8 @@ def admin_manager_edit(request, id):
             manager.generated_password = new_password
 
         manager.save()
+        if photo_file or (manager.photo and not manager.has_face_embedding):
+            sync_staff_face_embedding(manager)
         messages.success(request, f"Menejer '{manager.first_name} {manager.last_name}' ma'lumotlari yangilandi.")
         return redirect('admin_dashboard')
 
@@ -428,11 +450,17 @@ def admin_face_id_sync_staff(request):
             if not staff.work_end_time:
                 staff.work_end_time = settings_obj.default_work_end_time
             staff.save()
+            if staff.photo:
+                sync_staff_face_embedding(staff)
             synced_count += 1
+
+    emb_stats = sync_all_face_embeddings(force=True)
+    linked_faces = emb_stats.get('teachers', 0) + emb_stats.get('managers', 0)
 
     messages.success(
         request,
         f"Face ID sinxronizatsiyasi muvaffaqiyatli: {synced_count} ta xodim sozlamalari yangilandi, "
+        f"{linked_faces} ta yuz biometrik shabloni bog'landi, "
         f"{created_profiles} ta yetishmayotgan profil yaratildi.",
     )
     return redirect('admin_face_id_logs')
@@ -467,17 +495,13 @@ def admin_face_id_upload_photo(request, role, id):
     staff.photo = opt_photo
     staff.save()
 
-    try:
-        import core.face_service as fs
-        face_ok = _check_staff_face_detected(staff, getattr(fs, 'HAS_OPENCV', False), fs)
-    except Exception:
-        face_ok = False
+    face_ok = sync_staff_face_embedding(staff)
 
     msg = f"{staff.first_name} {staff.last_name} uchun Face ID yuz fotosurati muvaffaqiyatli biriktirildi!"
     msg += (
-        " (OpenCV biometrik tekshiruvdan o'tdi, yuz to'g'ri aniqlandi)."
+        " (Biometrik yuz shabloni bazaga bog'landi ✅)."
         if face_ok else
-        " (Ogohlantirish: Rasm saqlandi, ammo yuz aniq aniqlanmadi, boshqa surat yuklash tavsiya etiladi)."
+        " (Ogohlantirish: Rasm saqlandi, ammo yuz shablonini ajratib bo'lmadi, aniqroq surat yuklash tavsiya etiladi)."
     )
 
     if _is_ajax(request):
@@ -529,6 +553,8 @@ def admin_face_id_settings(request):
 @csrf_exempt
 def face_id_terminal(request):
     """Markaz binosida xodimlar yuzini skanerlovchi terminal."""
+    # Rasmi bor, lekin hali Face ID shabloni (face_embedding) bog'lanmagan xodimlarni avtomatik bog'laymiz
+    sync_all_face_embeddings(force=False)
     return render(request, 'face_id_terminal.html', {
         'settings': FaceIDSettings.get_settings(),
         'teachers': Teacher.objects.filter(is_active=True).select_related('user'),
@@ -539,6 +565,7 @@ def face_id_terminal(request):
 @csrf_exempt
 def face_id_check_in(request):
     """Mobil qurilmalardan Face ID orqali davomat qilish sahifasi."""
+    sync_all_face_embeddings(force=False)
     return render(request, 'face_id_mobile_checkin.html', {'settings': FaceIDSettings.get_settings()})
 
 
@@ -615,20 +642,29 @@ def face_id_verify_api(request):
     req_user = getattr(request, 'user', None)
     if not target_user and req_user and req_user.is_authenticated and getattr(req_user, 'role', '') in ('manager', 'teacher', 'admin'):
         staff_obj = getattr(req_user, 'manager_profile', None) or getattr(req_user, 'teacher_profile', None)
-        if staff_obj and staff_obj.photo and os.path.exists(staff_obj.photo.path):
+        if staff_obj:
             try:
-                score, is_match, _ = compare_two_faces(staff_obj.photo.path, scan_file)
-                if is_match and score >= 60.0:
-                    target_user, similarity_score = req_user, score
+                staff_feat = get_or_create_face_embedding(staff_obj)
+                scan_feat, _, _ = extract_face_embedding(scan_file, allow_portrait_fallback=False)
+                if staff_feat is not None and scan_feat is not None:
+                    score, is_match, _ = compare_embeddings(staff_feat, scan_feat)
+                    if is_match and score >= 60.0:
+                        target_user, similarity_score = req_user, score
             except Exception as e:
-                print(f"compare_two_faces error: {e}")
+                print(f"req_user embedding match error: {e}")
 
     if not target_user:
+        # Kadrda umuman yuz bormi yoki bazadagi shablonlarga mos kelmadimi — tushunarli xabar beramiz
+        scan_feat, _, _ = extract_face_embedding(scan_file, allow_portrait_fallback=False)
+        if scan_feat is None:
+            msg = "Kamera kadrida yuz aniqlanmadi! Iltimos, yorug'likni tekshiring va kameraga to'g'ri qarang."
+        else:
+            msg = "Yuz tanilmadi! Tizimda ushbu yuzga mos keluvchi xodim shabloni topilmadi."
         return JsonResponse({
             'success': False,
             'is_face_error': True,
-            'detected': False,
-            'message': "Yuz aniqlanmadi yoki xodim topilmadi! Tizimda ushbu yuzga mos keluvchi xodim profili topilmadi.",
+            'detected': scan_feat is not None,
+            'message': msg,
         }, status=200)
 
     try:
