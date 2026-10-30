@@ -351,15 +351,14 @@ def compare_two_faces(ref_img_source, scan_img_source) -> tuple[float, bool, flo
 
 
 # ─────────────────────────────────────────────────────────────
-# 6. XODIMLAR VA O'QUVCHILAR EMBEDDINGLARINI AVTOMATIK BOG'LASH
+# 6. XODIMLAR (O'QITUVCHI VA MENEJER) EMBEDDINGLARINI AVTOMATIK BOG'LASH
+#    DIQQAT: Face ID faqat xodimlar (Teacher, Manager) uchun!
+#    O'quvchilar (Student) Face ID tizimida qatnashmaydi.
 # ─────────────────────────────────────────────────────────────
 
-_MEMORY_EMBEDDING_CACHE: dict[str, list[float]] = {}
-
-
-def _resolve_photo_source(person_obj):
-    """Model obyektidagi photo maydonidan haqiqiy fayl yo'li yoki oqimni qaytaradi."""
-    photo_field = getattr(person_obj, 'photo', None)
+def _resolve_photo_source(staff_obj):
+    """Xodim obyektidagi photo maydonidan haqiqiy fayl yo'li yoki oqimni qaytaradi."""
+    photo_field = getattr(staff_obj, 'photo', None)
     if not photo_field:
         return None
     try:
@@ -377,10 +376,10 @@ def _resolve_photo_source(person_obj):
 
 def sync_staff_face_embedding(staff_obj) -> bool:
     """
-    O'qituvchi, Menejer yoki O'quvchi profilidagi rasmdan 128-D biometrik embedding
-    vektorini yaratib, bazadagi face_embedding maydoniga (yoki keshga) avtomatik bog'laydi.
+    Faqat O'qituvchi (Teacher) yoki Menejer (Manager) profilidagi rasmdan
+    128-D biometrik embedding vektorini yaratib, bazadagi face_embedding maydoniga saqlaydi.
     """
-    if not staff_obj:
+    if not staff_obj or not isinstance(staff_obj, (Teacher, Manager)):
         return False
 
     photo_source = _resolve_photo_source(staff_obj)
@@ -392,57 +391,42 @@ def sync_staff_face_embedding(staff_obj) -> bool:
     if feat is not None:
         try:
             vec_list = feat.flatten().tolist()
-            vec_json = json.dumps(vec_list)
-            if hasattr(staff_obj, 'face_embedding'):
-                staff_obj.face_embedding = vec_json
-                if getattr(staff_obj, 'pk', None):
-                    staff_obj.save(update_fields=['face_embedding'])
-            cache_key = f"{staff_obj.__class__.__name__}_{getattr(staff_obj, 'pk', id(staff_obj))}"
-            _MEMORY_EMBEDDING_CACHE[cache_key] = vec_list
+            staff_obj.face_embedding = json.dumps(vec_list)
+            if getattr(staff_obj, 'pk', None):
+                staff_obj.save(update_fields=['face_embedding'])
             return True
         except Exception as e:
-            print(f"Error saving face_embedding: {e}")
+            print(f"Error saving staff face_embedding: {e}")
             return False
     return False
 
 
-def get_or_create_face_embedding(person_obj, force_refresh: bool = False):
+def get_or_create_face_embedding(staff_obj, force_refresh: bool = False):
     """
-    Foydalanuvchining (O'qituvchi, Menejer, O'quvchi) Face ID biometrik shablonini (128-D vektor) o'qiydi.
-    Agar foydalanuvchida rasm (`photo`) biriktirilgan bo'lsa-yu, lekin Face ID bazasida uning
+    Faqat xodimning (Teacher yoki Manager) Face ID biometrik shablonini (128-D vektor) o'qiydi.
+    Agar xodimda rasm (`photo`) biriktirilgan bo'lsa-yu, lekin Face ID bazasida uning
     shabloni (`face_embedding`) bo'lmasa, uni AVTOMATIK tarzda generatsiya qilib bazaga bog'laydi.
     """
-    if not person_obj or not HAS_OPENCV or np is None:
+    if not staff_obj or not isinstance(staff_obj, (Teacher, Manager)) or not HAS_OPENCV or np is None:
         return None
 
     # 1. Agar force_refresh so'ralmagan bo'lsa, bazadagi tayyor face_embedding shablonini o'qiymiz
     if not force_refresh:
-        raw_emb = getattr(person_obj, 'face_embedding', None)
-        if raw_emb and len(raw_emb) > 20:
-            try:
-                arr = np.array(json.loads(raw_emb), dtype=np.float32).reshape(1, 128)
-                return arr
-            except Exception:
-                pass
-
-        cache_key = f"{person_obj.__class__.__name__}_{getattr(person_obj, 'pk', id(person_obj))}"
-        if cache_key in _MEMORY_EMBEDDING_CACHE:
-            try:
-                return np.array(_MEMORY_EMBEDDING_CACHE[cache_key], dtype=np.float32).reshape(1, 128)
-            except Exception:
-                pass
-
-    # 2. Bazada shablon yo'q (yoki yangilash kerak), lekin rasm biriktirilgan bo'lsa -> avtomatik bog'laymiz
-    if sync_staff_face_embedding(person_obj):
-        raw_emb = getattr(person_obj, 'face_embedding', None)
+        raw_emb = getattr(staff_obj, 'face_embedding', None)
         if raw_emb and len(raw_emb) > 20:
             try:
                 return np.array(json.loads(raw_emb), dtype=np.float32).reshape(1, 128)
             except Exception:
                 pass
-        cache_key = f"{person_obj.__class__.__name__}_{getattr(person_obj, 'pk', id(person_obj))}"
-        if cache_key in _MEMORY_EMBEDDING_CACHE:
-            return np.array(_MEMORY_EMBEDDING_CACHE[cache_key], dtype=np.float32).reshape(1, 128)
+
+    # 2. Bazada shablon yo'q (yoki yangilash kerak), lekin rasm biriktirilgan bo'lsa -> avtomatik bog'laymiz
+    if sync_staff_face_embedding(staff_obj):
+        raw_emb = getattr(staff_obj, 'face_embedding', None)
+        if raw_emb and len(raw_emb) > 20:
+            try:
+                return np.array(json.loads(raw_emb), dtype=np.float32).reshape(1, 128)
+            except Exception:
+                pass
 
     return None
 

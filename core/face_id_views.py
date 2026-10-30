@@ -627,8 +627,17 @@ def face_id_verify_api(request):
 
     if user_id:
         try:
-            target_user = CustomUser.objects.get(id=user_id)
-        except CustomUser.DoesNotExist:
+            target_user = CustomUser.objects.filter(
+                id=user_id,
+                role__in=('teacher', 'manager', 'admin'),
+            ).first()
+            if not target_user:
+                return JsonResponse({
+                    'success': False,
+                    'is_face_error': True,
+                    'message': "Face ID faqat markaz xodimlari (o'qituvchi va menejerlar) uchun mo'ljallangan!",
+                }, status=200)
+        except Exception:
             return JsonResponse({'success': False, 'message': "Tanlangan xodim topilmadi."}, status=200)
     else:
         try:

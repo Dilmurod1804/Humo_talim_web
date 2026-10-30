@@ -13,7 +13,6 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
 from .auth_views import _admin_only, admin_required, is_admin_or_manager
-from .face_service import sync_staff_face_embedding
 from .forms import TemporaryStudentForm
 from .models import (
     Attendance, CustomUser, DeletedStudent, FaceIDLog, Group,
@@ -340,8 +339,6 @@ def admin_student_create(request, timeslot_id):
                 opt_photo, _ = optimize_student_photo(photo)
                 student.photo = opt_photo or photo
             student.save()
-            if student.photo:
-                sync_staff_face_embedding(student)
 
             messages.success(request, f"O'quvchi '{first_name} {last_name}' muvaffaqiyatli qo'shildi.")
             return redirect('admin_group_detail', id=timeslot.group_id)
@@ -649,12 +646,7 @@ def student_photo_upload(request, id):
             pass
 
     student.photo.save(opt_photo.name, opt_photo, save=True)
-    face_linked = sync_staff_face_embedding(student)
-    return JsonResponse({
-        'status': 'success',
-        'photo_url': student.photo.url,
-        'face_detected': face_linked,
-    })
+    return JsonResponse({'status': 'success', 'photo_url': student.photo.url})
 
 
 # ─────────────────────────────────────────────────────────────
