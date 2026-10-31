@@ -38,6 +38,7 @@ from .face_service import (
     process_face_check_in,
     sync_all_face_embeddings,
     sync_staff_face_embedding,
+    verify_faces_deepface,
 )
 from .models import (
     AdvanceRequest, AuditLog, CustomUser, FaceIDLog, FaceIDSettings,

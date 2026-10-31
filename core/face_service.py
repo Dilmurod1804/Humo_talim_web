@@ -1,7 +1,8 @@
 """
-HUMO O'quv markazi — Face ID va Biometrik Davomat Xizmatlari
-- Sun'iy intellektga asoslangan Yuzni aniqlash va taqqoslash (OpenCV YuNet + SFace Deep Learning)
-- Avtomatik 128-o'lchamli biometrik vektorlar (embeddings) bazasi
+HUMO O'quv markazi — Face ID va Biometrik Davomat Xizmatlari (DeepFace AI)
+- DeepFace (Facenet / VGG-Face) asosida yuzni aniqlash, embedding hisoblash (DeepFace.represent) va solishtirish (DeepFace.verify)
+- OpenCV YuNet + SFace zaxira (fallback) dvijogi (agar DeepFace o'rnatilmagan muhit bo'lsa)
+- Avtomatik biometrik vektorlar (face_embedding) bazasi va sinxronizatsiyasi
 - Geolokatsiya masofasini hisoblash (Haversine formula, Non-blocking)
 - Aqlli Kelish va Ketishni avtomatik aniqlash (Smart Arrival/Departure)
 - Oylik maosh, kademeli kechikish jarimalari va avanslar kalkulyatori
@@ -26,11 +27,11 @@ except ImportError:
     HAS_OPENCV = False
 
 try:
-    import face_recognition as fr_lib
-    HAS_FACE_RECOGNITION = True
+    from deepface import DeepFace
+    HAS_DEEPFACE = True
 except ImportError:
-    fr_lib = None
-    HAS_FACE_RECOGNITION = False
+    DeepFace = None
+    HAS_DEEPFACE = False
 
 from PIL import Image, ImageOps
 
@@ -45,8 +46,23 @@ from .models import (
 
 
 # ─────────────────────────────────────────────────────────────
-# 1. AI YUZ MODELLARINI YUKLASH VA SINGLETON KESH (YuNet & SFace)
+# 1. DEEPFACE VA AI YUZ MODELLARINI SOZLASH
 # ─────────────────────────────────────────────────────────────
+
+# DeepFace model nomi: "Facenet" (128-D, juda tez va yengil) yoki "VGG-Face" (4096-D)
+DEEPFACE_MODEL_NAME = getattr(settings, 'DEEPFACE_MODEL_NAME', 'Facenet')
+DEEPFACE_DETECTOR_BACKEND = getattr(settings, 'DEEPFACE_DETECTOR_BACKEND', 'opencv')
+DEEPFACE_DISTANCE_METRIC = getattr(settings, 'DEEPFACE_DISTANCE_METRIC', 'cosine')
+
+# Model bo'yicha embedding o'lchami va Cosine Distance chegaralari (thresholds)
+DEEPFACE_MODEL_CONFIG = {
+    'Facenet': {'dim': 128, 'cosine_threshold': 0.45},
+    'Facenet512': {'dim': 512, 'cosine_threshold': 0.35},
+    'VGG-Face': {'dim': 4096, 'cosine_threshold': 0.68},
+    'ArcFace': {'dim': 512, 'cosine_threshold': 0.68},
+    'SFace': {'dim': 128, 'cosine_threshold': 0.593},
+    'OpenFace': {'dim': 128, 'cosine_threshold': 0.10},
+}
 
 _YUNET_DETECTOR = None
 _SFACE_RECOGNIZER = None
@@ -56,8 +72,29 @@ YUNET_MODEL_PATH = os.path.join(settings.BASE_DIR, 'weights', 'face_detection_yu
 SFACE_MODEL_PATH = os.path.join(settings.BASE_DIR, 'weights', 'face_recognition_sface_2021dec.onnx')
 
 
+def get_expected_embedding_dim() -> int:
+    """Joriy tanlangan DeepFace modeli uchun kutilgan embedding o'lchamini qaytaradi."""
+    if HAS_DEEPFACE:
+        cfg = DEEPFACE_MODEL_CONFIG.get(DEEPFACE_MODEL_NAME, {'dim': 128})
+        return cfg['dim']
+    return 128
+
+
+def get_cosine_distance_threshold(dim: int = 128) -> float:
+    """Joriy model yoki vektor o'lchami uchun maksimal ruxsat etilgan Cosine Distance chegarasi."""
+    if HAS_DEEPFACE and DEEPFACE_MODEL_NAME in DEEPFACE_MODEL_CONFIG:
+        cfg = DEEPFACE_MODEL_CONFIG[DEEPFACE_MODEL_NAME]
+        if cfg['dim'] == dim:
+            return cfg['cosine_threshold']
+    if dim == 4096:
+        return 0.68  # VGG-Face
+    if dim == 512:
+        return 0.40  # Facenet512 / ArcFace
+    return 0.48 if HAS_DEEPFACE else 0.72  # Facenet (0.48) yoki SFace (1 - 0.28 = 0.72)
+
+
 def get_ai_models():
-    """YuNet (Face Detection) va SFace (Face Recognition) Deep Learning modellarini yuklash."""
+    """Zaxira (fallback) sifatida YuNet va SFace modellarini yuklash."""
     global _YUNET_DETECTOR, _SFACE_RECOGNIZER
     if not HAS_OPENCV or cv2 is None:
         return None, None
@@ -247,14 +284,138 @@ def resize_image_for_detection(img, max_dim=640):
 
 
 # ─────────────────────────────────────────────────────────────
-# 4. AI FACE EMBEDDING (128-D VEKTOR CHIQARISH)
+# 4. DEEPFACE ASOSIDA FACE EMBEDDING (DeepFace.represent) VA VERIFIKATSIYA (DeepFace.verify)
 # ─────────────────────────────────────────────────────────────
+
+def _extract_embedding_via_deepface(img, allow_portrait_fallback: bool = False):
+    """
+    DeepFace.represent() yordamida rasmdan yuzni topib, tanlangan model ("Facenet" yoki "VGG-Face")
+    asosida embedding vektorini xavfsiz (try-except bilan) ajratib oladi.
+    Qaytaradi: (embedding_numpy_array (1, D), face_box (x, y, w, h), confidence_score)
+    """
+    if not HAS_DEEPFACE or DeepFace is None or img is None:
+        return None, None, 0.0
+
+    # Sinov variantlari:
+    # 1) Asl rasm + enforce_detection=True
+    # 2) CLAHE kontrast kuchaytirilgan rasm + enforce_detection=True (xira kamera kadrlari uchun)
+    # 3) Agar profil portreti bo'lsa (allow_portrait_fallback=True) -> enforce_detection=False
+    candidates = [
+        (img, True),
+        (_enhance_image_contrast(img), True),
+    ]
+    if allow_portrait_fallback:
+        candidates.append((img, False))
+
+    for candidate_img, enforce_det in candidates:
+        try:
+            representations = DeepFace.represent(
+                img_path=candidate_img,
+                model_name=DEEPFACE_MODEL_NAME,
+                detector_backend=DEEPFACE_DETECTOR_BACKEND,
+                enforce_detection=enforce_det,
+                align=True,
+            )
+            if not representations:
+                continue
+
+            # Eng katta va aniq yuzni tanlaymiz
+            best_rep = max(
+                representations,
+                key=lambda r: (
+                    r.get('facial_area', {}).get('w', 0)
+                    * r.get('facial_area', {}).get('h', 0)
+                    * float(r.get('face_confidence') or 1.0)
+                ),
+            )
+            emb_list = best_rep.get('embedding')
+            if not emb_list:
+                continue
+
+            feature = np.asarray(emb_list, dtype=np.float32).reshape(1, -1)
+            norm = np.linalg.norm(feature)
+            if norm > 0:
+                feature = feature / norm
+
+            area = best_rep.get('facial_area') or {}
+            x = int(area.get('x', 0))
+            y = int(area.get('y', 0))
+            fw = int(area.get('w', candidate_img.shape[1]))
+            fh = int(area.get('h', candidate_img.shape[0]))
+            conf = float(best_rep.get('face_confidence') or 0.90)
+
+            # Agar enforce_detection=True bo'lsa-yu, DeepFace face_confidence == 0 qaytarsa, yuz topilmagan hisoblanadi
+            if enforce_det and conf <= 0.0 and (fw >= candidate_img.shape[1] - 2 and fh >= candidate_img.shape[0] - 2):
+                continue
+
+            return feature, (x, y, fw, fh), conf
+        except ValueError:
+            # DeepFace yuz topa olmaganda ValueError ("Face could not be detected...") qaytaradi
+            continue
+        except Exception as e:
+            print(f"DeepFace.represent warning ({DEEPFACE_MODEL_NAME}): {e}")
+            continue
+
+    return None, None, 0.0
+
+
+def verify_faces_deepface(ref_img_source, scan_img_source, model_name: str = None) -> tuple[float, bool, float]:
+    """
+    DeepFace.verify() funksiyasi orqali xodimning bazadagi rasmi bilan kameradan kelayotgan
+    kadrni to'g'ridan-to'g'ri solishtiradi (try-except himoyasi bilan).
+    Natija: (similarity_score: 0.0..100.0, is_match: bool, face_distance: 0.0..1.0)
+    """
+    ref_img = _load_cv_image_from_file_or_path(ref_img_source)
+    scan_img = _load_cv_image_from_file_or_path(scan_img_source)
+    if ref_img is None or scan_img is None:
+        return 0.0, False, 1.0
+
+    active_model = model_name or DEEPFACE_MODEL_NAME
+
+    if HAS_DEEPFACE and DeepFace is not None:
+        for candidate_scan in (scan_img, _enhance_image_contrast(scan_img)):
+            try:
+                result = DeepFace.verify(
+                    img1_path=ref_img,
+                    img2_path=candidate_scan,
+                    model_name=active_model,
+                    detector_backend=DEEPFACE_DETECTOR_BACKEND,
+                    distance_metric=DEEPFACE_DISTANCE_METRIC,
+                    enforce_detection=True,
+                    align=True,
+                )
+                is_verified = bool(result.get('verified', False))
+                distance = float(result.get('distance', 1.0))
+                threshold = float(result.get('threshold', 0.45)) or 0.45
+
+                if is_verified or distance <= threshold:
+                    ratio = max(0.0, min(1.0, 1.0 - (distance / max(threshold, 0.01))))
+                    score = round(min(99.9, 65.0 + ratio * 34.5), 1)
+                    return score, True, round(distance, 3)
+                else:
+                    score = round(max(0.0, min(58.0, (1.0 - min(distance, 1.0)) * 58.0)), 1)
+                    return score, False, round(distance, 3)
+            except ValueError:
+                # Yuz topilmagan bo'lsa, CLAHE kuchaytirilgan kadrda qayta urinib ko'radi
+                continue
+            except Exception as e:
+                print(f"DeepFace.verify error ({active_model}): {e}")
+                break
+
+    # Agar DeepFace o'rnatilmagan bo'lsa yoki zaxira kerak bo'lsa, embedding orqali solishtiramiz
+    feat1, _, _ = extract_face_embedding(ref_img, allow_portrait_fallback=True)
+    feat2, _, _ = extract_face_embedding(scan_img, allow_portrait_fallback=False)
+    if feat1 is None or feat2 is None:
+        return 0.0, False, 1.0
+    return compare_embeddings(feat1, feat2)
+
 
 def extract_face_embedding(image_source, allow_portrait_fallback: bool = False):
     """
-    Rasm manbasidan (fayl, path, bytes, ImageFieldFile) yuzni aniqlab,
-    128-o'lchamli Deep Feature (Embedding) vektorini chiqaradi.
-    Qaytaradi: (embedding_numpy_array (1, 128), face_box (x, y, w, h), confidence_score)
+    Rasm manbasidan (fayl, path, bytes, Base64, ImageFieldFile) yuzni aniqlab,
+    DeepFace.represent() ("Facenet" / "VGG-Face") yordamida biometrik embedding vektorini chiqaradi.
+    Agar DeepFace o'rnatilmagan bo'lsa, OpenCV YuNet + SFace zaxira modelidan foydalanadi.
+    Qaytaradi: (embedding_numpy_array (1, D), face_box (x, y, w, h), confidence_score)
     Agar yuz topilmasa: (None, None, 0.0)
     """
     if not HAS_OPENCV or cv2 is None:
@@ -272,6 +433,16 @@ def extract_face_embedding(image_source, allow_portrait_fallback: bool = False):
     if img is None:
         return None, None, 0.0
 
+    # 1. ASOSIY DVIJOK: DeepFace.represent() ("Facenet" yoki "VGG-Face")
+    if HAS_DEEPFACE and DeepFace is not None:
+        feat, box, conf = _extract_embedding_via_deepface(img, allow_portrait_fallback=allow_portrait_fallback)
+        if feat is not None:
+            return feat, box, conf
+        # Agar DeepFace kadrda yuz topa olmasa va bu jonli kamera kadri bo'lsa -> yuz topilmadi
+        if not allow_portrait_fallback:
+            return None, None, 0.0
+
+    # 2. ZAXIRA DVIJOK: OpenCV YuNet + SFace (agar serverda DeepFace o'rnatilmagan bo'lsa)
     detector, recognizer = get_ai_models()
     if detector is None or recognizer is None:
         return _extract_face_embedding_fallback(img, recognizer=recognizer, allow_portrait_fallback=allow_portrait_fallback)
@@ -344,9 +515,8 @@ def extract_face_embedding(image_source, allow_portrait_fallback: bool = False):
 
 def _extract_face_embedding_fallback(img, recognizer=None, allow_portrait_fallback: bool = False):
     """
-    OpenCV Haar Cascade / face_recognition (dlib) zaxira detektori va SFace fallback.
-    Agar SFace recognizer mavjud bo'lsa, har doim SFace 128-D biometrik vektorini chiqaradi
-    (kamera kadrlaridagi SFace vektorlari bilan 100% mos bo'lishi uchun).
+    OpenCV Haar Cascade zaxira detektori va DeepFace / SFace fallback
+    (eskirgan face_recognition / dlib kutubxonasisiz).
     """
     try:
         h, w = img.shape[:2]
@@ -369,25 +539,6 @@ def _extract_face_embedding_fallback(img, recognizer=None, allow_portrait_fallba
                     faces = detected
                     break
 
-        # 2. Agar face_recognition (dlib) kutubxonasi o'rnatilgan bo'lsa va Haar topa olmagan bo'lsa
-        if len(faces) == 0 and HAS_FACE_RECOGNITION and fr_lib is not None:
-            try:
-                rgb_img = np.ascontiguousarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-                locs = fr_lib.face_locations(rgb_img, model='hog')
-                if locs:
-                    top, right, bottom, left = locs[0]
-                    faces = [(left, top, max(1, right - left), max(1, bottom - top))]
-                    if recognizer is None:
-                        encs = fr_lib.face_encodings(rgb_img, known_face_locations=[locs[0]])
-                        if encs:
-                            vec = np.asarray(encs[0], dtype=np.float32).reshape(1, 128)
-                            norm = np.linalg.norm(vec)
-                            if norm > 0:
-                                vec = vec / norm
-                            return vec, faces[0], 0.85
-            except Exception:
-                pass
-
         if len(faces) > 0:
             x, y, fw, fh = max(faces, key=lambda f: f[2] * f[3])
             face_crop = img[max(0, y):min(h, y + fh), max(0, x):min(w, x + fw)]
@@ -402,13 +553,32 @@ def _extract_face_embedding_fallback(img, recognizer=None, allow_portrait_fallba
         else:
             return None, None, 0.0
 
+        # Agar DeepFace mavjud bo'lsa, kesib olingan yuzdan DeepFace.represent() orqali vektor olamiz
+        if HAS_DEEPFACE and DeepFace is not None:
+            try:
+                reps = DeepFace.represent(
+                    img_path=face_crop,
+                    model_name=DEEPFACE_MODEL_NAME,
+                    detector_backend='skip',
+                    enforce_detection=False,
+                    align=False,
+                )
+                if reps and reps[0].get('embedding'):
+                    vec = np.asarray(reps[0]['embedding'], dtype=np.float32).reshape(1, -1)
+                    norm = np.linalg.norm(vec)
+                    if norm > 0:
+                        vec = vec / norm
+                    return vec, (x, y, fw, fh), conf
+            except Exception:
+                pass
+
         if recognizer is not None:
             aligned = cv2.resize(face_crop, (112, 112), interpolation=cv2.INTER_AREA)
             feature = recognizer.feature(aligned).astype(np.float32)
             norm = np.linalg.norm(feature)
             if norm > 0:
                 feature = feature / norm
-            return feature.reshape(1, 128), (x, y, fw, fh), conf
+            return feature.reshape(1, -1), (x, y, fw, fh), conf
 
         roi_gray = cv2.cvtColor(face_crop, cv2.COLOR_BGR2GRAY)
         resized = cv2.resize(roi_gray, (16, 8), interpolation=cv2.INTER_AREA).flatten().astype(np.float32)
@@ -430,12 +600,12 @@ def extract_face_roi(image_source):
 
 
 # ─────────────────────────────────────────────────────────────
-# 5. VEKTORLARNI TAQQOSLASH (Cosine Similarity)
+# 5. DEEPFACE VEKTORLARNI TAQQOSLASH (Cosine Similarity & DeepFace.verify)
 # ─────────────────────────────────────────────────────────────
 
 def compare_embeddings(feat1, feat2) -> tuple[float, bool, float]:
     """
-    Ikki 128-o'lchamli yuz vektorini solishtiradi.
+    Ikki yuz embedding vektorini (DeepFace Facenet 128-D, VGG-Face 4096-D yoki SFace 128-D) solishtiradi.
     Natija: (similarity_score: 0.0..100.0, is_match: bool, face_distance: 0.0..1.0)
     """
     if feat1 is None or feat2 is None:
@@ -445,6 +615,11 @@ def compare_embeddings(feat1, feat2) -> tuple[float, bool, float]:
         f1 = np.asarray(feat1, dtype=np.float32).reshape(1, -1)
         f2 = np.asarray(feat2, dtype=np.float32).reshape(1, -1)
 
+        # Agar ikki vektorning o'lchami har xil bo'lsa (masalan, eski 128-D va yangi 4096-D VGG-Face),
+        # mos emas deb qaytaramiz (shunda tizim avtomatik force_refresh=True bilan yangilaydi)
+        if f1.shape[1] != f2.shape[1]:
+            return 0.0, False, 1.0
+
         # Normallashtirish
         n1 = np.linalg.norm(f1)
         n2 = np.linalg.norm(f2)
@@ -453,26 +628,24 @@ def compare_embeddings(feat1, feat2) -> tuple[float, bool, float]:
         if n2 > 0:
             f2 = f2 / n2
 
-        # Kosinus o'xshashligi: dot product [-1.0 .. 1.0]
+        # Kosinus o'xshashligi: dot product [-1.0 .. 1.0] va Cosine Distance = 1 - cos_sim
         cos_sim = float(np.dot(f1, f2.T)[0, 0])
+        face_distance = max(0.0, float(1.0 - cos_sim))
 
-        # SFace modelining verifikatsiya chegarasi:
-        # Profilga yuklangan rasm va jonli veb-kamera kadri orasidagi kosinus o'xshashligi
-        # haqiqiy xodim uchun odatda 0.28 .. 0.90 oralig'ida bo'ladi, begona shaxslar uchun < 0.20.
-        MATCH_THRESHOLD = 0.280
+        max_dist_threshold = get_cosine_distance_threshold(dim=f1.shape[1])
+        min_cos_threshold = 1.0 - max_dist_threshold
 
-        if cos_sim >= MATCH_THRESHOLD:
-            # 0.280 -> 65.0%, 0.800 -> 98.5%
-            pct = 65.0 + ((cos_sim - MATCH_THRESHOLD) / (0.800 - MATCH_THRESHOLD)) * 33.5
+        if face_distance <= max_dist_threshold and cos_sim >= min_cos_threshold:
+            ratio = (cos_sim - min_cos_threshold) / max(0.01, (0.85 - min_cos_threshold))
+            pct = 65.0 + ratio * 33.5
             score = round(min(99.9, max(65.0, pct)), 1)
             is_match = True
         else:
-            pct = max(0.0, (cos_sim / MATCH_THRESHOLD) * 58.0)
+            pct = max(0.0, ( max(0.0, cos_sim) / max(0.01, min_cos_threshold) ) * 58.0)
             score = round(min(58.0, pct), 1)
             is_match = False
 
-        face_distance = round(max(0.0, float(1.0 - cos_sim)), 3)
-        return score, is_match, face_distance
+        return score, is_match, round(face_distance, 3)
 
     except Exception as e:
         print(f"Compare embeddings error: {e}")
@@ -481,9 +654,12 @@ def compare_embeddings(feat1, feat2) -> tuple[float, bool, float]:
 
 def compare_two_faces(ref_img_source, scan_img_source) -> tuple[float, bool, float]:
     """
-    Ikki rasm manbasini to'g'ridan-to'g'ri AI orqali solishtirish (orqaga moslik uchun).
+    Ikki rasm manbasini DeepFace.verify() (yoki DeepFace.represent() embeddinglari) orqali solishtirish.
     Natija: (similarity_score: 0..100, is_match: bool, face_distance: 0.0..1.0)
     """
+    if HAS_DEEPFACE and DeepFace is not None:
+        return verify_faces_deepface(ref_img_source, scan_img_source)
+
     feat1, _, _ = extract_face_embedding(ref_img_source, allow_portrait_fallback=True)
     feat2, _, _ = extract_face_embedding(scan_img_source, allow_portrait_fallback=False)
 
@@ -617,20 +793,21 @@ _SERVER_EMBEDDINGS_SYNCED = False
 
 def _is_valid_neural_embedding(arr) -> bool:
     """
-    Bazadagi 128-o'lchamli vektor haqiqiy neyron tarmoq (SFace / dlib) vektori ekanligini tekshiradi.
-    Eski 16x8 piksel vektorlarida barcha qiymatlar >= 0 bo'lgan; haqiqiy embeddingda manfiy qiymatlar ham bo'ladi.
+    Bazadagi vektor haqiqiy neyron tarmoq (DeepFace Facenet / VGG-Face yoki SFace)
+    embedding vektori ekanligini va joriy model o'lchamiga mosligini tekshiradi.
     """
     if arr is None or np is None:
         return False
     try:
         flat = np.asarray(arr, dtype=np.float32).flatten()
-        if flat.size != 128:
+        expected_dim = get_expected_embedding_dim()
+        if flat.size != expected_dim:
             return False
         if not np.all(np.isfinite(flat)):
             return False
-        # Agar barcha qiymatlar >= 0 bo'lsa, bu eski 16x8 piksel massivi — qayta generatsiya qilish shart
+        # Agar barcha qiymatlar >= 0 bo'lsa (masalan, eski 16x8 piksel massivi), qayta generatsiya qilish shart
         _, recognizer = get_ai_models()
-        if (recognizer is not None or HAS_FACE_RECOGNITION) and float(np.min(flat)) >= 0.0:
+        if (HAS_DEEPFACE or recognizer is not None) and float(np.min(flat)) >= 0.0 and expected_dim == 128:
             return False
         return float(np.linalg.norm(flat)) > 0.01
     except Exception:
@@ -639,9 +816,10 @@ def _is_valid_neural_embedding(arr) -> bool:
 
 def get_or_create_face_embedding(user_or_staff, force_refresh: bool = False):
     """
-    Xodimning (`user.teacher_profile` yoki `user.manager_profile`) Face ID biometrik shablonini (128-D vektor) o'qiydi.
+    Xodimning (`user.teacher_profile` yoki `user.manager_profile`) Face ID biometrik shablonini
+    (DeepFace Facenet / VGG-Face formatida) o'qiydi.
     Agar xodim profilida rasm (`photo`) biriktirilgan bo'lsa-yu, lekin `face_embedding` bo'sh yoki
-    eski formatda bo'lsa, uni AVTOMATIK tarzda generatsiya qilib profilning `face_embedding` maydoniga bog'laydi.
+    boshqa model formatida bo'lsa, uni DeepFace.represent() orqali AVTOMATIK generatsiya qilib saqlaydi.
     """
     staff_obj, photo_field, raw_emb = get_user_face_data(user_or_staff)
     if not staff_obj or not isinstance(staff_obj, (Teacher, Manager)) or not HAS_OPENCV or np is None:
@@ -650,18 +828,18 @@ def get_or_create_face_embedding(user_or_staff, force_refresh: bool = False):
     # 1. Agar force_refresh so'ralmagan bo'lsa, profilning tayyor face_embedding shablonini o'qiymiz va tekshiramiz
     if not force_refresh and raw_emb and len(raw_emb) > 20:
         try:
-            arr = np.array(json.loads(raw_emb), dtype=np.float32).reshape(1, 128)
+            arr = np.array(json.loads(raw_emb), dtype=np.float32).reshape(1, -1)
             if _is_valid_neural_embedding(arr):
                 return arr
         except Exception:
             pass
 
-    # 2. Bazada shablon yo'q, eskirgan yoki yangilash kerak bo'lsa -> rasmdan avtomatik bog'laymiz
+    # 2. Bazada shablon yo'q, eskirgan yoki yangilash kerak bo'lsa -> rasmdan DeepFace orqali avtomatik bog'laymiz
     if photo_field and sync_staff_face_embedding(staff_obj):
         raw_emb = getattr(staff_obj, 'face_embedding', None)
         if raw_emb and len(raw_emb) > 20:
             try:
-                return np.array(json.loads(raw_emb), dtype=np.float32).reshape(1, 128)
+                return np.array(json.loads(raw_emb), dtype=np.float32).reshape(1, -1)
             except Exception:
                 pass
 
@@ -1015,6 +1193,14 @@ def process_face_check_in(user: CustomUser, scan_file, lat=None, lon=None, bypas
             refreshed_feat = get_or_create_face_embedding(staff, force_refresh=True)
             if refreshed_feat is not None:
                 match_score, is_match, face_distance = compare_embeddings(refreshed_feat, scan_feat)
+
+        # Agar hali ham mos kelmasa va DeepFace o'rnatilgan bo'lsa, DeepFace.verify() bilan to'g'ridan-to'g'ri tekshiramiz
+        if (not is_match or match_score < 60.0) and staff_photo and HAS_DEEPFACE:
+            photo_src = _resolve_photo_source(staff)
+            if photo_src:
+                v_score, v_match, v_dist = verify_faces_deepface(photo_src, scan_file)
+                if v_match and v_score >= 60.0:
+                    match_score, is_match, face_distance = v_score, v_match, v_dist
 
         if not is_match or match_score < 60.0:
             return {
