@@ -13,6 +13,7 @@ from decimal import Decimal
 
 import openpyxl
 from django.contrib import messages
+from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.core.files.base import ContentFile
 from django.db.models import Count, Q, Sum
@@ -626,6 +627,17 @@ def face_id_verify_api(request):
             'message': "Tasvir topilmadi! Iltimos, kamera kadrini tekshiring.",
         }, status=200)
 
+    # 1. Kadrda yuz bor-yo'qligini darhol tekshiramiz
+    scan_feat, _, _ = extract_face_embedding(scan_file, allow_portrait_fallback=False)
+    if scan_feat is None:
+        return JsonResponse({
+            'success': False,
+            'is_face_error': True,
+            'detected': False,
+            'error_type': 'no_face',
+            'message': "Yuz topilmadi",
+        }, status=200)
+
     target_user = None
     similarity_score = 0.0
 
@@ -646,18 +658,35 @@ def face_id_verify_api(request):
                 return JsonResponse({
                     'success': False,
                     'is_face_error': True,
-                    'message': "Face ID faqat markaz xodimlari (o'qituvchi va menejerlar) uchun mo'ljallangan!",
+                    'detected': True,
+                    'error_type': 'unknown_face',
+                    'message': "Begona yuz aniqlandi",
                 }, status=200)
 
-            # Agar sessiyadagi foydalanuvchi admin bo'lsa (uning teacher_profile/manager_profile yo'q),
-            # kadrda qaysi o'qituvchi yoki menejer turganini bazadan avtomatik qidirib ko'ramiz
-            if getattr(target_user, 'role', '') == 'admin' and not get_user_staff_profile(target_user):
+            # Agar sessiyadagi foydalanuvchi admin bo'lsa yoki kadrdagi yuz ushbu foydalanuvchiga mos kelmasa,
+            # bazadagi barcha xodimlar (user.teacher_profile va user.manager_profile) orasidan qidiramiz
+            staff_prof = get_user_staff_profile(target_user)
+            if not staff_prof:
                 match = match_staff_by_face(scan_file)
                 if match:
                     _, matched_staff, similarity_score, _ = match
                     target_user = matched_staff.user
+                else:
+                    return JsonResponse({
+                        'success': False,
+                        'is_face_error': True,
+                        'detected': True,
+                        'error_type': 'unknown_face',
+                        'message': "Begona yuz aniqlandi",
+                    }, status=200)
         except Exception:
-            return JsonResponse({'success': False, 'message': "Tanlangan xodim topilmadi."}, status=200)
+            return JsonResponse({
+                'success': False,
+                'is_face_error': True,
+                'detected': True,
+                'error_type': 'unknown_face',
+                'message': "Begona yuz aniqlandi",
+            }, status=200)
     else:
         try:
             match = match_staff_by_face(scan_file)
@@ -668,13 +697,12 @@ def face_id_verify_api(request):
             print(f"match_staff_by_face error: {e}")
 
     req_user = getattr(request, 'user', None)
-    if not target_user and req_user and req_user.is_authenticated and getattr(req_user, 'role', '') in ('manager', 'teacher', 'admin'):
+    if not target_user and req_user and req_user.is_authenticated and getattr(req_user, 'role', '') in ('manager', 'teacher'):
         staff_obj = get_user_staff_profile(req_user)
         if staff_obj:
             try:
                 staff_feat = get_or_create_face_embedding(staff_obj)
-                scan_feat, _, _ = extract_face_embedding(scan_file, allow_portrait_fallback=False)
-                if staff_feat is not None and scan_feat is not None:
+                if staff_feat is not None:
                     score, is_match, _ = compare_embeddings(staff_feat, scan_feat)
                     if is_match and score >= 60.0:
                         target_user, similarity_score = req_user, score
@@ -682,30 +710,48 @@ def face_id_verify_api(request):
                 print(f"req_user embedding match error: {e}")
 
     if not target_user:
-        # Kadrda umuman yuz bormi yoki bazadagi shablonlarga mos kelmadimi — tushunarli xabar beramiz
-        scan_feat, _, _ = extract_face_embedding(scan_file, allow_portrait_fallback=False)
-        if scan_feat is None:
-            msg = "Kamera kadrida yuz aniqlanmadi! Iltimos, yorug'likni tekshiring va kameraga to'g'ri qarang."
-        else:
-            msg = "Yuz tanilmadi! Tizimda ushbu yuzga mos keluvchi xodim shabloni topilmadi."
         return JsonResponse({
             'success': False,
             'is_face_error': True,
-            'detected': scan_feat is not None,
-            'message': msg,
+            'detected': True,
+            'error_type': 'unknown_face',
+            'message': "Begona yuz aniqlandi",
         }, status=200)
 
     try:
         res = process_face_check_in(user=target_user, scan_file=scan_file, lat=lat, lon=lon, bypass_geo=bypass_geo)
+        # Agar tanlangan foydalanuvchiga mos kelmagan bo'lsa, bazadagi boshqa xodimlardan ham tekshirib ko'ramiz
+        if not res.get('success') and res.get('is_face_error') and user_id:
+            match = match_staff_by_face(scan_file)
+            if match:
+                _, matched_staff, similarity_score, _ = match
+                target_user = matched_staff.user
+                res = process_face_check_in(user=target_user, scan_file=scan_file, lat=lat, lon=lon, bypass_geo=bypass_geo)
+
         if similarity_score > 0 and 'match_score' not in res:
             res['match_score'] = similarity_score
 
-        staff_obj, staff_photo, _ = get_user_face_data(target_user)
-        if staff_obj and staff_photo:
-            try:
-                res['photo_url'] = staff_photo.url
-            except Exception:
-                pass
+        if res.get('success'):
+            staff_obj, staff_photo, _ = get_user_face_data(target_user)
+            if staff_obj and staff_photo:
+                try:
+                    res['photo_url'] = staff_photo.url
+                except Exception:
+                    pass
+
+            # Kechki payt yoki istalgan vaqtda Face ID orqali tizimga kirish (login) imkoniyati
+            if not is_kiosk and getattr(target_user, 'role', '') in ('teacher', 'manager'):
+                if not getattr(request, 'user', None) or not request.user.is_authenticated:
+                    try:
+                        login(request, target_user)
+                    except Exception:
+                        pass
+                if target_user.role == 'teacher':
+                    t_prof = get_user_staff_profile(target_user)
+                    res['redirect_url'] = '/teacher/dashboard/' if (t_prof and t_prof.groups.exists()) else '/staff/my-logs/'
+                elif target_user.role == 'manager':
+                    res['redirect_url'] = '/manager/dashboard/'
+
         return JsonResponse(res)
     except Exception as e:
         print(f"process_face_check_in error: {e}")

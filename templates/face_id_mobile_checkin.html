@@ -14,19 +14,25 @@
             <p class="text-muted small mb-3">Markaz binosi hududida bo'lsangiz, yuzingiz orqali kelish yoki ketishni qayd eting</p>
 
             <!-- Video Kamera Viewfinder (Hud Oval Guide) -->
-            <div class="position-relative mx-auto mb-3" style="max-width:320px; aspect-ratio:1/1; border-radius:32px; overflow:hidden; background:#0f172a; box-shadow:0 12px 32px rgba(0,0,0,0.18);">
-                <video id="mobVideoFeed" autoplay playsinline muted style="width:100%; height:100%; object-fit:cover;"></video>
+            <div id="mobCamFrame" class="position-relative mx-auto mb-3" style="max-width:320px; aspect-ratio:1/1; border-radius:32px; overflow:hidden; background:#0f172a; box-shadow:0 12px 32px rgba(0,0,0,0.18); border: 3px solid #06b6d4; transition: all 0.3s ease;">
+                <video id="mobVideoFeed" autoplay playsinline muted style="width:100%; height:100%; object-fit:cover; transform: scaleX(-1);"></video>
                 <canvas id="mobCanvas" style="display:none;"></canvas>
 
                 <!-- Oval Yuz Qo'llanmasi (Oval Face Guide) -->
-                <div style="position:absolute; inset:12%; border:2.5px dashed rgba(6,182,212,0.85); border-radius:50%; pointer-events:none; box-shadow:0 0 25px rgba(6,182,212,0.35);"></div>
+                <div id="mobFaceOval" style="position:absolute; inset:12%; border:2.5px dashed rgba(6,182,212,0.85); border-radius:50%; pointer-events:none; box-shadow:0 0 25px rgba(6,182,212,0.35); transition: all 0.3s ease;"></div>
 
                 <!-- Lazer skaner animatsiyasi -->
-                <div id="scanLaser" style="position:absolute; left:0; right:0; height:3px; background:linear-gradient(90deg, transparent, #06b6d4, #3b82f6, transparent); box-shadow:0 0 14px #06b6d4; display:none; animation: laserMove 2s infinite linear;"></div>
+                <div id="scanLaser" style="position:absolute; left:0; right:0; height:3px; background:linear-gradient(90deg, transparent, #06b6d4, #3b82f6, transparent); box-shadow:0 0 14px #06b6d4; display:block; animation: laserMove 2s infinite linear;"></div>
 
                 <!-- Kamera yuklanmoqda -->
                 <div id="camLoading" class="position-absolute top-50 start-50 translate-middle text-white small">
                     <span class="spinner-border spinner-border-sm me-1 text-info"></span> Kamera yoqilmoqda...
+                </div>
+
+                <!-- Avto-skaner jonli holat yozuvi -->
+                <div id="liveScanBadge" class="position-absolute bottom-0 start-50 translate-middle-x mb-2 px-3 py-1 rounded-pill fw-bold small text-white"
+                     style="background: rgba(15, 23, 42, 0.82); backdrop-filter: blur(6px); font-size: 0.78rem; white-space: nowrap;">
+                    <i class="bi bi-broadcast text-info me-1"></i>Avto-skaner: har 3 soniyada
                 </div>
             </div>
 
@@ -87,18 +93,36 @@ const geoStatusBadge = document.getElementById('geoStatusBadge');
 const geoDetails = document.getElementById('geoDetails');
 const camLoading = document.getElementById('camLoading');
 const scanLaser = document.getElementById('scanLaser');
+const mobCamFrame = document.getElementById('mobCamFrame');
+const mobFaceOval = document.getElementById('mobFaceOval');
+const liveScanBadge = document.getElementById('liveScanBadge');
 
 let currentCoords = null;
 let mediaStream = null;
+let autoScanTimer = null;
+let isScanning = false;
+let cooldownUntil = 0;
+const AUTO_SCAN_INTERVAL_MS = 3000; // Har 3 sekundda avtomatik skanerlash
 const GPS_TIMEOUT_MS = 3500; // 3.5 soniya qat'iy GPS vaqt chegarasi
 
 // ══════════════════════════════════════════════════════════════
-// 1. KAMERANI DARHOL VA MUSTAQIL ISHGA TUSHIRISH (PARALLEL)
+// 1. KAMERANI DOIMIY OCHIQ TUTISH VA AVTO-SKANERNI BOSHLASH
 // ══════════════════════════════════════════════════════════════
 function hideCameraLoading() {
     if (camLoading) {
         camLoading.style.display = 'none';
     }
+    startAutoScanLoop();
+}
+
+function startAutoScanLoop() {
+    if (autoScanTimer) return;
+    // Har 3 sekundda (3000 ms) kadrdagi yuzni avtomatik skaner qilish
+    autoScanTimer = setInterval(() => {
+        if (isScanning || Date.now() < cooldownUntil) return;
+        if (!mobVideo || mobVideo.paused || mobVideo.readyState < 2 || !mobVideo.videoWidth) return;
+        startCheckInProcess(true);
+    }, AUTO_SCAN_INTERVAL_MS);
 }
 
 async function initCamera() {
@@ -263,20 +287,28 @@ initCamera();
 checkBackgroundLocation();
 
 // ══════════════════════════════════════════════════════════════
-// 6. DAVOMATNI QAYD ETISH TUGMASI BOSILGANDA (NON-BLOCKING WORKFLOW)
+// 6. HAR 3 SEKUNDDA AVTOMATIK SKANERLASH VA DAVOMATNI QAYD ETISH
 // ══════════════════════════════════════════════════════════════
-async function startCheckInProcess() {
-    mobAlert.classList.add('d-none');
+async function startCheckInProcess(isAuto = false) {
+    if (isScanning) return;
 
     // 1-QADAM: KADRNI TEZKOR SURATGA OLISH (SNAPSHOT)
     if (!mobVideo.videoWidth) {
-        showAlert('danger', 'Kamera kadrini olib bo\'lmadi. Sahifani yangilang yoki kameraga ruxsat bering.');
+        if (!isAuto) {
+            showAlert('danger', 'Kamera kadrini olib bo\'lmadi. Sahifani yangilang yoki kameraga ruxsat bering.');
+        }
         return;
     }
 
+    isScanning = true;
     scanLaser.style.display = 'block';
-    mobCheckInBtn.disabled = true;
-    mobCheckInBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span> Yuz tahlil qilinmoqda...';
+    if (liveScanBadge) {
+        liveScanBadge.innerHTML = '<span class="spinner-border spinner-border-sm text-info me-1" style="width:0.75rem;height:0.75rem;"></span> Yuz tekshirilmoqda...';
+    }
+    if (!isAuto) {
+        mobCheckInBtn.disabled = true;
+        mobCheckInBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span> Yuz tahlil qilinmoqda...';
+    }
 
     mobCanvas.width = 480;
     mobCanvas.height = Math.round(480 * (mobVideo.videoHeight / mobVideo.videoWidth));
@@ -287,26 +319,13 @@ async function startCheckInProcess() {
     // 2-QADAM: KOORDINATALARNI TEKSHIRISH (NON-BLOCKING)
     let lat = currentCoords ? currentCoords.latitude : null;
     let lon = currentCoords ? currentCoords.longitude : null;
-    let bypassGeo = false;
-
-    // Agar GPS koordinatalari hali olinmagan bo'lsa, juda tez (1.5s) urinib ko'rish
-    if (IS_GEOFENCING_ENABLED && (!lat || !lon)) {
-        const quickPos = await getFreshGPSPosition(1500);
-        if (quickPos.success && quickPos.coords) {
-            currentCoords = quickPos.coords;
-            lat = currentCoords.latitude;
-            lon = currentCoords.longitude;
-        } else {
-            // Bino ichida GPS olinmasa, bloklab qo'ymasdan davom etish
-            bypassGeo = true;
-        }
-    }
+    let bypassGeo = (!lat || !lon);
 
     // Agar koordinatalar aniqlangan bo'lsa va chegara masofasidan katta bo'lsa:
     if (lat && lon && IS_GEOFENCING_ENABLED) {
         const dist = calculateHaversineMeters(lat, lon, CENTER_LAT, CENTER_LON);
         if (dist > ALLOWED_RADIUS) {
-            scanLaser.style.display = 'none';
+            isScanning = false;
             mobCheckInBtn.disabled = false;
             mobCheckInBtn.innerHTML = '<i class="bi bi-camera-fill me-2"></i> Davomatni Qayd Etish';
 
@@ -344,14 +363,25 @@ async function startCheckInProcess() {
         } catch(e) {
             res = { success: false, message: `Server javobida xatolik (HTTP ${resp.status})` };
         }
-        scanLaser.style.display = 'none';
+        isScanning = false;
         mobCheckInBtn.disabled = false;
         mobCheckInBtn.innerHTML = '<i class="bi bi-camera-fill me-2"></i> Davomatni Qayd Etish';
 
         if (res.success) {
+            // Muvaffaqiyatli tanilganda 6 soniya tanaffus beramiz, kamera ochiq qoladi
+            cooldownUntil = Date.now() + 6000;
+            if (mobCamFrame) mobCamFrame.style.borderColor = '#10b981';
+            if (mobFaceOval) mobFaceOval.style.borderColor = 'rgba(16, 185, 129, 0.9)';
+            if (liveScanBadge) {
+                liveScanBadge.innerHTML = '<i class="bi bi-check-circle-fill text-success me-1"></i> Yuz tasdiqlandi!';
+            }
+
             const isAlready = (res.action_type === 'already_checked_in' || res.action_type === 'already_checked_out');
             const alertClass = isAlready ? 'info' : 'success';
             const actionLabel = res.action_type === 'ketish' ? 'Ishdan ketish 👋' : (isAlready ? 'Allaqachon qayd etilgan ✅' : 'Ishga kelish 🏢');
+            const panelLink = res.redirect_url
+                ? `<div class="mt-2"><a href="${res.redirect_url}" class="btn btn-sm btn-success rounded-pill px-3 fw-bold"><i class="bi bi-box-arrow-in-right me-1"></i> Kabinetga o'tish</a></div>`
+                : '';
 
             showAlert(
                 alertClass,
@@ -360,28 +390,42 @@ async function startCheckInProcess() {
                 `<b>Amal:</b> ${actionLabel}<br>` +
                 `<b>Vaqt:</b> ${res.check_in_time || res.check_out_time || 'Hozir'}<br>` +
                 `${res.is_late && res.action_type === 'kelish' ? `<span class="text-danger fw-bold">⚠ Kechikish: +${res.late_minutes} daqiqa (Jarima: -${res.fine_percent}% | ${Number(res.fine_amount).toLocaleString()} so'm)</span><br>` : ''}` +
-                `<small class="text-muted">AI Aniqlik: ${res.match_score || 95}% ${res.distance ? '· Masofa: ' + Math.round(res.distance) + 'm' : ''}</small>`
+                `<small class="text-muted">AI Aniqlik: ${res.match_score || 95}% ${res.distance ? '· Masofa: ' + Math.round(res.distance) + 'm' : ''}</small>` +
+                panelLink
             );
         } else {
+            // QIZIL RANGDA XATOLIK KO'RSATISH ("Begona yuz aniqlandi" yoki "Yuz topilmadi")
+            if (mobCamFrame) mobCamFrame.style.borderColor = '#dc2626';
+            if (mobFaceOval) mobFaceOval.style.borderColor = 'rgba(220, 38, 38, 0.9)';
+
             if (res.is_geo_error) {
+                if (liveScanBadge) {
+                    liveScanBadge.innerHTML = '<span style="color:#ff6b6b;"><i class="bi bi-geo-alt-fill me-1"></i>Hududdan tashqarida</span>';
+                }
                 showAlert(
                     'danger',
-                    `<b>Geolokatsiya xatoligi! ⛔</b><br>${res.message}`
-                );
-            } else if (res.is_face_error) {
-                showAlert(
-                    'warning',
-                    `<b>Yuz aniqlanmadi! 👤</b><br>${res.message}`
+                    `<b class="text-danger">Geolokatsiya xatoligi! ⛔</b><br>${res.message}`
                 );
             } else {
-                showAlert('danger', `<b>Xatolik!</b><br>${res.message}`);
+                const redMsg = (res.detected === false || res.error_type === 'no_face')
+                    ? "Yuz topilmadi"
+                    : "Begona yuz aniqlandi";
+                if (liveScanBadge) {
+                    liveScanBadge.innerHTML = `<span style="color:#ff4d4f; font-weight:800;"><i class="bi bi-exclamation-triangle-fill me-1"></i>${redMsg}</span>`;
+                }
+                showAlert(
+                    'danger',
+                    `<div class="fw-black text-center fs-6" style="color:#dc2626;"><i class="bi bi-exclamation-octagon-fill me-1"></i>${redMsg}</div>`
+                );
             }
         }
     } catch (err) {
-        scanLaser.style.display = 'none';
+        isScanning = false;
         mobCheckInBtn.disabled = false;
         mobCheckInBtn.innerHTML = '<i class="bi bi-camera-fill me-2"></i> Davomatni Qayd Etish';
-        showAlert('danger', `<b>Tarmoq xatoligi:</b> ${err.message}`);
+        if (!isAuto) {
+            showAlert('danger', `<b>Tarmoq xatoligi:</b> ${err.message}`);
+        }
     }
 }
 

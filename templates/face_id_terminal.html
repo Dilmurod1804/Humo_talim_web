@@ -823,7 +823,7 @@
     let autoScanEnabled = true;
     let lastScanTime = 0;
     let activeMediaStream = null;
-    const SCAN_INTERVAL_MS = 1200; // Har 1.2 soniyada bir kadr tahlil qilinadi (Hands-free)
+    const SCAN_INTERVAL_MS = 3000; // Har 3 soniyada bir kadr avtomatik tahlil qilinadi (Hands-free)
     const COOLDOWN_DURATION_MS = 3600; // Muvaffaqiyatdan so'ng 3.6 soniya kutish
 
     // ══════ SMART BACK NAVIGATION ══════
@@ -1346,11 +1346,14 @@
             if (data.success) {
                 handleRecognitionSuccess(data);
             } else {
-                handleRecognitionNoMatch(data.message || "Yuz aniqlanmadi");
+                const errText = (data.detected === false || data.error_type === 'no_face')
+                    ? "Yuz topilmadi"
+                    : "Begona yuz aniqlandi";
+                handleRecognitionNoMatch(errText, data);
             }
         } catch (err) {
             console.error("Face ID API tarmoq yoki fetch xatoligi:", err);
-            handleRecognitionNoMatch("Tarmoq xatoligi");
+            handleRecognitionNoMatch("Yuz topilmadi");
         }
     }
 
@@ -1461,12 +1464,13 @@
         }, COOLDOWN_DURATION_MS);
     }
 
-    function handleRecognitionNoMatch() {
+    function handleRecognitionNoMatch(msg = "Yuz topilmadi") {
         if (scannerState === 'SUCCESS' || scannerState === 'LATE') return;
 
-        cameraFrame.className = 'kiosk-camera-frame state-idle';
-        statusDot.style.background = "var(--kiosk-cyan)";
-        statusText.textContent = "Yuz kutilmoqda (Hands-free)";
+        cameraFrame.className = 'kiosk-camera-frame state-error';
+        statusDot.style.background = "var(--kiosk-rose)";
+        statusText.style.color = "#ff4d6d";
+        statusText.textContent = msg;
         scannerState = 'IDLE';
     }
 
@@ -1474,6 +1478,7 @@
         resultOverlay.classList.remove('active');
         cameraFrame.className = 'kiosk-camera-frame state-idle';
         statusDot.style.background = "var(--kiosk-cyan)";
+        statusText.style.color = "";
         statusText.textContent = "Yuz kutilmoqda (Hands-free)";
         scannerState = 'IDLE';
         lastScanTime = Date.now();

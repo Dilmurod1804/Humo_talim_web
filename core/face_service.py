@@ -727,7 +727,9 @@ def process_face_check_in(user: CustomUser, scan_file, lat=None, lon=None, bypas
         return {
             'success': False,
             'is_face_error': True,
-            'message': "Kadrda yuz aniqlanmadi! Iltimos, kameraga to'g'ri va yaqinroq qarang."
+            'detected': False,
+            'error_type': 'no_face',
+            'message': "Yuz topilmadi"
         }
 
     match_score = 0.0
@@ -750,43 +752,47 @@ def process_face_check_in(user: CustomUser, scan_file, lat=None, lon=None, bypas
             return {
                 'success': False,
                 'is_face_error': True,
+                'detected': True,
+                'error_type': 'unknown_face',
                 'match_score': match_score,
                 'face_distance': face_distance,
-                'message': f"Yuz tanilmadi (O'xshashlik: {match_score}%). Tizimda sizning Face ID shabloningizga mos kelmadi."
+                'message': "Begona yuz aniqlandi"
             }
     elif getattr(user, 'role', '') == 'admin' or getattr(user, 'is_superuser', False):
         match_score = 85.0
         face_distance = 0.15
     else:
-        has_photo_attr = bool(staff_photo)
         return {
             'success': False,
             'is_face_error': True,
-            'message': (
-                "Profilingizdagi rasm fayli serverdan topilmadi yoki o'qib bo'lmadi. Iltimos, Face ID bo'limidan rasmni qayta yuklang."
-                if has_photo_attr else
-                "Sizning profilingizga Face ID uchun yuz rasmi biriktirilmagan! Iltimos, admin orqali yuz rasmingizni biriktiring."
-            )
+            'detected': True,
+            'error_type': 'unknown_face',
+            'message': "Begona yuz aniqlandi"
         }
 
-    # 3. Bugungi jurnal holati (Smart Arrival / Departure)
+    # 3. Bugungi jurnal holati — VAQT CHEKLOVLARISIZ (24/7, kechki payt ham ishlaydi)
     log = FaceIDLog.objects.filter(user=user, date=today).first()
     expected_time = getattr(staff, 'work_start_time', None) or time(8, 0)
+    work_end_time = getattr(staff, 'work_end_time', None) or time(18, 0)
     action_type = "kelish"
-    is_duplicate = False
 
     if log is None:
-        # ─── 1. BIRINCHI MARTA: KELISH ──────────────────────────────────
+        # ─── 1. BIRINCHI MARTA: KELISH (yoki kechki payt Face ID orqali kirish) ───
         action_type = "kelish"
         log = FaceIDLog(user=user, date=today)
         log.check_in_time = now
 
         expected_dt = datetime.combine(today, expected_time)
         expected_dt = timezone.make_aware(expected_dt) if timezone.is_aware(now) else expected_dt
-        diff_seconds = (now - expected_dt).total_seconds()
-        salary = Decimal(str(staff.monthly_salary or 0))
+        end_dt = datetime.combine(today, work_end_time)
+        end_dt = timezone.make_aware(end_dt) if timezone.is_aware(now) else end_dt
 
-        if diff_seconds > 0:
+        diff_seconds = (now - expected_dt).total_seconds()
+        salary = Decimal(str(getattr(staff, 'monthly_salary', 0) or 0))
+
+        # Ish vaqti oralig'ida kechikib kelgan bo'lsa jarima hisoblanadi;
+        # ish vaqti tugagandan keyin (kechki payt) kirganda vaqt cheklovi va jarima qo'llanilmaydi
+        if diff_seconds > 0 and now <= end_dt:
             late_mins = int(diff_seconds // 60)
             if (diff_seconds % 60) > 0:
                 late_mins += 1
@@ -806,15 +812,13 @@ def process_face_check_in(user: CustomUser, scan_file, lat=None, lon=None, bypas
     elif log.check_in_time and not log.check_out_time:
         # ─── 2. KELISH BOR, KETISH YO'Q ─────────────────────────────────
         diff_since_check_in = (now - log.check_in_time).total_seconds()
-        # Agar xodim kelganiga 3 daqiqadan kam bo'lsa (kamerada turgan bo'lsa)
-        if diff_since_check_in < 180:
-            is_duplicate = True
-            action_type = "already_checked_in"
+        # 3 soniyalik avto-skaner ketma-ket ikki kadrda kelishni ketishga aylantirib yubormasligi uchun 5s himoya
+        if diff_since_check_in < 5:
             return {
                 'success': True,
                 'action_type': 'already_checked_in',
                 'is_duplicate': True,
-                'staff_name': getattr(staff, 'first_name', '') + " " + getattr(staff, 'last_name', ''),
+                'staff_name': f"{getattr(staff, 'first_name', '')} {getattr(staff, 'last_name', '')}".strip(),
                 'role': getattr(staff, 'role_title', 'Xodim'),
                 'check_in_time': log.check_in_time.strftime('%H:%M:%S'),
                 'is_late': log.is_late,
@@ -822,30 +826,15 @@ def process_face_check_in(user: CustomUser, scan_file, lat=None, lon=None, bypas
                 'fine_percent': float(log.fine_percent_applied),
                 'fine_amount': float(log.fine_amount_deducted),
                 'match_score': match_score,
-                'message': f"Kelishingiz allaqachon soat {log.check_in_time.strftime('%H:%M')} da qayd etilgan!"
+                'message': f"Kelishingiz soat {log.check_in_time.strftime('%H:%M')} da qayd etildi!"
             }
-        else:
-            # 3 daqiqadan ko'p o'tgan -> KETISH
-            action_type = "ketish"
-            log.check_out_time = now
+        action_type = "ketish"
+        log.check_out_time = now
 
     elif log.check_in_time and log.check_out_time:
-        # ─── 3. ALLAQACHON KETISH HAM YOZILGAN ──────────────────────────
-        diff_since_checkout = (now - log.check_out_time).total_seconds()
-        if diff_since_checkout < 120:
-            return {
-                'success': True,
-                'action_type': 'already_checked_out',
-                'is_duplicate': True,
-                'staff_name': getattr(staff, 'first_name', '') + " " + getattr(staff, 'last_name', ''),
-                'role': getattr(staff, 'role_title', 'Xodim'),
-                'check_out_time': log.check_out_time.strftime('%H:%M:%S'),
-                'match_score': match_score,
-                'message': f"Ketishingiz allaqachon soat {log.check_out_time.strftime('%H:%M')} da qayd etilgan!"
-            }
-        else:
-            action_type = "ketish"
-            log.check_out_time = now  # Eng oxirgi ketish vaqtini yangilash
+        # ─── 3. ISTALGAN VAQTDA QAYTA KIRISH / KETISH VAQTINI YANGILASH ──
+        action_type = "ketish"
+        log.check_out_time = now
     else:
         action_type = "kelish"
         log.check_in_time = now
