@@ -385,16 +385,16 @@ async function startCheckInProcess(isAuto = false) {
 
             showAlert(
                 alertClass,
-                `<b>${res.message || 'Muvaffaqiyatli qayd etildi! ✅'}</b><br>` +
-                `<b>Xodim:</b> ${res.staff_name || ''} (${res.role || 'Xodim'})<br>` +
+                `<b>${res.message || 'Xodim keldi deb belgilandi ✅'}</b><br>` +
+                `<b>Xodim:</b> ${res.employee_name || res.staff_name || ''} (${res.role || 'Xodim'})<br>` +
                 `<b>Amal:</b> ${actionLabel}<br>` +
                 `<b>Vaqt:</b> ${res.check_in_time || res.check_out_time || 'Hozir'}<br>` +
                 `${res.is_late && res.action_type === 'kelish' ? `<span class="text-danger fw-bold">⚠ Kechikish: +${res.late_minutes} daqiqa (Jarima: -${res.fine_percent}% | ${Number(res.fine_amount).toLocaleString()} so'm)</span><br>` : ''}` +
-                `<small class="text-muted">AI Aniqlik: ${res.match_score || 95}% ${res.distance ? '· Masofa: ' + Math.round(res.distance) + 'm' : ''}</small>` +
+                `<small class="text-muted">Aniqlik: ${res.match_score || 95}% ${res.distance ? '· Masofa: ' + Math.round(res.distance) + 'm' : ''}</small>` +
                 panelLink
             );
         } else {
-            // QIZIL RANGDA XATOLIK KO'RSATISH ("Begona yuz aniqlandi" yoki "Yuz topilmadi")
+            // QIZIL RANGDA XATOLIK KO'RSATISH
             if (mobCamFrame) mobCamFrame.style.borderColor = '#dc2626';
             if (mobFaceOval) mobFaceOval.style.borderColor = 'rgba(220, 38, 38, 0.9)';
 
@@ -407,9 +407,7 @@ async function startCheckInProcess(isAuto = false) {
                     `<b class="text-danger">Geolokatsiya xatoligi! ⛔</b><br>${res.message}`
                 );
             } else {
-                const redMsg = (res.detected === false || res.error_type === 'no_face')
-                    ? "Yuz topilmadi"
-                    : "Begona yuz aniqlandi";
+                const redMsg = res.message || "Yuz topilmadi yoki xodim ro'yxatda yo'q";
                 if (liveScanBadge) {
                     liveScanBadge.innerHTML = `<span style="color:#ff4d4f; font-weight:800;"><i class="bi bi-exclamation-triangle-fill me-1"></i>${redMsg}</span>`;
                 }

@@ -1346,9 +1346,7 @@
             if (data.success) {
                 handleRecognitionSuccess(data);
             } else {
-                const errText = (data.detected === false || data.error_type === 'no_face')
-                    ? "Yuz topilmadi"
-                    : "Begona yuz aniqlandi";
+                const errText = data.message || "Yuz topilmadi yoki xodim ro'yxatda yo'q";
                 handleRecognitionNoMatch(errText, data);
             }
         } catch (err) {
@@ -1432,8 +1430,9 @@
             resultActionTitle.textContent = "Kelish Qayd Etildi! ✅";
         }
 
-        resultStaffName.textContent = data.staff_name || "Xodim";
-        speakGreeting(data.staff_name || "", isLate, actionType);
+        const empName = data.employee_name || data.staff_name || "Xodim";
+        resultStaffName.textContent = empName;
+        speakGreeting(empName, isLate, actionType);
 
         // Vaqtni to'g'ri ko'rsatish
         const displayTime = isCheckout

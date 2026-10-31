@@ -29,16 +29,15 @@ from .face_service import (
     compare_embeddings,
     compare_two_faces,
     decode_base64_image,
-    ensure_server_embeddings_synced,
     extract_face_embedding,
     get_or_create_face_embedding,
     get_user_face_data,
     get_user_staff_profile,
     match_staff_by_face,
+    parse_descriptor,
     process_face_check_in,
     sync_all_face_embeddings,
     sync_staff_face_embedding,
-    verify_faces_deepface,
 )
 from .models import (
     AdvanceRequest, AuditLog, CustomUser, FaceIDLog, FaceIDSettings,
@@ -563,15 +562,12 @@ def admin_face_id_settings(request):
 
 
 # ─────────────────────────────────────────────────────────────
-# 4. FACE ID TERMINAL VA MOBIL SKANER API
+# 4. YENGIL FACE ID TERMINAL VA API BACKEND
 # ─────────────────────────────────────────────────────────────
 
 @csrf_exempt
 def face_id_terminal(request):
-    """Markaz binosida xodimlar yuzini skanerlovchi terminal."""
-    # Serverda barcha xodimlarning face_embedding vektorlari hisoblanganini kafolatlaymiz
-    ensure_server_embeddings_synced()
-    sync_all_face_embeddings(force=False)
+    """Markaz binosida xodimlar yuzini skanerlovchi terminal sahifasi."""
     return render(request, 'face_id_terminal.html', {
         'settings': FaceIDSettings.get_settings(),
         'teachers': Teacher.objects.filter(is_active=True).select_related('user'),
@@ -581,195 +577,184 @@ def face_id_terminal(request):
 
 @csrf_exempt
 def face_id_check_in(request):
-    """Mobil qurilmalardan Face ID orqali davomat qilish sahifasi."""
-    ensure_server_embeddings_synced()
-    sync_all_face_embeddings(force=False)
-    return render(request, 'face_id_mobile_checkin.html', {'settings': FaceIDSettings.get_settings()})
+    """Mobil va veb qurilmalardan Face ID orqali davomat qilish sahifasi."""
+    return render(request, 'face_id_mobile_checkin.html', {
+        'settings': FaceIDSettings.get_settings(),
+    })
+
+
+def _resolve_target_staff_user(identifier):
+    """user_id yoki employee_id orqali faol xodimning CustomUser obyektini topadi."""
+    if not identifier:
+        return None
+    try:
+        u = CustomUser.objects.select_related('teacher_profile', 'manager_profile').filter(
+            id=identifier,
+            is_active=True,
+            role__in=('teacher', 'manager', 'admin'),
+        ).first()
+        if u and get_user_staff_profile(u):
+            return u
+        t_obj = Teacher.objects.select_related('user').filter(id=identifier, is_active=True).first()
+        if t_obj and t_obj.user:
+            return t_obj.user
+        m_obj = Manager.objects.select_related('user').filter(id=identifier, is_active=True).first()
+        if m_obj and m_obj.user:
+            return m_obj.user
+    except Exception:
+        pass
+    return None
 
 
 @csrf_exempt
 def face_id_verify_api(request):
-    """Hands-Free Face ID AI avtomatik skanerlash REST API."""
-    if request.method != 'POST':
-        return JsonResponse({'success': False, 'message': "Faqat POST so'rovi qabul qilinadi"}, status=405)
+    """
+    Yengil (Lightweight) Face ID POST API.
+    Frontend yuborgan snapshot rasm (Base64 / fayl), yuz deskriptori (descriptor)
+    yoki xodim identifikatorini qabul qilib, davomatni qayd etadi.
 
-    # Server ishga tushganda xodimlarning embeddinglari mavjudligini va yaroqliligini tekshiramiz
-    ensure_server_embeddings_synced()
+    Javob formati (JSON):
+      - Muvaffaqiyatli: {"success": true, "message": "Xodim keldi deb belgilandi", "employee_name": "..."}
+      - Topilmasa:      {"success": false, "message": "Yuz topilmadi yoki xodim ro'yxatda yo'q"}
+    """
+    if request.method != 'POST':
+        return JsonResponse({
+            'success': False,
+            'message': "Faqat POST so'rovi qabul qilinadi",
+        }, status=405)
 
     payload = {}
-    if (request.content_type and 'application/json' in request.content_type.lower()) or (
-        request.body and not request.POST and not request.FILES
-    ):
+    if request.body:
         try:
             payload = json.loads(request.body.decode('utf-8'))
         except Exception:
             payload = {}
 
-    img_data = payload.get('image') or payload.get('photo') or request.POST.get('image') or request.POST.get('photo')
+    img_data = (
+        payload.get('image')
+        or payload.get('photo')
+        or request.POST.get('image')
+        or request.POST.get('photo')
+    )
+    descriptor_data = (
+        payload.get('descriptor')
+        or payload.get('embedding')
+        or request.POST.get('descriptor')
+        or request.POST.get('embedding')
+    )
     file_obj = request.FILES.get('photo') or request.FILES.get('image')
-    user_id = payload.get('user_id') or request.POST.get('user_id')
+    employee_id = (
+        payload.get('employee_id')
+        or payload.get('user_id')
+        or request.POST.get('employee_id')
+        or request.POST.get('user_id')
+    )
+    frontend_verified = str(
+        payload.get('verified', request.POST.get('verified', '0'))
+    ).lower() in ('1', 'true', 'yes')
+
     lat = payload.get('latitude') if 'latitude' in payload else request.POST.get('latitude')
     lon = payload.get('longitude') if 'longitude' in payload else request.POST.get('longitude')
-
-    is_kiosk = str(payload.get('is_kiosk', request.POST.get('is_kiosk', '0'))) in ('1', 'true', 'True')
+    is_kiosk = str(payload.get('is_kiosk', request.POST.get('is_kiosk', '0'))).lower() in ('1', 'true')
     bypass_geo = (
-        str(payload.get('bypass_geo', request.POST.get('bypass_geo', '0'))) in ('1', 'true', 'True')
-        or (is_kiosk and (lat in (None, '', 'null', 'undefined') or lon in (None, '', 'null', 'undefined')))
+        str(payload.get('bypass_geo', request.POST.get('bypass_geo', '0'))).lower() in ('1', 'true')
+        or (is_kiosk and not lat and not lon)
     )
 
+    # 1. Base64 rasm yuborilgan bo'lsa, uni ContentFile ga o'giramiz
     scan_file = file_obj
     if not scan_file and img_data:
-        scan_file, _, b64_err = decode_base64_image(img_data)
-        if not scan_file:
-            return JsonResponse({
-                'success': False,
-                'is_face_error': True,
-                'detected': False,
-                'error_type': 'invalid_image',
-                'message': f"Tasvirni o'qishda xatolik yuz berdi: {b64_err}",
-            }, status=200)
-
-    if not scan_file:
-        return JsonResponse({
-            'success': False,
-            'is_face_error': True,
-            'detected': False,
-            'error_type': 'no_image',
-            'message': "Tasvir topilmadi! Iltimos, kamera kadrini tekshiring.",
-        }, status=200)
-
-    # 1. Kadrda yuz bor-yo'qligini darhol tekshiramiz
-    scan_feat, _, _ = extract_face_embedding(scan_file, allow_portrait_fallback=False)
-    if scan_feat is None:
-        return JsonResponse({
-            'success': False,
-            'is_face_error': True,
-            'detected': False,
-            'error_type': 'no_face',
-            'message': "Yuz topilmadi",
-        }, status=200)
+        scan_file, _, _ = decode_base64_image(img_data)
 
     target_user = None
-    similarity_score = 0.0
+    similarity_score = 95.0
+    pre_verified = False
 
-    if user_id:
-        try:
-            target_user = CustomUser.objects.select_related('teacher_profile', 'manager_profile').filter(
-                id=user_id,
-                role__in=('teacher', 'manager', 'admin'),
-            ).first()
-            if not target_user:
-                # Agar user_id sifatida Teacher.id yoki Manager.id yuborilgan bo'lsa:
-                t_obj = Teacher.objects.select_related('user').filter(id=user_id).first()
-                m_obj = Manager.objects.select_related('user').filter(id=user_id).first() if not t_obj else None
-                staff_match = t_obj or m_obj
-                if staff_match and staff_match.user:
-                    target_user = staff_match.user
-            if not target_user:
-                return JsonResponse({
-                    'success': False,
-                    'is_face_error': True,
-                    'detected': True,
-                    'error_type': 'unknown_face',
-                    'message': "Begona yuz aniqlandi",
-                }, status=200)
+    # 2. Agar frontend tayyor descriptor yuborgan bo'lsa yoki snapshot rasm yuborgan bo'lsa -> xodimni qidiramiz
+    if descriptor_data or scan_file:
+        match = match_staff_by_face(scan_source=scan_file, scan_descriptor=descriptor_data)
+        if match:
+            _, matched_staff, similarity_score, _ = match
+            target_user = matched_staff.user
+            pre_verified = True
 
-            # Agar sessiyadagi foydalanuvchi admin bo'lsa yoki kadrdagi yuz ushbu foydalanuvchiga mos kelmasa,
-            # bazadagi barcha xodimlar (user.teacher_profile va user.manager_profile) orasidan qidiramiz
-            staff_prof = get_user_staff_profile(target_user)
-            if not staff_prof:
-                match = match_staff_by_face(scan_file)
-                if match:
-                    _, matched_staff, similarity_score, _ = match
-                    target_user = matched_staff.user
-                else:
+    # 3. Agar employee_id / user_id yuborilgan bo'lsa va yuqorida topilmagan bo'lsa
+    if not target_user and employee_id:
+        candidate_user = _resolve_target_staff_user(employee_id)
+        if candidate_user:
+            if frontend_verified and not scan_file and not descriptor_data:
+                # Frontend o'zi tasdiqlab faqat natijani yuborgan holat
+                target_user = candidate_user
+                pre_verified = True
+            elif scan_file or descriptor_data:
+                staff_prof = get_user_staff_profile(candidate_user)
+                staff_feat = get_or_create_face_embedding(staff_prof) if staff_prof else None
+                scan_feat = (
+                    parse_descriptor(descriptor_data)
+                    if descriptor_data
+                    else extract_face_embedding(scan_file, allow_portrait_fallback=False)[0]
+                )
+                if scan_feat is None:
                     return JsonResponse({
                         'success': False,
-                        'is_face_error': True,
-                        'detected': True,
-                        'error_type': 'unknown_face',
-                        'message': "Begona yuz aniqlandi",
+                        'detected': False,
+                        'error_type': 'no_face',
+                        'message': "Yuz topilmadi yoki xodim ro'yxatda yo'q",
                     }, status=200)
-        except Exception:
-            return JsonResponse({
-                'success': False,
-                'is_face_error': True,
-                'detected': True,
-                'error_type': 'unknown_face',
-                'message': "Begona yuz aniqlandi",
-            }, status=200)
-    else:
-        try:
-            match = match_staff_by_face(scan_file)
-            if match:
-                _, staff, similarity_score, _ = match
-                target_user = staff.user
-        except Exception as e:
-            print(f"match_staff_by_face error: {e}")
-
-    req_user = getattr(request, 'user', None)
-    if not target_user and req_user and req_user.is_authenticated and getattr(req_user, 'role', '') in ('manager', 'teacher'):
-        staff_obj = get_user_staff_profile(req_user)
-        if staff_obj:
-            try:
-                staff_feat = get_or_create_face_embedding(staff_obj)
                 if staff_feat is not None:
                     score, is_match, _ = compare_embeddings(staff_feat, scan_feat)
-                    if is_match and score >= 60.0:
-                        target_user, similarity_score = req_user, score
-            except Exception as e:
-                print(f"req_user embedding match error: {e}")
+                    if is_match:
+                        target_user = candidate_user
+                        similarity_score = score
+                        pre_verified = True
 
+    # 4. Agar xodim topilmasa — talab qilingan JSON javobni qaytaramiz
     if not target_user:
         return JsonResponse({
             'success': False,
-            'is_face_error': True,
-            'detected': True,
-            'error_type': 'unknown_face',
-            'message': "Begona yuz aniqlandi",
+            'detected': False,
+            'error_type': 'no_face',
+            'message': "Yuz topilmadi yoki xodim ro'yxatda yo'q",
         }, status=200)
 
-    try:
-        res = process_face_check_in(user=target_user, scan_file=scan_file, lat=lat, lon=lon, bypass_geo=bypass_geo)
-        # Agar tanlangan foydalanuvchiga mos kelmagan bo'lsa, bazadagi boshqa xodimlardan ham tekshirib ko'ramiz
-        if not res.get('success') and res.get('is_face_error') and user_id:
-            match = match_staff_by_face(scan_file)
-            if match:
-                _, matched_staff, similarity_score, _ = match
-                target_user = matched_staff.user
-                res = process_face_check_in(user=target_user, scan_file=scan_file, lat=lat, lon=lon, bypass_geo=bypass_geo)
+    # 5. Davomatni yozish va natijani qaytarish
+    res = process_face_check_in(
+        user=target_user,
+        scan_file=scan_file,
+        lat=lat,
+        lon=lon,
+        bypass_geo=bypass_geo,
+        pre_verified=pre_verified,
+        match_score=similarity_score,
+    )
 
-        if similarity_score > 0 and 'match_score' not in res:
-            res['match_score'] = similarity_score
-
-        if res.get('success'):
-            staff_obj, staff_photo, _ = get_user_face_data(target_user)
-            if staff_obj and staff_photo:
-                try:
-                    res['photo_url'] = staff_photo.url
-                except Exception:
-                    pass
-
-            # Kechki payt yoki istalgan vaqtda Face ID orqali tizimga kirish (login) imkoniyati
-            if not is_kiosk and getattr(target_user, 'role', '') in ('teacher', 'manager'):
-                if not getattr(request, 'user', None) or not request.user.is_authenticated:
-                    try:
-                        login(request, target_user)
-                    except Exception:
-                        pass
-                if target_user.role == 'teacher':
-                    t_prof = get_user_staff_profile(target_user)
-                    res['redirect_url'] = '/teacher/dashboard/' if (t_prof and t_prof.groups.exists()) else '/staff/my-logs/'
-                elif target_user.role == 'manager':
-                    res['redirect_url'] = '/manager/dashboard/'
-
-        return JsonResponse(res)
-    except Exception as e:
-        print(f"process_face_check_in error: {e}")
+    if not res.get('success'):
         return JsonResponse({
             'success': False,
-            'message': f"Davomatni qayd etishda tizim xatoligi yuz berdi: {e}",
-        }, status=500)
+            'is_geo_error': res.get('is_geo_error', False),
+            'message': res.get('message') or "Yuz topilmadi yoki xodim ro'yxatda yo'q",
+        }, status=200)
+
+    staff_obj, staff_photo, _ = get_user_face_data(target_user)
+    if staff_obj and staff_photo:
+        try:
+            res['photo_url'] = staff_photo.url
+        except Exception:
+            pass
+
+    if not is_kiosk and getattr(target_user, 'role', '') in ('teacher', 'manager'):
+        if not getattr(request, 'user', None) or not request.user.is_authenticated:
+            try:
+                login(request, target_user)
+            except Exception:
+                pass
+        if target_user.role == 'teacher':
+            t_prof = get_user_staff_profile(target_user)
+            res['redirect_url'] = '/teacher/dashboard/' if (t_prof and t_prof.groups.exists()) else '/staff/my-logs/'
+        elif target_user.role == 'manager':
+            res['redirect_url'] = '/manager/dashboard/'
+
+    return JsonResponse(res)
 
 
 # ─────────────────────────────────────────────────────────────
