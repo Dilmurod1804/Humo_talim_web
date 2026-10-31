@@ -6,10 +6,12 @@ HUMO O'quv markazi — Face ID va Biometrik Davomat Xizmatlari
 - Aqlli Kelish va Ketishni avtomatik aniqlash (Smart Arrival/Departure)
 - Oylik maosh, kademeli kechikish jarimalari va avanslar kalkulyatori
 """
+import base64
 import io
 import json
 import math
 import os
+import re
 import uuid
 from datetime import date, datetime, time
 from decimal import Decimal
@@ -23,7 +25,14 @@ except ImportError:
     np = None
     HAS_OPENCV = False
 
-from PIL import Image
+try:
+    import face_recognition as fr_lib
+    HAS_FACE_RECOGNITION = True
+except ImportError:
+    fr_lib = None
+    HAS_FACE_RECOGNITION = False
+
+from PIL import Image, ImageOps
 
 from django.conf import settings
 from django.core.files.base import ContentFile
@@ -99,35 +108,128 @@ def calculate_haversine_distance(lat1: float, lon1: float, lat2: float, lon2: fl
 
 
 # ─────────────────────────────────────────────────────────────
-# 3. YUZ TASVIRLARINI YUKLASH VA QAYTA ISHLASH
+# 3. BASE64 TOZALASH VA YUZ TASVIRLARINI YUKLASH (Vultr/Linux Server Compatible)
 # ─────────────────────────────────────────────────────────────
 
+def decode_base64_image(base64_str: str):
+    """
+    Brauzerdan kelayotgan Base64 formatidagi rasmni ('data:image/jpeg;base64,...')
+    to'g'ri tozalab, EXIF oriyentatsiyasini to'g'rilab, OpenCV / face_recognition
+    o'qiy oladigan toza JPEG ContentFile va RGB numpy massivga aylantiradi.
+    Qaytaradi: (content_file: ContentFile | None, rgb_array: np.ndarray | None, error: str | None)
+    """
+    if not base64_str or not isinstance(base64_str, str):
+        return None, None, "Base64 tasvir ma'lumoti bo'sh"
+
+    try:
+        cleaned = base64_str.strip()
+        # 1. Sarlavhani ('data:image/jpeg;base64,' yoki 'data:image/png;base64,') olib tashlash
+        if ';base64,' in cleaned:
+            cleaned = cleaned.split(';base64,', 1)[1]
+        elif ',' in cleaned and cleaned.startswith('data:'):
+            cleaned = cleaned.split(',', 1)[1]
+
+        # 2. URL-encoding yoki form-urlencoded oqibatida '+' o'rniga tushgan bo'shliqlarni va yangi qatorlarni tozalash
+        cleaned = re.sub(r'[\r\n\t]', '', cleaned).strip().replace(' ', '+')
+
+        # 3. Base64 uzunligini 4 ga karrali qilish (padding '=')
+        rem = len(cleaned) % 4
+        if rem:
+            cleaned += '=' * (4 - rem)
+
+        raw_bytes = base64.b64decode(cleaned)
+        if not raw_bytes:
+            return None, None, "Base64 baytlari bo'sh"
+
+        # 4. PIL orqali ochib, mobil/veb kamera EXIF burilishini to'g'rilash va RGB formatga o'tkazish
+        pil_img = Image.open(io.BytesIO(raw_bytes))
+        try:
+            pil_img = ImageOps.exif_transpose(pil_img)
+        except Exception:
+            pass
+
+        if pil_img.mode in ('RGBA', 'LA', 'P'):
+            bg = Image.new('RGB', pil_img.size, (255, 255, 255))
+            if pil_img.mode == 'P':
+                pil_img = pil_img.convert('RGBA')
+            mask = pil_img.split()[-1] if 'A' in pil_img.mode else None
+            bg.paste(pil_img, mask=mask)
+            pil_img = bg
+        elif pil_img.mode != 'RGB':
+            pil_img = pil_img.convert('RGB')
+
+        rgb_array = np.ascontiguousarray(np.array(pil_img, dtype=np.uint8)) if np is not None else None
+
+        out_buf = io.BytesIO()
+        pil_img.save(out_buf, format='JPEG', quality=90)
+        out_buf.seek(0)
+        content_file = ContentFile(out_buf.read(), name=f"scan_{uuid.uuid4().hex[:8]}.jpg")
+        return content_file, rgb_array, None
+    except Exception as e:
+        return None, None, str(e)
+
+
+def _enhance_image_contrast(bgr_img):
+    """Kam yoritilgan yoki xira kamera kadrlari uchun CLAHE kontrastni yaxshilash."""
+    try:
+        lab = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2LAB)
+        l_ch, a_ch, b_ch = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=2.2, tileGridSize=(8, 8))
+        cl = clahe.apply(l_ch)
+        merged = cv2.merge((cl, a_ch, b_ch))
+        return cv2.cvtColor(merged, cv2.COLOR_LAB2BGR)
+    except Exception:
+        return bgr_img
+
+
 def _load_cv_image_from_file_or_path(image_source):
-    """Fayl, yo'l, baytlar, PIL tasvir yoki numpy massividan OpenCV BGR tasvir yuklaydi."""
-    if image_source is None:
+    """Fayl, yo'l, Base64 qator, baytlar, PIL tasvir yoki numpy massividan OpenCV BGR tasvir yuklaydi."""
+    if image_source is None or np is None or cv2 is None:
         return None
     try:
         if isinstance(image_source, np.ndarray):
             return image_source
+
+        # Agar Base64 string uzatilgan bo'lsa
+        if isinstance(image_source, str) and (
+            image_source.startswith('data:image') or len(image_source) > 512
+        ):
+            _, rgb_arr, _ = decode_base64_image(image_source)
+            if rgb_arr is not None:
+                return cv2.cvtColor(rgb_arr, cv2.COLOR_RGB2BGR)
+
+        raw_bytes = None
         if isinstance(image_source, (str, os.PathLike)):
             p = str(image_source)
             if not os.path.exists(p):
                 return None
-            data = np.fromfile(p, dtype=np.uint8)
-            return cv2.imdecode(data, cv2.IMREAD_COLOR)
-        if hasattr(image_source, 'read'):
+            with open(p, 'rb') as f:
+                raw_bytes = f.read()
+        elif hasattr(image_source, 'read'):
             image_source.seek(0)
-            raw = image_source.read()
+            raw_bytes = image_source.read()
             image_source.seek(0)
-            data = np.frombuffer(raw, dtype=np.uint8)
-            return cv2.imdecode(data, cv2.IMREAD_COLOR)
-        if isinstance(image_source, bytes):
-            data = np.frombuffer(image_source, dtype=np.uint8)
-            return cv2.imdecode(data, cv2.IMREAD_COLOR)
-        if hasattr(image_source, 'convert'):
+        elif isinstance(image_source, bytes):
+            raw_bytes = image_source
+        elif hasattr(image_source, 'convert'):
             rgb = image_source.convert('RGB')
-            arr = np.array(rgb)
+            arr = np.ascontiguousarray(np.array(rgb, dtype=np.uint8))
             return cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
+
+        if raw_bytes:
+            # Avval PIL + exif_transpose orqali ochamiz (mobil va server mosligi uchun)
+            try:
+                pil_img = Image.open(io.BytesIO(raw_bytes))
+                try:
+                    pil_img = ImageOps.exif_transpose(pil_img)
+                except Exception:
+                    pass
+                rgb = pil_img.convert('RGB')
+                arr = np.ascontiguousarray(np.array(rgb, dtype=np.uint8))
+                return cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
+            except Exception:
+                data = np.frombuffer(raw_bytes, dtype=np.uint8)
+                return cv2.imdecode(data, cv2.IMREAD_COLOR)
     except Exception as e:
         print(f"Error loading cv image: {e}")
     return None
@@ -182,7 +284,15 @@ def extract_face_embedding(image_source, allow_portrait_fallback: bool = False):
         _, faces = detector.detect(proc_img)
 
         if faces is None or len(faces) == 0:
-            # 1-zaxira: Asl o'lchamda urinib ko'rish
+            # 1-zaxira: Kontrastni CLAHE orqali kuchaytirib qayta aniqlash (xira veb-kamera kadrlari uchun)
+            enh_img = _enhance_image_contrast(proc_img)
+            detector.setInputSize((w, h))
+            _, faces = detector.detect(enh_img)
+            if faces is not None and len(faces) > 0:
+                proc_img = enh_img
+
+        if faces is None or len(faces) == 0:
+            # 2-zaxira: Asl o'lchamda urinib ko'rish
             detector.setInputSize((img.shape[1], img.shape[0]))
             _, faces = detector.detect(img)
             if faces is not None and len(faces) > 0:
@@ -190,9 +300,9 @@ def extract_face_embedding(image_source, allow_portrait_fallback: bool = False):
                 scale = 1.0
 
         if faces is None or len(faces) == 0:
-            # 2-zaxira: Yaqindan olingan profil rasmlari (close-up portrait) uchun atrofga hoshiya (padding) qo'shib aniqlash
+            # 3-zaxira: Yaqindan olingan kadrlar (close-up oval frame) uchun atrofga hoshiya (padding) qo'shib aniqlash
             pad_y, pad_x = int(h * 0.25), int(w * 0.25)
-            padded_img = cv2.copyMakeBorder(proc_img, pad_y, pad_y, pad_x, pad_x, cv2.BORDER_REPLICATE)
+            padded_img = cv2.copyMakeBorder(_enhance_image_contrast(proc_img), pad_y, pad_y, pad_x, pad_x, cv2.BORDER_REPLICATE)
             detector.setInputSize((padded_img.shape[1], padded_img.shape[0]))
             _, padded_faces = detector.detect(padded_img)
             if padded_faces is not None and len(padded_faces) > 0:
@@ -234,16 +344,49 @@ def extract_face_embedding(image_source, allow_portrait_fallback: bool = False):
 
 def _extract_face_embedding_fallback(img, recognizer=None, allow_portrait_fallback: bool = False):
     """
-    OpenCV Haar Cascade zaxira detektori va profil rasmlari uchun SFace fallback.
+    OpenCV Haar Cascade / face_recognition (dlib) zaxira detektori va SFace fallback.
     Agar SFace recognizer mavjud bo'lsa, har doim SFace 128-D biometrik vektorini chiqaradi
     (kamera kadrlaridagi SFace vektorlari bilan 100% mos bo'lishi uchun).
     """
     try:
         h, w = img.shape[:2]
-        cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-        face_cascade = cv2.CascadeClassifier(cascade_path)
+        faces = []
+
+        # 1. Haar Cascade orqali yuzni qidirish (Linux/Vultr serverda cv2.data xavfsiz tekshiriladi)
+        cv2_data = getattr(cv2, 'data', None)
+        haarcascades_dir = getattr(cv2_data, 'haarcascades', '') if cv2_data else ''
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=3, minSize=(40, 40))
+        clahe_gray = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(gray)
+
+        for xml_name in ('haarcascade_frontalface_default.xml', 'haarcascade_frontalface_alt2.xml'):
+            cascade_path = os.path.join(haarcascades_dir, xml_name) if haarcascades_dir else ''
+            if cascade_path and os.path.exists(cascade_path):
+                face_cascade = cv2.CascadeClassifier(cascade_path)
+                detected = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=3, minSize=(36, 36))
+                if len(detected) == 0:
+                    detected = face_cascade.detectMultiScale(clahe_gray, scaleFactor=1.08, minNeighbors=2, minSize=(36, 36))
+                if len(detected) > 0:
+                    faces = detected
+                    break
+
+        # 2. Agar face_recognition (dlib) kutubxonasi o'rnatilgan bo'lsa va Haar topa olmagan bo'lsa
+        if len(faces) == 0 and HAS_FACE_RECOGNITION and fr_lib is not None:
+            try:
+                rgb_img = np.ascontiguousarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+                locs = fr_lib.face_locations(rgb_img, model='hog')
+                if locs:
+                    top, right, bottom, left = locs[0]
+                    faces = [(left, top, max(1, right - left), max(1, bottom - top))]
+                    if recognizer is None:
+                        encs = fr_lib.face_encodings(rgb_img, known_face_locations=[locs[0]])
+                        if encs:
+                            vec = np.asarray(encs[0], dtype=np.float32).reshape(1, 128)
+                            norm = np.linalg.norm(vec)
+                            if norm > 0:
+                                vec = vec / norm
+                            return vec, faces[0], 0.85
+            except Exception:
+                pass
 
         if len(faces) > 0:
             x, y, fw, fh = max(faces, key=lambda f: f[2] * f[3])
@@ -469,24 +612,51 @@ def sync_staff_face_embedding(user_or_staff) -> bool:
     return False
 
 
+_SERVER_EMBEDDINGS_SYNCED = False
+
+
+def _is_valid_neural_embedding(arr) -> bool:
+    """
+    Bazadagi 128-o'lchamli vektor haqiqiy neyron tarmoq (SFace / dlib) vektori ekanligini tekshiradi.
+    Eski 16x8 piksel vektorlarida barcha qiymatlar >= 0 bo'lgan; haqiqiy embeddingda manfiy qiymatlar ham bo'ladi.
+    """
+    if arr is None or np is None:
+        return False
+    try:
+        flat = np.asarray(arr, dtype=np.float32).flatten()
+        if flat.size != 128:
+            return False
+        if not np.all(np.isfinite(flat)):
+            return False
+        # Agar barcha qiymatlar >= 0 bo'lsa, bu eski 16x8 piksel massivi — qayta generatsiya qilish shart
+        _, recognizer = get_ai_models()
+        if (recognizer is not None or HAS_FACE_RECOGNITION) and float(np.min(flat)) >= 0.0:
+            return False
+        return float(np.linalg.norm(flat)) > 0.01
+    except Exception:
+        return False
+
+
 def get_or_create_face_embedding(user_or_staff, force_refresh: bool = False):
     """
     Xodimning (`user.teacher_profile` yoki `user.manager_profile`) Face ID biometrik shablonini (128-D vektor) o'qiydi.
-    Agar xodim profilida rasm (`photo`) biriktirilgan bo'lsa-yu, lekin `face_embedding` bo'sh bo'lsa,
-    uni AVTOMATIK tarzda generatsiya qilib profilning `face_embedding` maydoniga bog'laydi.
+    Agar xodim profilida rasm (`photo`) biriktirilgan bo'lsa-yu, lekin `face_embedding` bo'sh yoki
+    eski formatda bo'lsa, uni AVTOMATIK tarzda generatsiya qilib profilning `face_embedding` maydoniga bog'laydi.
     """
     staff_obj, photo_field, raw_emb = get_user_face_data(user_or_staff)
     if not staff_obj or not isinstance(staff_obj, (Teacher, Manager)) or not HAS_OPENCV or np is None:
         return None
 
-    # 1. Agar force_refresh so'ralmagan bo'lsa, profilning tayyor face_embedding shablonini o'qiymiz
+    # 1. Agar force_refresh so'ralmagan bo'lsa, profilning tayyor face_embedding shablonini o'qiymiz va tekshiramiz
     if not force_refresh and raw_emb and len(raw_emb) > 20:
         try:
-            return np.array(json.loads(raw_emb), dtype=np.float32).reshape(1, 128)
+            arr = np.array(json.loads(raw_emb), dtype=np.float32).reshape(1, 128)
+            if _is_valid_neural_embedding(arr):
+                return arr
         except Exception:
             pass
 
-    # 2. Bazada shablon yo'q (yoki yangilash kerak), lekin profil rasmi bor bo'lsa -> avtomatik bog'laymiz
+    # 2. Bazada shablon yo'q, eskirgan yoki yangilash kerak bo'lsa -> rasmdan avtomatik bog'laymiz
     if photo_field and sync_staff_face_embedding(staff_obj):
         raw_emb = getattr(staff_obj, 'face_embedding', None)
         if raw_emb and len(raw_emb) > 20:
@@ -500,33 +670,130 @@ def get_or_create_face_embedding(user_or_staff, force_refresh: bool = False):
 
 def sync_all_face_embeddings(force: bool = False) -> dict:
     """
-    Bazadagi barcha faol xodimlar (`user.teacher_profile` va `user.manager_profile`) uchun
-    Face ID embeddinglarini avtomatik tekshirib, rasmi bor lekin shabloni yo'qlarini
-    (yoki force=True bo'lsa barchasini) generatsiya qilib bog'laydi.
+    Serverdagi xodimlarning (`user.teacher_profile` va `user.manager_profile`) rasmlari asosida
+    `face_embedding` larni avtomatik hisoblab, bazaga xatolarsiz yozib qo'yadigan
+    optimallashtirilgan sinxronizatsiya funksiyasi (`get_or_create` va `try-except` bilan).
     """
+    global _SERVER_EMBEDDINGS_SYNCED
     synced_teachers = 0
     synced_managers = 0
+    created_profiles = 0
     failed = 0
 
-    for t in Teacher.objects.filter(is_active=True).select_related('user').exclude(photo=''):
-        if force or not t.face_embedding or len(t.face_embedding) < 20:
-            if sync_staff_face_embedding(t):
-                synced_teachers += 1
-            else:
-                failed += 1
+    try:
+        settings_obj = FaceIDSettings.get_settings()
+    except Exception:
+        settings_obj = None
 
+    default_start = getattr(settings_obj, 'default_work_start_time', time(8, 0)) if settings_obj else time(8, 0)
+    default_end = getattr(settings_obj, 'default_work_end_time', time(18, 0)) if settings_obj else time(18, 0)
+    default_fine = getattr(settings_obj, 'default_late_fine_rate', Decimal('2.0')) if settings_obj else Decimal('2.0')
+
+    # 1. CustomUser dagi barcha teacher va manager rollari uchun profilni get_or_create orqali kafolatlash
+    for u in CustomUser.objects.filter(is_active=True, role__in=('teacher', 'manager')):
+        try:
+            if u.role == 'teacher':
+                _, created = Teacher.objects.get_or_create(
+                    user=u,
+                    defaults={
+                        'first_name': u.first_name or u.username,
+                        'last_name': u.last_name or '',
+                        'phone': '',
+                        'generated_login': u.username,
+                        'generated_password': '***',
+                        'work_start_time': default_start,
+                        'work_end_time': default_end,
+                        'late_fine_rate': default_fine,
+                    },
+                )
+                if created:
+                    created_profiles += 1
+            elif u.role == 'manager':
+                _, created = Manager.objects.get_or_create(
+                    user=u,
+                    defaults={
+                        'first_name': u.first_name or u.username,
+                        'last_name': u.last_name or '',
+                        'phone': '',
+                        'generated_login': u.username,
+                        'generated_password': '***',
+                        'work_start_time': default_start,
+                        'work_end_time': default_end,
+                        'late_fine_rate': default_fine,
+                    },
+                )
+                if created:
+                    created_profiles += 1
+        except Exception as e:
+            print(f"Profile get_or_create error for {u.username}: {e}")
+
+    # 2. Barcha o'qituvchilarning rasmlaridan face_embedding hisoblash va bazaga yozish
+    for t in Teacher.objects.filter(is_active=True).select_related('user').exclude(photo=''):
+        try:
+            if not t.photo:
+                continue
+            needs_sync = force or not t.face_embedding or len(t.face_embedding) < 20
+            if not needs_sync:
+                try:
+                    arr = np.array(json.loads(t.face_embedding), dtype=np.float32)
+                    needs_sync = not _is_valid_neural_embedding(arr)
+                except Exception:
+                    needs_sync = True
+
+            if needs_sync:
+                if sync_staff_face_embedding(t):
+                    synced_teachers += 1
+                else:
+                    failed += 1
+        except Exception as e:
+            print(f"Teacher face sync error ({t.id}): {e}")
+            failed += 1
+
+    # 3. Barcha menejerlarning rasmlaridan face_embedding hisoblash va bazaga yozish
     for m in Manager.objects.filter(is_active=True).select_related('user').exclude(photo=''):
-        if force or not m.face_embedding or len(m.face_embedding) < 20:
-            if sync_staff_face_embedding(m):
-                synced_managers += 1
-            else:
-                failed += 1
+        try:
+            if not m.photo:
+                continue
+            needs_sync = force or not m.face_embedding or len(m.face_embedding) < 20
+            if not needs_sync:
+                try:
+                    arr = np.array(json.loads(m.face_embedding), dtype=np.float32)
+                    needs_sync = not _is_valid_neural_embedding(arr)
+                except Exception:
+                    needs_sync = True
+
+            if needs_sync:
+                if sync_staff_face_embedding(m):
+                    synced_managers += 1
+                else:
+                    failed += 1
+        except Exception as e:
+            print(f"Manager face sync error ({m.id}): {e}")
+            failed += 1
+
+    if force:
+        _SERVER_EMBEDDINGS_SYNCED = True
 
     return {
         'teachers': synced_teachers,
         'managers': synced_managers,
-        'failed': failed
+        'created_profiles': created_profiles,
+        'failed': failed,
     }
+
+
+def ensure_server_embeddings_synced():
+    """
+    Server (masalan, Vultr) ishga tushganda bir marta barcha xodimlarning face_embedding
+    matritsalarini aynan shu serverdagi AI model yordamida qayta hisoblab sinxronlaydi.
+    """
+    global _SERVER_EMBEDDINGS_SYNCED
+    if not _SERVER_EMBEDDINGS_SYNCED:
+        try:
+            sync_all_face_embeddings(force=True)
+        except Exception as e:
+            print(f"Initial server embedding sync error: {e}")
+        _SERVER_EMBEDDINGS_SYNCED = True
 
 
 # ─────────────────────────────────────────────────────────────
@@ -540,6 +807,7 @@ def match_staff_by_face(scan_img_source):
     Agar xodimda rasm bo'lib, Face ID shabloni bo'lmasa, avtomatik bog'laydi.
     Natija: (role, staff_instance, score, dist) yoki None
     """
+    ensure_server_embeddings_synced()
     scan_feat, box, conf = extract_face_embedding(scan_img_source, allow_portrait_fallback=False)
     if scan_feat is None:
         return None

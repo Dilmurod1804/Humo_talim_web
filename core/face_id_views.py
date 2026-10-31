@@ -28,6 +28,8 @@ from .face_service import (
     calculate_staff_salary_summary,
     compare_embeddings,
     compare_two_faces,
+    decode_base64_image,
+    ensure_server_embeddings_synced,
     extract_face_embedding,
     get_or_create_face_embedding,
     get_user_face_data,
@@ -426,47 +428,59 @@ def admin_face_id_logs(request):
 
 @admin_only_required
 def admin_face_id_sync_staff(request):
-    """Barcha mavjud xodimlarni Face ID ga bir marta bosish bilan sinxronlash."""
+    """Barcha mavjud xodimlarni Face ID ga bir marta bosish bilan sinxronlash (get_or_create va try-except bilan)."""
     settings_obj = FaceIDSettings.get_settings()
     synced_count = created_profiles = 0
 
-    for role, model_cls, profile_attr in (
-        ('manager', Manager, 'manager_profile'),
-        ('teacher', Teacher, 'teacher_profile'),
+    for role, model_cls in (
+        ('manager', Manager),
+        ('teacher', Teacher),
     ):
         for u in CustomUser.objects.filter(role=role):
-            if not hasattr(u, profile_attr):
-                model_cls.objects.create(
+            try:
+                staff_obj, created = model_cls.objects.get_or_create(
                     user=u,
-                    first_name=u.first_name or u.username,
-                    last_name=u.last_name or '',
-                    phone='',
-                    generated_login=u.username,
-                    generated_password='***',
-                    work_start_time=settings_obj.default_work_start_time,
-                    work_end_time=settings_obj.default_work_end_time,
-                    late_fine_rate=settings_obj.default_late_fine_rate,
+                    defaults={
+                        'first_name': u.first_name or u.username,
+                        'last_name': u.last_name or '',
+                        'phone': '',
+                        'generated_login': u.username,
+                        'generated_password': '***',
+                        'work_start_time': settings_obj.default_work_start_time,
+                        'work_end_time': settings_obj.default_work_end_time,
+                        'late_fine_rate': settings_obj.default_late_fine_rate,
+                    },
                 )
-                created_profiles += 1
+                if created:
+                    created_profiles += 1
+            except Exception:
+                continue
 
         for staff in model_cls.objects.all():
-            if not staff.work_start_time:
-                staff.work_start_time = settings_obj.default_work_start_time
-            if not staff.work_end_time:
-                staff.work_end_time = settings_obj.default_work_end_time
-            staff.save()
-            if staff.photo:
-                sync_staff_face_embedding(staff)
-            synced_count += 1
+            try:
+                updated_fields = []
+                if not staff.work_start_time:
+                    staff.work_start_time = settings_obj.default_work_start_time
+                    updated_fields.append('work_start_time')
+                if not staff.work_end_time:
+                    staff.work_end_time = settings_obj.default_work_end_time
+                    updated_fields.append('work_end_time')
+                if updated_fields:
+                    staff.save(update_fields=updated_fields)
+                synced_count += 1
+            except Exception:
+                continue
 
     emb_stats = sync_all_face_embeddings(force=True)
     linked_faces = emb_stats.get('teachers', 0) + emb_stats.get('managers', 0)
+    errors_count = emb_stats.get('errors', 0)
 
     messages.success(
         request,
         f"Face ID sinxronizatsiyasi muvaffaqiyatli: {synced_count} ta xodim sozlamalari yangilandi, "
-        f"{linked_faces} ta yuz biometrik shabloni bog'landi, "
-        f"{created_profiles} ta yetishmayotgan profil yaratildi.",
+        f"{linked_faces} ta yuz biometrik shabloni serverda qayta hisoblandi, "
+        f"{created_profiles} ta yetishmayotgan profil yaratildi"
+        + (f" ({errors_count} ta rasmda xatolik o'tkazib yuborildi)." if errors_count else "."),
     )
     return redirect('admin_face_id_logs')
 
@@ -482,13 +496,9 @@ def admin_face_id_upload_photo(request, role, id):
     photo_file = request.FILES.get('photo')
     image_base64 = request.POST.get('image_base64')
     if not photo_file and image_base64:
-        try:
-            if ',' in image_base64:
-                _, image_base64 = image_base64.split(',', 1)
-            decoded = base64.b64decode(image_base64)
-            photo_file = ContentFile(decoded, name=f"face_{role}_{id}_{uuid.uuid4().hex[:6]}.jpg")
-        except Exception as e:
-            return JsonResponse({'success': False, 'message': f"Suratni o'qishda xatolik: {e}"}, status=400)
+        photo_file, _, b64_err = decode_base64_image(image_base64)
+        if not photo_file:
+            return JsonResponse({'success': False, 'message': f"Suratni o'qishda xatolik: {b64_err}"}, status=400)
 
     if not photo_file:
         return JsonResponse({'success': False, 'message': "Hech qanday rasm tanlanmadi!"}, status=400)
@@ -558,7 +568,8 @@ def admin_face_id_settings(request):
 @csrf_exempt
 def face_id_terminal(request):
     """Markaz binosida xodimlar yuzini skanerlovchi terminal."""
-    # Rasmi bor, lekin hali Face ID shabloni (face_embedding) bog'lanmagan xodimlarni avtomatik bog'laymiz
+    # Serverda barcha xodimlarning face_embedding vektorlari hisoblanganini kafolatlaymiz
+    ensure_server_embeddings_synced()
     sync_all_face_embeddings(force=False)
     return render(request, 'face_id_terminal.html', {
         'settings': FaceIDSettings.get_settings(),
@@ -570,6 +581,7 @@ def face_id_terminal(request):
 @csrf_exempt
 def face_id_check_in(request):
     """Mobil qurilmalardan Face ID orqali davomat qilish sahifasi."""
+    ensure_server_embeddings_synced()
     sync_all_face_embeddings(force=False)
     return render(request, 'face_id_mobile_checkin.html', {'settings': FaceIDSettings.get_settings()})
 
@@ -579,6 +591,9 @@ def face_id_verify_api(request):
     """Hands-Free Face ID AI avtomatik skanerlash REST API."""
     if request.method != 'POST':
         return JsonResponse({'success': False, 'message': "Faqat POST so'rovi qabul qilinadi"}, status=405)
+
+    # Server ishga tushganda xodimlarning embeddinglari mavjudligini va yaroqliligini tekshiramiz
+    ensure_server_embeddings_synced()
 
     payload = {}
     if (request.content_type and 'application/json' in request.content_type.lower()) or (
@@ -603,20 +618,14 @@ def face_id_verify_api(request):
 
     scan_file = file_obj
     if not scan_file and img_data:
-        try:
-            if isinstance(img_data, str):
-                if ',' in img_data:
-                    _, img_data = img_data.split(',', 1)
-                img_data = img_data.strip().replace(' ', '+')
-                if len(img_data) % 4:
-                    img_data += '=' * (4 - (len(img_data) % 4))
-                scan_file = ContentFile(base64.b64decode(img_data), name=f"scan_{uuid.uuid4().hex[:8]}.jpg")
-        except Exception as e:
+        scan_file, _, b64_err = decode_base64_image(img_data)
+        if not scan_file:
             return JsonResponse({
                 'success': False,
                 'is_face_error': True,
                 'detected': False,
-                'message': f"Tasvirni o'qishda xatolik yuz berdi: {e}",
+                'error_type': 'invalid_image',
+                'message': f"Tasvirni o'qishda xatolik yuz berdi: {b64_err}",
             }, status=200)
 
     if not scan_file:
@@ -624,6 +633,7 @@ def face_id_verify_api(request):
             'success': False,
             'is_face_error': True,
             'detected': False,
+            'error_type': 'no_image',
             'message': "Tasvir topilmadi! Iltimos, kamera kadrini tekshiring.",
         }, status=200)
 
