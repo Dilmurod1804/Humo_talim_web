@@ -1,31 +1,20 @@
 """
-HUMO O'quv markazi — Yengil (Lightweight) Face ID va Davomat Xizmatlari
-- Og'ir kutubxonalarsiz (face_recognition / dlib / DeepFace / TensorFlow olib tashlangan)
-- Yengil OpenCV / Pillow descriptor va frontend descriptor/snapshot asosida tezkor solishtirish
-- Geolokatsiya masofasini hisoblash (Haversine formula)
-- Kelish va ketishni avtomatik qayd etish hamda oylik maosh kalkulyatori
+HUMO O'quv markazi — Yengil (Pure-Python) Face ID va Davomat Xizmatlari
+- Serverda hech qanday og'ir kutubxona (dlib, face_recognition, DeepFace, OpenCV) ISHLATILMAYDI.
+- Yuzni aniqlash va 128-o'lchamli descriptor ajratib olish Frontend'da (face-api.js) bajariladi.
+- Backend faqat kelgan 128-D descriptor massivini bazadagi xodimlarning descriptor'lari bilan
+  oddiy matematik Evklid masofasi (Euclidean distance) orqali solishtiradi va davomatni yozadi.
 """
 import base64
 import io
 import json
 import math
-import os
 import re
 import uuid
 from datetime import datetime, time
 from decimal import Decimal
 
-import numpy as np
 from PIL import Image, ImageOps
-
-try:
-    import cv2
-    HAS_OPENCV = True
-except ImportError:
-    cv2 = None
-    HAS_OPENCV = False
-
-from django.conf import settings
 from django.core.files.base import ContentFile
 from django.utils import timezone
 
@@ -34,41 +23,90 @@ from .models import (
     FaceIDSettings, Manager, StaffBonus, Teacher,
 )
 
+# face-api.js 128-D descriptor uchun standart Evklid masofasi chegarasi (threshold)
+FACE_API_EUCLIDEAN_THRESHOLD = 0.58
+
 
 # ─────────────────────────────────────────────────────────────
-# 1. YENGIL OPENCV DETEKTOR (Agar ONNX yoki Haar mavjud bo'lsa)
+# 1. MATEMATIK MASOFA (EUCLIDEAN DISTANCE) VA DESKRIPTOR SOLISHTIRISH
 # ─────────────────────────────────────────────────────────────
 
-_YUNET_DETECTOR = None
-_SFACE_RECOGNIZER = None
-
-YUNET_MODEL_PATH = os.path.join(settings.BASE_DIR, 'weights', 'face_detection_yunet_2023mar.onnx')
-SFACE_MODEL_PATH = os.path.join(settings.BASE_DIR, 'weights', 'face_recognition_sface_2021dec.onnx')
-
-
-def _get_lightweight_opencv_models():
+def parse_descriptor(descriptor_data) -> list[float] | None:
     """
-    OpenCV ning o'z ichiga o'rnatilgan yengil C++ ONNX o'quvchisini (bor-yo'g'i ~5 MB) yuklaydi.
-    Hech qanday dlib, face_recognition yoki DeepFace ishlatilmaydi.
+    Frontend (face-api.js) yuborgan yoki bazada JSON sifatida saqlangan
+    128-o'lchamli descriptor ma'lumotini toza float ro'yxatiga (list[float]) o'giradi.
     """
-    global _YUNET_DETECTOR, _SFACE_RECOGNIZER
-    if not HAS_OPENCV or cv2 is None:
-        return None, None
+    if not descriptor_data:
+        return None
     try:
-        if _YUNET_DETECTOR is None and os.path.exists(YUNET_MODEL_PATH):
-            _YUNET_DETECTOR = cv2.FaceDetectorYN.create(
-                YUNET_MODEL_PATH, "", (320, 320),
-                score_threshold=0.45, nms_threshold=0.3, top_k=500,
-            )
-        if _SFACE_RECOGNIZER is None and os.path.exists(SFACE_MODEL_PATH):
-            _SFACE_RECOGNIZER = cv2.FaceRecognizerSF.create(SFACE_MODEL_PATH, "")
+        if isinstance(descriptor_data, str):
+            descriptor_data = json.loads(descriptor_data)
+        if isinstance(descriptor_data, dict):
+            descriptor_data = list(descriptor_data.values())
+        vec = [float(x) for x in descriptor_data]
+        if len(vec) != 128:
+            return None
+        if any(math.isnan(x) or math.isinf(x) for x in vec):
+            return None
+        return vec
     except Exception:
-        pass
-    return _YUNET_DETECTOR, _SFACE_RECOGNIZER
+        return None
+
+
+def calculate_euclidean_distance(desc1: list[float], desc2: list[float]) -> float:
+    """
+    Ikki 128-o'lchamli yuz deskriptori orasidagi Evklid masofasini (Euclidean distance)
+    sof Python (math.sqrt) yordamida hisoblaydi:
+        d = sqrt( sum((a - b)^2) )
+    """
+    if not desc1 or not desc2 or len(desc1) != len(desc2):
+        return 999.0
+    return math.sqrt(sum((a - b) ** 2 for a, b in zip(desc1, desc2)))
+
+
+def compare_embeddings(feat1, feat2, threshold: float = FACE_API_EUCLIDEAN_THRESHOLD) -> tuple[float, bool, float]:
+    """
+    Ikki 128-o'lchamli deskriptorni Evklid masofasi bo'yicha solishtiradi.
+    face-api.js da distance < 0.58 bo'lsa bir xil shaxs hisoblanadi.
+    Qaytaradi: (similarity_score: 0..100, is_match: bool, euclidean_distance: float)
+    """
+    d1 = parse_descriptor(feat1) if not isinstance(feat1, list) else feat1
+    d2 = parse_descriptor(feat2) if not isinstance(feat2, list) else feat2
+    if not d1 or not d2 or len(d1) != len(d2):
+        return 0.0, False, 1.0
+
+    dist = calculate_euclidean_distance(d1, d2)
+    is_match = dist <= threshold
+
+    if is_match:
+        # dist = 0.0 -> 99.9%, dist = threshold (0.58) -> 65.0%
+        ratio = max(0.0, min(1.0, 1.0 - (dist / max(threshold, 0.01))))
+        score = round(min(99.9, 65.0 + ratio * 34.9), 1)
+    else:
+        score = round(max(0.0, min(58.0, (1.0 - min(dist, 1.0)) * 58.0)), 1)
+
+    return score, is_match, round(dist, 4)
+
+
+def compare_two_faces(ref_descriptor, scan_descriptor) -> tuple[float, bool, float]:
+    """Orqaga moslik uchun: ikki deskriptorni solishtiradi."""
+    return compare_embeddings(ref_descriptor, scan_descriptor)
+
+
+def extract_face_embedding(image_or_descriptor, allow_portrait_fallback: bool = False):
+    """
+    Orqaga moslik uchun yordamchi funksiya:
+    Agar 128-D descriptor uzatilgan bo'lsa, uni qaytaradi.
+    (Serverda og'ir rasm skanerlash o'chirilgan — barcha skanerlash face-api.js da bajariladi).
+    """
+    vec = parse_descriptor(image_or_descriptor)
+    if vec is not None:
+        return vec, (0, 0, 0, 0), 1.0
+    return None, None, 0.0
 
 
 # ─────────────────────────────────────────────────────────────
-# 2. GEOLOKATSIYA VA MASOFA HISOBI (Haversine)
+# 2. GEOLOKATSIYA VA BASE64 SURAT YORDAMCHILARI
 # ─────────────────────────────────────────────────────────────
 
 def calculate_haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -89,18 +127,10 @@ def calculate_haversine_distance(lat1: float, lon1: float, lat2: float, lon2: fl
     return round(R * c, 1)
 
 
-# ─────────────────────────────────────────────────────────────
-# 3. BASE64 VA RASM O'QISH YORDAMCHILARI
-# ─────────────────────────────────────────────────────────────
-
 def decode_base64_image(base64_str: str):
-    """
-    Frontenddan Base64 formatida kelgan snapshot rasmni ('data:image/jpeg;base64,...')
-    tozalab, ContentFile va RGB numpy massivga aylantiradi.
-    """
+    """Base64 formatidagi rasmni ('data:image/jpeg;base64,...') ContentFile ga aylantiradi."""
     if not base64_str or not isinstance(base64_str, str):
         return None, None, "Base64 tasvir ma'lumoti bo'sh"
-
     try:
         cleaned = base64_str.strip()
         if ';base64,' in cleaned:
@@ -114,242 +144,24 @@ def decode_base64_image(base64_str: str):
             cleaned += '=' * (4 - rem)
 
         raw_bytes = base64.b64decode(cleaned)
-        if not raw_bytes:
-            return None, None, "Tasvir baytlari bo'sh"
-
         pil_img = Image.open(io.BytesIO(raw_bytes))
         try:
             pil_img = ImageOps.exif_transpose(pil_img)
         except Exception:
             pass
         pil_rgb = pil_img.convert('RGB')
-        rgb_array = np.ascontiguousarray(np.array(pil_rgb, dtype=np.uint8))
 
         out_buf = io.BytesIO()
         pil_rgb.save(out_buf, format='JPEG', quality=88)
         out_buf.seek(0)
         content_file = ContentFile(out_buf.read(), name=f"scan_{uuid.uuid4().hex[:8]}.jpg")
-        return content_file, rgb_array, None
+        return content_file, None, None
     except Exception as e:
         return None, None, str(e)
 
 
-def _load_bgr_image(image_source):
-    """Fayl, path, Base64 yoki ContentFile manbasidan OpenCV BGR massiv oladi."""
-    if image_source is None:
-        return None
-    try:
-        if isinstance(image_source, np.ndarray):
-            return image_source
-
-        if hasattr(image_source, 'path'):
-            try:
-                if os.path.exists(image_source.path):
-                    image_source = image_source.path
-            except Exception:
-                pass
-
-        if isinstance(image_source, str) and (
-            image_source.startswith('data:image') or len(image_source) > 512
-        ):
-            _, rgb_arr, _ = decode_base64_image(image_source)
-            if rgb_arr is not None:
-                return rgb_arr[:, :, ::-1].copy()
-
-        raw_bytes = None
-        if isinstance(image_source, (str, os.PathLike)):
-            p = str(image_source)
-            if not os.path.exists(p):
-                return None
-            with open(p, 'rb') as f:
-                raw_bytes = f.read()
-        elif hasattr(image_source, 'read'):
-            image_source.seek(0)
-            raw_bytes = image_source.read()
-            image_source.seek(0)
-        elif isinstance(image_source, bytes):
-            raw_bytes = image_source
-
-        if raw_bytes:
-            pil_img = Image.open(io.BytesIO(raw_bytes))
-            try:
-                pil_img = ImageOps.exif_transpose(pil_img)
-            except Exception:
-                pass
-            rgb = np.ascontiguousarray(np.array(pil_img.convert('RGB'), dtype=np.uint8))
-            return rgb[:, :, ::-1].copy()
-    except Exception:
-        return None
-    return None
-
-
 # ─────────────────────────────────────────────────────────────
-# 4. YENGIL YUZ DESKRIPTORI (EMBEDDING) CHIQARISH VA SOLISHTIRISH
-# ─────────────────────────────────────────────────────────────
-
-def extract_face_embedding(image_source, allow_portrait_fallback: bool = False):
-    """
-    Yengil OpenCV yordamida kadrdan yuzni topib, 128-o'lchamli normallashtirilgan
-    vektor (descriptor) qaytaradi: (feature_vector, face_box, confidence).
-    Agar yuz topilmasa: (None, None, 0.0)
-    """
-    img = _load_bgr_image(image_source)
-    if img is None:
-        return None, None, 0.0
-
-    h, w = img.shape[:2]
-    if h < 20 or w < 20:
-        return None, None, 0.0
-
-    detector, recognizer = _get_lightweight_opencv_models()
-
-    # 1. Agar OpenCV YuNet + SFace ONNX mavjud bo'lsa (juda tez, < 10ms)
-    if detector is not None and recognizer is not None:
-        try:
-            scale = min(1.0, 640.0 / float(max(h, w)))
-            proc = cv2.resize(img, (int(w * scale), int(h * scale))) if scale < 1.0 else img
-            ph, pw = proc.shape[:2]
-            detector.setInputSize((pw, ph))
-            _, faces = detector.detect(proc)
-
-            if faces is not None and len(faces) > 0:
-                best = max(faces, key=lambda f: f[2] * f[3] * f[-1])
-                aligned = recognizer.alignCrop(proc, best)
-                feat = recognizer.feature(aligned).astype(np.float32).reshape(1, 128)
-                norm = np.linalg.norm(feat)
-                if norm > 0:
-                    feat = feat / norm
-                box = (
-                    int(best[0] / scale),
-                    int(best[1] / scale),
-                    int(best[2] / scale),
-                    int(best[3] / scale),
-                )
-                return feat, box, float(best[-1])
-        except Exception:
-            pass
-
-    # 2. Yengil Haar Cascade + Gistogramma/Piksel deskriptori (zaxira)
-    face_crop = None
-    box = None
-    if HAS_OPENCV and cv2 is not None:
-        try:
-            cv2_data = getattr(cv2, 'data', None)
-            haar_dir = getattr(cv2_data, 'haarcascades', '') if cv2_data else ''
-            cascade_path = os.path.join(haar_dir, 'haarcascade_frontalface_default.xml') if haar_dir else ''
-            if cascade_path and os.path.exists(cascade_path):
-                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-                cascade = cv2.CascadeClassifier(cascade_path)
-                detected = cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=3, minSize=(40, 40))
-                if len(detected) > 0:
-                    x, y, fw, fh = max(detected, key=lambda f: f[2] * f[3])
-                    face_crop = img[max(0, y):min(h, y + fh), max(0, x):min(w, x + fw)]
-                    box = (int(x), int(y), int(fw), int(fh))
-        except Exception:
-            pass
-
-    if face_crop is None:
-        if allow_portrait_fallback:
-            cy1, cy2 = int(h * 0.1), int(h * 0.9)
-            cx1, cx2 = int(w * 0.1), int(w * 0.9)
-            face_crop = img[cy1:cy2, cx1:cx2]
-            box = (cx1, cy1, cx2 - cx1, cy2 - cy1)
-        else:
-            return None, None, 0.0
-
-    if recognizer is not None and HAS_OPENCV:
-        try:
-            aligned = cv2.resize(face_crop, (112, 112))
-            feat = recognizer.feature(aligned).astype(np.float32).reshape(1, 128)
-            norm = np.linalg.norm(feat)
-            if norm > 0:
-                feat = feat / norm
-            return feat, box, 0.75
-        except Exception:
-            pass
-
-    # Oddiy 128-o'lchamli yengil deskriptor (PIL / NumPy)
-    try:
-        pil_crop = Image.fromarray(face_crop[:, :, ::-1]).convert('L').resize((16, 8))
-        feat = np.asarray(pil_crop, dtype=np.float32).reshape(1, 128)
-        feat = feat - np.mean(feat)
-        norm = np.linalg.norm(feat)
-        if norm > 0:
-            feat = feat / norm
-        return feat, box, 0.70
-    except Exception:
-        return None, None, 0.0
-
-
-def parse_descriptor(descriptor_data):
-    """Frontend yuborgan tayyor yuz deskriptorini (JSON list yoki array) 128-D numpy vektorga o'giradi."""
-    if not descriptor_data:
-        return None
-    try:
-        if isinstance(descriptor_data, str):
-            descriptor_data = json.loads(descriptor_data)
-        if isinstance(descriptor_data, dict):
-            descriptor_data = list(descriptor_data.values())
-        arr = np.asarray(descriptor_data, dtype=np.float32).reshape(1, -1)
-        if arr.size < 16 or not np.all(np.isfinite(arr)):
-            return None
-        norm = np.linalg.norm(arr)
-        if norm > 0:
-            arr = arr / norm
-        return arr
-    except Exception:
-        return None
-
-
-def compare_embeddings(feat1, feat2) -> tuple[float, bool, float]:
-    """
-    Ikki yuz deskriptorini (vektorini) kosinus o'xshashligi bo'yicha solishtiradi.
-    Natija: (similarity_score: 0..100, is_match: bool, distance: 0..1)
-    """
-    if feat1 is None or feat2 is None:
-        return 0.0, False, 1.0
-    try:
-        f1 = np.asarray(feat1, dtype=np.float32).reshape(1, -1)
-        f2 = np.asarray(feat2, dtype=np.float32).reshape(1, -1)
-        if f1.shape[1] != f2.shape[1]:
-            return 0.0, False, 1.0
-
-        n1 = np.linalg.norm(f1)
-        n2 = np.linalg.norm(f2)
-        if n1 > 0:
-            f1 = f1 / n1
-        if n2 > 0:
-            f2 = f2 / n2
-
-        cos_sim = float(np.dot(f1, f2.T)[0, 0])
-        threshold = 0.28
-
-        if cos_sim >= threshold:
-            pct = 65.0 + ((cos_sim - threshold) / (0.80 - threshold)) * 33.5
-            score = round(min(99.9, max(65.0, pct)), 1)
-            is_match = True
-        else:
-            pct = max(0.0, (max(0.0, cos_sim) / threshold) * 58.0)
-            score = round(min(58.0, pct), 1)
-            is_match = False
-
-        distance = round(max(0.0, 1.0 - cos_sim), 3)
-        return score, is_match, distance
-    except Exception:
-        return 0.0, False, 1.0
-
-
-def compare_two_faces(ref_img_source, scan_img_source) -> tuple[float, bool, float]:
-    """Ikki rasmni yengil deskriptor orqali solishtirish."""
-    feat1, _, _ = extract_face_embedding(ref_img_source, allow_portrait_fallback=True)
-    feat2, _, _ = extract_face_embedding(scan_img_source, allow_portrait_fallback=False)
-    if feat1 is None or feat2 is None:
-        return 0.0, False, 1.0
-    return compare_embeddings(feat1, feat2)
-
-
-# ─────────────────────────────────────────────────────────────
-# 5. XODIM PROFILLARI VA DESKRIPTORLAR BILAN ISHLASH
+# 3. XODIM PROFILLARI VA DESKRIPTOR BAZASI BILAN ISHLASH
 # ─────────────────────────────────────────────────────────────
 
 def get_user_staff_profile(user_or_staff):
@@ -377,7 +189,7 @@ def get_user_staff_profile(user_or_staff):
 
 
 def get_user_face_data(user_or_staff):
-    """Xodimning profili, rasmi va face_embedding satrini qaytaradi."""
+    """Xodimning profili, rasmi va face_embedding (JSON descriptor) satrini qaytaradi."""
     staff_profile = get_user_staff_profile(user_or_staff)
     if not staff_profile:
         return None, None, ''
@@ -388,43 +200,43 @@ def get_user_face_data(user_or_staff):
     )
 
 
-def sync_staff_face_embedding(user_or_staff) -> bool:
-    """Xodimning rasmidan yengil deskriptor yaratib bazaga saqlaydi."""
-    staff_obj, photo_field, _ = get_user_face_data(user_or_staff)
-    if not staff_obj or not photo_field:
+def save_staff_descriptor(user_or_staff, descriptor_data) -> bool:
+    """
+    Frontend (face-api.js) yuborgan 128-o'lchamli descriptor massivini
+    xodimning `face_embedding` maydoniga JSON formatda saqlaydi.
+    """
+    staff_obj = get_user_staff_profile(user_or_staff)
+    vec = parse_descriptor(descriptor_data)
+    if not staff_obj or vec is None:
         return False
     try:
-        photo_src = photo_field.path if (hasattr(photo_field, 'path') and os.path.exists(photo_field.path)) else photo_field
-        feat, _, _ = extract_face_embedding(photo_src, allow_portrait_fallback=True)
-        if feat is not None:
-            staff_obj.face_embedding = json.dumps(feat.flatten().tolist())
-            if getattr(staff_obj, 'pk', None):
-                staff_obj.save(update_fields=['face_embedding'])
-            return True
+        staff_obj.face_embedding = json.dumps([round(x, 6) for x in vec])
+        if getattr(staff_obj, 'pk', None):
+            staff_obj.save(update_fields=['face_embedding'])
+        return True
     except Exception:
-        pass
-    return False
+        return False
+
+
+def sync_staff_face_embedding(user_or_staff, descriptor_data=None) -> bool:
+    """Agar descriptor uzatilgan bo'lsa saqlaydi, aks holda mavjud descriptor borligini tekshiradi."""
+    if descriptor_data is not None:
+        return save_staff_descriptor(user_or_staff, descriptor_data)
+    staff_obj = get_user_staff_profile(user_or_staff)
+    if not staff_obj:
+        return False
+    return parse_descriptor(getattr(staff_obj, 'face_embedding', '')) is not None
 
 
 def get_or_create_face_embedding(user_or_staff, force_refresh: bool = False):
-    """Xodimning bazadagi deskriptorini o'qiydi yoki rasmidan avtomatik hisoblaydi."""
-    staff_obj, photo_field, raw_emb = get_user_face_data(user_or_staff)
-    if not staff_obj:
-        return None
-
-    if not force_refresh and raw_emb and len(raw_emb) > 20:
-        vec = parse_descriptor(raw_emb)
-        if vec is not None:
-            return vec
-
-    if photo_field and sync_staff_face_embedding(staff_obj):
-        return parse_descriptor(getattr(staff_obj, 'face_embedding', ''))
-    return None
+    """Xodimning bazadagi 128-o'lchamli descriptor ro'yxatini qaytaradi."""
+    _, _, raw_emb = get_user_face_data(user_or_staff)
+    return parse_descriptor(raw_emb)
 
 
 def sync_all_face_embeddings(force: bool = False) -> dict:
-    """Barcha faol xodimlarning yuz deskriptorlarini yengil usulda yangilaydi."""
-    synced_teachers = synced_managers = created_profiles = failed = 0
+    """Yetishmayotgan Teacher / Manager profillarini get_or_create bilan yaratadi va tayyor descriptorlarni sanaydi."""
+    created_profiles = 0
     settings_obj = FaceIDSettings.get_settings()
 
     for u in CustomUser.objects.filter(is_active=True, role__in=('teacher', 'manager')):
@@ -448,73 +260,62 @@ def sync_all_face_embeddings(force: bool = False) -> dict:
         except Exception:
             continue
 
-    for t in Teacher.objects.filter(is_active=True).exclude(photo=''):
-        if not t.photo:
-            continue
-        if force or not t.face_embedding or len(t.face_embedding) < 20:
-            if sync_staff_face_embedding(t):
-                synced_teachers += 1
-            else:
-                failed += 1
-
-    for m in Manager.objects.filter(is_active=True).exclude(photo=''):
-        if not m.photo:
-            continue
-        if force or not m.face_embedding or len(m.face_embedding) < 20:
-            if sync_staff_face_embedding(m):
-                synced_managers += 1
-            else:
-                failed += 1
+    teachers_ready = sum(
+        1 for t in Teacher.objects.filter(is_active=True)
+        if parse_descriptor(t.face_embedding) is not None
+    )
+    managers_ready = sum(
+        1 for m in Manager.objects.filter(is_active=True)
+        if parse_descriptor(m.face_embedding) is not None
+    )
 
     return {
-        'teachers': synced_teachers,
-        'managers': synced_managers,
+        'teachers': teachers_ready,
+        'managers': managers_ready,
         'created_profiles': created_profiles,
-        'failed': failed,
+        'errors': 0,
     }
 
 
-def match_staff_by_face(scan_source=None, scan_descriptor=None):
+def match_staff_by_face(scan_source=None, scan_descriptor=None, threshold: float = FACE_API_EUCLIDEAN_THRESHOLD):
     """
-    Kelgan rasm (snapshot) yoki tayyor descriptor orqali bazadagi xodimlarni qidiradi.
-    Natija: (role, staff_obj, score, distance) yoki None
+    Frontend (face-api.js) dan kelgan 128-o'lchamli `scan_descriptor` massivini
+    bazadagi barcha faol xodimlarning (`Teacher` va `Manager`) saqlangan `face_embedding`
+    descriptorlari bilan Evklid masofasi (Euclidean distance) bo'yicha solishtiradi.
+
+    Eng yaqin (masofasi eng kichik va threshold dan past) xodimni qaytaradi:
+        (role, staff_obj, similarity_score, euclidean_distance) yoki None
     """
-    scan_feat = parse_descriptor(scan_descriptor) if scan_descriptor is not None else None
-    if scan_feat is None and scan_source is not None:
-        scan_feat, _, _ = extract_face_embedding(scan_source, allow_portrait_fallback=False)
-    if scan_feat is None:
+    target_vec = parse_descriptor(scan_descriptor if scan_descriptor is not None else scan_source)
+    if target_vec is None:
         return None
 
     candidates = []
     for t in Teacher.objects.filter(is_active=True).select_related('user'):
-        if t.photo or t.has_face_embedding:
+        if t.face_embedding:
             candidates.append(('teacher', t))
     for m in Manager.objects.filter(is_active=True).select_related('user'):
-        if m.photo or m.has_face_embedding:
+        if m.face_embedding:
             candidates.append(('manager', m))
 
     best_match = None
-    best_score = 0.0
+    min_distance = threshold
 
     for role, staff in candidates:
-        staff_feat = get_or_create_face_embedding(staff)
-        if staff_feat is None:
+        staff_vec = parse_descriptor(staff.face_embedding)
+        if staff_vec is None:
             continue
-        score, is_match, dist = compare_embeddings(staff_feat, scan_feat)
-        if not is_match and getattr(staff, 'photo', None):
-            refreshed = get_or_create_face_embedding(staff, force_refresh=True)
-            if refreshed is not None:
-                score, is_match, dist = compare_embeddings(refreshed, scan_feat)
 
-        if is_match and score >= 60.0 and score > best_score:
-            best_score = score
+        score, is_match, dist = compare_embeddings(staff_vec, target_vec, threshold=threshold)
+        if is_match and dist <= min_distance:
+            min_distance = dist
             best_match = (role, staff, score, dist)
 
     return best_match
 
 
 # ─────────────────────────────────────────────────────────────
-# 6. KADEMELI JARIMA VA DAVOMATNI YOZISH
+# 4. DAVOMATNI YOZISH VA JARIMA HISOBLASH
 # ─────────────────────────────────────────────────────────────
 
 def calculate_late_fine_percent(late_minutes: int) -> Decimal:
@@ -533,13 +334,12 @@ def process_face_check_in(
     lat=None,
     lon=None,
     bypass_geo=False,
-    pre_verified: bool = False,
+    pre_verified: bool = True,
     match_score: float = 95.0,
 ):
     """
-    Xodimni yuz ma'lumoti yoki frontend tasdig'i asosida davomatga yozadi.
-    Javob formati:
-      {"success": True, "message": "Xodim keldi deb belgilandi", "employee_name": "...", ...}
+    Topilgan xodimning davomatini (FaceIDLog modeliga) avtomatik yozadi va JSON javob qaytaradi:
+        {"success": True, "name": "Xodim ismi", "employee_name": "Xodim ismi", ...}
     """
     settings_obj = FaceIDSettings.get_settings()
     now = timezone.localtime()
@@ -557,7 +357,7 @@ def process_face_check_in(
             'message': "Yuz topilmadi yoki xodim ro'yxatda yo'q",
         }
 
-    # 1. Geolokatsiya tekshiruvi (agar yoqilgan bo'lsa)
+    # 1. Geolokatsiya tekshiruvi
     distance = None
     lat_val = lon_val = None
     if lat not in (None, '', 'null', 'undefined') and lon not in (None, '', 'null', 'undefined'):
@@ -581,35 +381,7 @@ def process_face_check_in(
                 'message': f"Siz markaz hududida emassiz! Masofa: {int(distance)}m (Ruxsat: {settings_obj.allowed_radius_meters}m).",
             }
 
-    # 2. Agar hali tekshirilmagan bo'lsa va rasm yuborilgan bo'lsa — yengil solishtirish
-    if not pre_verified and scan_file is not None:
-        scan_feat, _, _ = extract_face_embedding(scan_file, allow_portrait_fallback=False)
-        if scan_feat is None:
-            return {
-                'success': False,
-                'is_face_error': True,
-                'detected': False,
-                'error_type': 'no_face',
-                'message': "Yuz topilmadi yoki xodim ro'yxatda yo'q",
-            }
-        staff_feat = get_or_create_face_embedding(staff)
-        if staff_feat is not None:
-            score, is_match, _ = compare_embeddings(staff_feat, scan_feat)
-            if not is_match and getattr(staff, 'photo', None):
-                refreshed = get_or_create_face_embedding(staff, force_refresh=True)
-                if refreshed is not None:
-                    score, is_match, _ = compare_embeddings(refreshed, scan_feat)
-            if not is_match:
-                return {
-                    'success': False,
-                    'is_face_error': True,
-                    'detected': True,
-                    'error_type': 'unknown_face',
-                    'message': "Yuz topilmadi yoki xodim ro'yxatda yo'q",
-                }
-            match_score = score
-
-    # 3. Davomat logini yozish
+    # 2. Xodim ismi va lavozimi
     employee_name = f"{getattr(staff, 'first_name', '') or ''} {getattr(staff, 'last_name', '') or ''}".strip()
     if not employee_name:
         employee_name = user.get_full_name() or user.username
@@ -618,6 +390,7 @@ def process_face_check_in(
         'Menejer' if getattr(user, 'role', '') == 'manager' else "O'qituvchi"
     )
 
+    # 3. Davomat logini (FaceIDLog) yozish
     log = FaceIDLog.objects.filter(user=user, date=today).first()
     expected_time = getattr(staff, 'work_start_time', None) or time(8, 0)
     work_end_time = getattr(staff, 'work_end_time', None) or time(18, 0)
@@ -655,9 +428,10 @@ def process_face_check_in(
         if diff_since_in < 5:
             return {
                 'success': True,
-                'message': "Xodim keldi deb belgilandi",
+                'name': employee_name,
                 'employee_name': employee_name,
                 'staff_name': employee_name,
+                'message': "Xodim keldi deb belgilandi",
                 'role': role_title,
                 'action_type': 'already_checked_in',
                 'is_duplicate': True,
@@ -710,9 +484,10 @@ def process_face_check_in(
 
     return {
         'success': True,
-        'message': status_msg,
+        'name': employee_name,
         'employee_name': employee_name,
         'staff_name': employee_name,
+        'message': status_msg,
         'role': role_title,
         'action_type': action_type,
         'check_in_time': log.check_in_time.strftime('%H:%M:%S') if log.check_in_time else None,
@@ -727,7 +502,7 @@ def process_face_check_in(
 
 
 # ─────────────────────────────────────────────────────────────
-# 7. OYLIK MAOSH HISOB-KITOBI
+# 5. OYLIK MAOSH HISOB-KITOBI
 # ─────────────────────────────────────────────────────────────
 
 def calculate_staff_salary_summary(staff, year: int, month: int):

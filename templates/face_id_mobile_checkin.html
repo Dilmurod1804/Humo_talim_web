@@ -76,6 +76,8 @@
 }
 </style>
 
+<!-- face-api.js (Mijoz tomonida yuzni aniqlash va 128-D descriptor olish kutubxonasi) -->
+<script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
 <script>
 // Markaz koordinatalari va geofence sozlamalari
 const CENTER_LAT = parseFloat("{{ settings.latitude|default:'41.311081' }}".replace(',', '.')) || 41.311081;
@@ -103,7 +105,18 @@ let autoScanTimer = null;
 let isScanning = false;
 let cooldownUntil = 0;
 const AUTO_SCAN_INTERVAL_MS = 3000; // Har 3 sekundda avtomatik skanerlash
+const CAMERA_ACCESS_TIMEOUT_MS = 15000; // 15 soniya kameraga kirish vaqti
 const GPS_TIMEOUT_MS = 3500; // 3.5 soniya qat'iy GPS vaqt chegarasi
+
+function callCameraWithTimeout(promise, ms = CAMERA_ACCESS_TIMEOUT_MS) {
+    let timer = null;
+    const timeoutPromise = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error("Kamera 15 soniya ichida javob bermadi (Timeout)")), ms);
+    });
+    return Promise.race([promise, timeoutPromise]).finally(() => {
+        if (timer) clearTimeout(timer);
+    });
+}
 
 // ══════════════════════════════════════════════════════════════
 // 1. KAMERANI DOIMIY OCHIQ TUTISH VA AVTO-SKANERNI BOSHLASH
@@ -143,7 +156,10 @@ async function initCamera() {
 
     for (const constraints of constraintsList) {
         try {
-            stream = await navigator.mediaDevices.getUserMedia(constraints);
+            stream = await callCameraWithTimeout(
+                navigator.mediaDevices.getUserMedia(constraints),
+                CAMERA_ACCESS_TIMEOUT_MS
+            );
             if (stream) break;
         } catch (err) {
             lastErr = err;
@@ -277,27 +293,77 @@ async function checkBackgroundLocation() {
     }
 }
 
-// ══════════════════════════════════════════════════════════════
-// 5. PARALLEL ISHGA TUSHIRISH (KAMERA VA GPS BIR-BIRINI KUTMAYDI)
-// ══════════════════════════════════════════════════════════════
-// 1. Kamera darhol ochiladi (hech narsa uni to'sib qo'ymaydi)
-initCamera();
+const FACE_API_MODEL_URL = "https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/";
+const STAFF_PHOTOS_LIST = {{ staff_photos_json|default:"[]"|safe }};
+let faceApiReady = false;
 
-// 2. GPS orqa fonda parallel tekshiriladi (3.5 soniya timeout bilan)
+async function initFaceApiModels() {
+    if (faceApiReady || typeof faceapi === 'undefined') return;
+    try {
+        await Promise.all([
+            faceapi.nets.tinyFaceDetector.loadFromUri(FACE_API_MODEL_URL),
+            faceapi.nets.faceLandmark68Net.loadFromUri(FACE_API_MODEL_URL),
+            faceapi.nets.faceRecognitionNet.loadFromUri(FACE_API_MODEL_URL),
+        ]);
+        faceApiReady = true;
+        // Bazada rasmi bor, ammo hali face-api.js 128-D descriptori yo'q xodimlarning descriptorini avtomatik hisoblab saqlash
+        syncStaffPhotoDescriptors();
+    } catch (e) {
+        console.warn("face-api.js modellarini yuklashda xatolik:", e);
+    }
+}
+
+async function syncStaffPhotoDescriptors() {
+    if (!faceApiReady || !Array.isArray(STAFF_PHOTOS_LIST)) return;
+    for (const item of STAFF_PHOTOS_LIST) {
+        if (!item.photo_url) continue;
+        try {
+            const img = await faceapi.fetchImage(item.photo_url);
+            const det = await faceapi
+                .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.35 }))
+                .withFaceLandmarks()
+                .withFaceDescriptor();
+            if (det && det.descriptor) {
+                await fetch(VERIFY_API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
+                    body: JSON.stringify({
+                        action: 'save_descriptor',
+                        role: item.role,
+                        id: item.id,
+                        descriptor: Array.from(det.descriptor),
+                    }),
+                });
+            }
+        } catch (e) {
+            console.warn("Staff photo descriptor sync skip:", item.name, e);
+        }
+    }
+}
+
+// ══════════════════════════════════════════════════════════════
+// 5. PARALLEL ISHGA TUSHIRISH (KAMERA, FACE-API.JS VA GPS)
+// ══════════════════════════════════════════════════════════════
+initCamera();
+initFaceApiModels();
 checkBackgroundLocation();
 
 // ══════════════════════════════════════════════════════════════
-// 6. HAR 3 SEKUNDDA AVTOMATIK SKANERLASH VA DAVOMATNI QAYD ETISH
+// 6. HAR 3 SEKUNDDA FACE-API.JS ORQALI 128-D DESCRIPTOR OLISH VA BACKEND'GA YUBORISH
 // ══════════════════════════════════════════════════════════════
 async function startCheckInProcess(isAuto = false) {
     if (isScanning) return;
 
-    // 1-QADAM: KADRNI TEZKOR SURATGA OLISH (SNAPSHOT)
     if (!mobVideo.videoWidth) {
         if (!isAuto) {
             showAlert('danger', 'Kamera kadrini olib bo\'lmadi. Sahifani yangilang yoki kameraga ruxsat bering.');
         }
         return;
+    }
+
+    if (!faceApiReady) {
+        await initFaceApiModels();
+        if (!faceApiReady) return;
     }
 
     isScanning = true;
@@ -310,6 +376,35 @@ async function startCheckInProcess(isAuto = false) {
         mobCheckInBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span> Yuz tahlil qilinmoqda...';
     }
 
+    // 1-QADAM: face-api.js yordamida kadrdan yuzni aniqlash va 128 o'lchamli descriptor olish
+    let detection = null;
+    try {
+        detection = await faceapi
+            .detectSingleFace(mobVideo, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.45 }))
+            .withFaceLandmarks()
+            .withFaceDescriptor();
+    } catch (e) {
+        console.warn("face-api detect error:", e);
+    }
+
+    if (!detection || !detection.descriptor) {
+        isScanning = false;
+        mobCheckInBtn.disabled = false;
+        mobCheckInBtn.innerHTML = '<i class="bi bi-camera-fill me-2"></i> Davomatni Qayd Etish';
+        if (mobCamFrame) mobCamFrame.style.borderColor = '#dc2626';
+        if (mobFaceOval) mobFaceOval.style.borderColor = 'rgba(220, 38, 38, 0.9)';
+        if (liveScanBadge) {
+            liveScanBadge.innerHTML = '<span style="color:#ff4d4f; font-weight:800;"><i class="bi bi-exclamation-triangle-fill me-1"></i>Yuz topilmadi</span>';
+        }
+        showAlert(
+            'danger',
+            `<div class="fw-black text-center fs-6" style="color:#dc2626;"><i class="bi bi-exclamation-octagon-fill me-1"></i>Yuz topilmadi</div>`
+        );
+        return;
+    }
+
+    const descriptorArray = Array.from(detection.descriptor);
+
     mobCanvas.width = 480;
     mobCanvas.height = Math.round(480 * (mobVideo.videoHeight / mobVideo.videoWidth));
     const ctx = mobCanvas.getContext('2d');
@@ -321,40 +416,42 @@ async function startCheckInProcess(isAuto = false) {
     let lon = currentCoords ? currentCoords.longitude : null;
     let bypassGeo = (!lat || !lon);
 
-    // Agar koordinatalar aniqlangan bo'lsa va chegara masofasidan katta bo'lsa:
     if (lat && lon && IS_GEOFENCING_ENABLED) {
         const dist = calculateHaversineMeters(lat, lon, CENTER_LAT, CENTER_LON);
         if (dist > ALLOWED_RADIUS) {
             isScanning = false;
             mobCheckInBtn.disabled = false;
             mobCheckInBtn.innerHTML = '<i class="bi bi-camera-fill me-2"></i> Davomatni Qayd Etish';
-
             showAlert(
                 'danger',
                 `<b>Siz markaz hududida emassiz! ⛔</b><br>` +
-                `Siz bino markazidan <b>${dist} metr</b> uzoqlikdasiz (Ruxsat etilgan chegara: ${ALLOWED_RADIUS} metr).<br>` +
-                `<small class="text-muted">Iltimos, o'quv markazi binosi ichiga kirib davomatdan o'ting.</small>`
+                `Siz bino markazidan <b>${dist} metr</b> uzoqlikdasiz (Ruxsat etilgan chegara: ${ALLOWED_RADIUS} metr).`
             );
             return;
         }
     }
 
-    // 3-QADAM: SERVERGA FORMDATA BILAN YUBORISH
-    const fd = new FormData();
-    fd.append('image', dataUrl);
+    // 3-QADAM: 128-D DESCRIPTOR MASSIVINI DJANGO BACKEND'GA FETCH (POST) ORQALI YUBORISH
+    const payload = {
+        descriptor: descriptorArray,
+        image: dataUrl,
+        latitude: lat,
+        longitude: lon,
+        bypass_geo: bypassGeo ? '1' : '0',
+        is_kiosk: '0',
+    };
     {% if user.is_authenticated %}
-    fd.append('user_id', '{{ user.id }}');
+    payload.user_id = '{{ user.id }}';
     {% endif %}
-    if (lat) fd.append('latitude', lat);
-    if (lon) fd.append('longitude', lon);
-    if (bypassGeo) fd.append('bypass_geo', '1');
-    fd.append('is_kiosk', '0');
-    fd.append('csrfmiddlewaretoken', CSRF_TOKEN);
 
     try {
         const resp = await fetch(VERIFY_API_URL, {
             method: 'POST',
-            body: fd
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': CSRF_TOKEN,
+            },
+            body: JSON.stringify(payload),
         });
 
         let res = null;

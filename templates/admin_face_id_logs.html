@@ -453,7 +453,26 @@
     </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
 <script>
+const FACE_API_MODEL_URL = "https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/";
+let faceApiLoaded = false;
+
+async function ensureFaceApiLoaded() {
+    if (faceApiLoaded || typeof faceapi === 'undefined') return;
+    try {
+        await Promise.all([
+            faceapi.nets.tinyFaceDetector.loadFromUri(FACE_API_MODEL_URL),
+            faceapi.nets.faceLandmark68Net.loadFromUri(FACE_API_MODEL_URL),
+            faceapi.nets.faceRecognitionNet.loadFromUri(FACE_API_MODEL_URL),
+        ]);
+        faceApiLoaded = true;
+    } catch (e) {
+        console.warn("face-api.js model load error:", e);
+    }
+}
+ensureFaceApiLoaded();
+
 let currentEnrollRole = '';
 let currentEnrollId = '';
 let enrollStream = null;
@@ -553,6 +572,20 @@ async function takeSnapshotAndUpload() {
 
     const fd = new FormData();
     fd.append('image_base64', dataUrl);
+    await ensureFaceApiLoaded();
+    if (faceApiLoaded) {
+        try {
+            const det = await faceapi
+                .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.35 }))
+                .withFaceLandmarks()
+                .withFaceDescriptor();
+            if (det && det.descriptor) {
+                fd.append('descriptor', JSON.stringify(Array.from(det.descriptor)));
+            }
+        } catch (err) {
+            console.warn("Enroll webcam descriptor error:", err);
+        }
+    }
     fd.append('is_ajax', '1');
     fd.append('csrfmiddlewaretoken', '{{ csrf_token }}');
 
@@ -563,6 +596,7 @@ async function handleFileUpload(e) {
     e.preventDefault();
     const fileInput = document.getElementById('modalPhotoFile');
     const fileUploadBtn = document.getElementById('fileUploadBtn');
+    const previewImg = document.getElementById('filePreviewImg');
     if (!fileInput.files || !fileInput.files[0]) return;
 
     fileUploadBtn.disabled = true;
@@ -570,6 +604,20 @@ async function handleFileUpload(e) {
 
     const fd = new FormData();
     fd.append('photo', fileInput.files[0]);
+    await ensureFaceApiLoaded();
+    if (faceApiLoaded && previewImg && previewImg.src) {
+        try {
+            const det = await faceapi
+                .detectSingleFace(previewImg, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.35 }))
+                .withFaceLandmarks()
+                .withFaceDescriptor();
+            if (det && det.descriptor) {
+                fd.append('descriptor', JSON.stringify(Array.from(det.descriptor)));
+            }
+        } catch (err) {
+            console.warn("Enroll file descriptor error:", err);
+        }
+    }
     fd.append('is_ajax', '1');
     fd.append('csrfmiddlewaretoken', '{{ csrf_token }}');
 

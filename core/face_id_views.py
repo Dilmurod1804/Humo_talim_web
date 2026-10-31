@@ -24,6 +24,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 from .auth_views import admin_only_required, admin_required, is_admin_user
 from .face_service import (
+    calculate_euclidean_distance,
     calculate_haversine_distance,
     calculate_staff_salary_summary,
     compare_embeddings,
@@ -36,6 +37,7 @@ from .face_service import (
     match_staff_by_face,
     parse_descriptor,
     process_face_check_in,
+    save_staff_descriptor,
     sync_all_face_embeddings,
     sync_staff_face_embedding,
 )
@@ -487,12 +489,13 @@ def admin_face_id_sync_staff(request):
 
 @admin_only_required
 def admin_face_id_upload_photo(request, role, id):
-    """Admin orqali xodimga Face ID yuz fotosuratini biriktirish."""
+    """Admin orqali xodimga Face ID yuz fotosurati va face-api.js descriptorini biriktirish."""
     model_map = {'teacher': Teacher, 'manager': Manager}
     if role not in model_map:
         return JsonResponse({'success': False, 'message': "Noto'g'ri lavozim"}, status=400)
     staff = get_object_or_404(model_map[role], id=id)
 
+    descriptor_raw = request.POST.get('descriptor')
     photo_file = request.FILES.get('photo')
     image_base64 = request.POST.get('image_base64')
     if not photo_file and image_base64:
@@ -500,23 +503,24 @@ def admin_face_id_upload_photo(request, role, id):
         if not photo_file:
             return JsonResponse({'success': False, 'message': f"Suratni o'qishda xatolik: {b64_err}"}, status=400)
 
-    if not photo_file:
-        return JsonResponse({'success': False, 'message': "Hech qanday rasm tanlanmadi!"}, status=400)
+    if photo_file:
+        opt_photo, err = optimize_student_photo(photo_file)
+        if not opt_photo:
+            return JsonResponse({'success': False, 'message': f"Rasmni qayta ishlashda xatolik: {err}"}, status=400)
+        staff.photo = opt_photo
+        staff.save()
 
-    opt_photo, err = optimize_student_photo(photo_file)
-    if not opt_photo:
-        return JsonResponse({'success': False, 'message': f"Rasmni qayta ishlashda xatolik: {err}"}, status=400)
-
-    staff.photo = opt_photo
-    staff.save()
-
-    face_ok = sync_staff_face_embedding(staff)
+    face_ok = False
+    if descriptor_raw:
+        face_ok = save_staff_descriptor(staff, descriptor_raw)
+    else:
+        face_ok = sync_staff_face_embedding(staff)
 
     msg = f"{staff.first_name} {staff.last_name} uchun Face ID yuz fotosurati muvaffaqiyatli biriktirildi!"
     msg += (
-        " (Biometrik yuz shabloni bazaga bog'landi ✅)."
+        " (128-o'lchamli yuz deskriptori bazaga saqlandi ✅)."
         if face_ok else
-        " (Ogohlantirish: Rasm saqlandi, ammo yuz shablonini ajratib bo'lmadi, aniqroq surat yuklash tavsiya etiladi)."
+        " (Rasm saqlandi — terminal ochilganda face-api.js avtomatik deskriptor yaratadi)."
     )
 
     if _is_ajax(request):
@@ -562,24 +566,51 @@ def admin_face_id_settings(request):
 
 
 # ─────────────────────────────────────────────────────────────
-# 4. YENGIL FACE ID TERMINAL VA API BACKEND
+# 4. FRONTEND (face-api.js) TERMINAL VA DESCRIPTOR API BACKEND
 # ─────────────────────────────────────────────────────────────
+
+def _get_staff_photos_for_face_api() -> str:
+    """
+    Frontend (face-api.js) bazada rasmi bor, ammo hali 128-D face-api.js deskriptori
+    saqlanmagan xodimlarning rasmidan avtomatik descriptor yaratib olishi uchun JSON ro'yxat.
+    """
+    items = []
+    for role, qs in (
+        ('teacher', Teacher.objects.filter(is_active=True)),
+        ('manager', Manager.objects.filter(is_active=True)),
+    ):
+        for s in qs:
+            if s.photo:
+                try:
+                    items.append({
+                        'role': role,
+                        'id': s.id,
+                        'name': f"{s.first_name} {s.last_name}".strip(),
+                        'photo_url': s.photo.url,
+                        'has_descriptor': parse_descriptor(s.face_embedding) is not None,
+                    })
+                except Exception:
+                    continue
+    return json.dumps(items)
+
 
 @csrf_exempt
 def face_id_terminal(request):
-    """Markaz binosida xodimlar yuzini skanerlovchi terminal sahifasi."""
+    """Markaz binosida xodimlar yuzini face-api.js orqali skanerlovchi terminal sahifasi."""
     return render(request, 'face_id_terminal.html', {
         'settings': FaceIDSettings.get_settings(),
         'teachers': Teacher.objects.filter(is_active=True).select_related('user'),
         'managers': Manager.objects.filter(is_active=True).select_related('user'),
+        'staff_photos_json': _get_staff_photos_for_face_api(),
     })
 
 
 @csrf_exempt
 def face_id_check_in(request):
-    """Mobil va veb qurilmalardan Face ID orqali davomat qilish sahifasi."""
+    """Mobil va veb qurilmalardan face-api.js orqali davomat qilish sahifasi."""
     return render(request, 'face_id_mobile_checkin.html', {
         'settings': FaceIDSettings.get_settings(),
+        'staff_photos_json': _get_staff_photos_for_face_api(),
     })
 
 
@@ -609,13 +640,13 @@ def _resolve_target_staff_user(identifier):
 @csrf_exempt
 def face_id_verify_api(request):
     """
-    Yengil (Lightweight) Face ID POST API.
-    Frontend yuborgan snapshot rasm (Base64 / fayl), yuz deskriptori (descriptor)
-    yoki xodim identifikatorini qabul qilib, davomatni qayd etadi.
+    Frontend'dagi face-api.js dan kelgan 128 o'lchamli `descriptor` (massiv) ni qabul qilib,
+    bazadagi xodimlarning descriptor'lari bilan Evklid masofasi (Euclidean distance) orqali
+    solishtiradigan va davomatni avtomatik yozadigan yengil Django API View.
 
-    Javob formati (JSON):
-      - Muvaffaqiyatli: {"success": true, "message": "Xodim keldi deb belgilandi", "employee_name": "..."}
-      - Topilmasa:      {"success": false, "message": "Yuz topilmadi yoki xodim ro'yxatda yo'q"}
+    JSON javob formati:
+      - Mos kelsa: {"success": true, "name": "Xodim ismi", "employee_name": "Xodim ismi", "message": "Xodim keldi deb belgilandi"}
+      - Topilmasa: {"success": false, "message": "Yuz topilmadi yoki xodim ro'yxatda yo'q"}
     """
     if request.method != 'POST':
         return JsonResponse({
@@ -630,17 +661,30 @@ def face_id_verify_api(request):
         except Exception:
             payload = {}
 
-    img_data = (
-        payload.get('image')
-        or payload.get('photo')
-        or request.POST.get('image')
-        or request.POST.get('photo')
-    )
+    # Maxsus amal: Frontend (face-api.js) xodimning profil rasmidan 128-D descriptor ajratib bazaga saqlaganda
+    action = payload.get('action') or request.POST.get('action')
+    if action == 'save_descriptor':
+        role = payload.get('role') or request.POST.get('role')
+        staff_id = payload.get('id') or request.POST.get('id')
+        desc = payload.get('descriptor') or request.POST.get('descriptor')
+        model_map = {'teacher': Teacher, 'manager': Manager}
+        if role in model_map and staff_id and desc:
+            staff_obj = model_map[role].objects.filter(id=staff_id).first()
+            if staff_obj and save_staff_descriptor(staff_obj, desc):
+                return JsonResponse({'success': True, 'message': "Deskriptor saqlandi"})
+        return JsonResponse({'success': False, 'message': "Deskriptorni saqlab bo'lmadi"}, status=400)
+
     descriptor_data = (
         payload.get('descriptor')
         or payload.get('embedding')
         or request.POST.get('descriptor')
         or request.POST.get('embedding')
+    )
+    img_data = (
+        payload.get('image')
+        or payload.get('photo')
+        or request.POST.get('image')
+        or request.POST.get('photo')
     )
     file_obj = request.FILES.get('photo') or request.FILES.get('image')
     employee_id = (
@@ -649,9 +693,6 @@ def face_id_verify_api(request):
         or request.POST.get('employee_id')
         or request.POST.get('user_id')
     )
-    frontend_verified = str(
-        payload.get('verified', request.POST.get('verified', '0'))
-    ).lower() in ('1', 'true', 'yes')
 
     lat = payload.get('latitude') if 'latitude' in payload else request.POST.get('latitude')
     lon = payload.get('longitude') if 'longitude' in payload else request.POST.get('longitude')
@@ -661,55 +702,9 @@ def face_id_verify_api(request):
         or (is_kiosk and not lat and not lon)
     )
 
-    # 1. Base64 rasm yuborilgan bo'lsa, uni ContentFile ga o'giramiz
-    scan_file = file_obj
-    if not scan_file and img_data:
-        scan_file, _, _ = decode_base64_image(img_data)
-
-    target_user = None
-    similarity_score = 95.0
-    pre_verified = False
-
-    # 2. Agar frontend tayyor descriptor yuborgan bo'lsa yoki snapshot rasm yuborgan bo'lsa -> xodimni qidiramiz
-    if descriptor_data or scan_file:
-        match = match_staff_by_face(scan_source=scan_file, scan_descriptor=descriptor_data)
-        if match:
-            _, matched_staff, similarity_score, _ = match
-            target_user = matched_staff.user
-            pre_verified = True
-
-    # 3. Agar employee_id / user_id yuborilgan bo'lsa va yuqorida topilmagan bo'lsa
-    if not target_user and employee_id:
-        candidate_user = _resolve_target_staff_user(employee_id)
-        if candidate_user:
-            if frontend_verified and not scan_file and not descriptor_data:
-                # Frontend o'zi tasdiqlab faqat natijani yuborgan holat
-                target_user = candidate_user
-                pre_verified = True
-            elif scan_file or descriptor_data:
-                staff_prof = get_user_staff_profile(candidate_user)
-                staff_feat = get_or_create_face_embedding(staff_prof) if staff_prof else None
-                scan_feat = (
-                    parse_descriptor(descriptor_data)
-                    if descriptor_data
-                    else extract_face_embedding(scan_file, allow_portrait_fallback=False)[0]
-                )
-                if scan_feat is None:
-                    return JsonResponse({
-                        'success': False,
-                        'detected': False,
-                        'error_type': 'no_face',
-                        'message': "Yuz topilmadi yoki xodim ro'yxatda yo'q",
-                    }, status=200)
-                if staff_feat is not None:
-                    score, is_match, _ = compare_embeddings(staff_feat, scan_feat)
-                    if is_match:
-                        target_user = candidate_user
-                        similarity_score = score
-                        pre_verified = True
-
-    # 4. Agar xodim topilmasa — talab qilingan JSON javobni qaytaramiz
-    if not target_user:
+    # 1. Frontend yuborgan 128-D descriptor massivini tekshiramiz
+    scan_vec = parse_descriptor(descriptor_data)
+    if scan_vec is None:
         return JsonResponse({
             'success': False,
             'detected': False,
@@ -717,14 +712,47 @@ def face_id_verify_api(request):
             'message': "Yuz topilmadi yoki xodim ro'yxatda yo'q",
         }, status=200)
 
-    # 5. Davomatni yozish va natijani qaytarish
+    # Ixtiyoriy: jurnalga rasm biriktirish uchun snapshot yuborilgan bo'lsa
+    scan_file = file_obj
+    if not scan_file and img_data:
+        scan_file, _, _ = decode_base64_image(img_data)
+
+    target_user = None
+    similarity_score = 95.0
+
+    # 2. Bazadagi barcha xodimlarning 128-D descriptorlari bilan Euclidean distance bo'yicha solishtirish
+    match = match_staff_by_face(scan_descriptor=scan_vec)
+    if match:
+        _, matched_staff, similarity_score, _ = match
+        target_user = matched_staff.user
+    elif employee_id:
+        candidate_user = _resolve_target_staff_user(employee_id)
+        if candidate_user:
+            staff_prof = get_user_staff_profile(candidate_user)
+            staff_vec = get_or_create_face_embedding(staff_prof) if staff_prof else None
+            if staff_vec is not None:
+                score, is_match, _ = compare_embeddings(staff_vec, scan_vec)
+                if is_match:
+                    target_user = candidate_user
+                    similarity_score = score
+
+    # 3. Agar mos xodim topilmasa
+    if not target_user:
+        return JsonResponse({
+            'success': False,
+            'detected': True,
+            'error_type': 'unknown_face',
+            'message': "Yuz topilmadi yoki xodim ro'yxatda yo'q",
+        }, status=200)
+
+    # 4. Davomatni (FaceIDLog) avtomatik yozish va JSON javob qaytarish
     res = process_face_check_in(
         user=target_user,
         scan_file=scan_file,
         lat=lat,
         lon=lon,
         bypass_geo=bypass_geo,
-        pre_verified=pre_verified,
+        pre_verified=True,
         match_score=similarity_score,
     )
 

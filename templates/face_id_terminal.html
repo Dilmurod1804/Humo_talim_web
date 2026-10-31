@@ -769,10 +769,57 @@
 </div>
 
 <!-- ══════════════════════════════════════════════════════════════ -->
-<!-- 4. REAL-TIME HANDS-FREE RECOGNITION & CAMERA ENGINE            -->
+<!-- 4. REAL-TIME HANDS-FREE RECOGNITION & CAMERA ENGINE (face-api.js) -->
 <!-- ══════════════════════════════════════════════════════════════ -->
+<script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
 <script>
     // 1. TIZIM VA GEOLOKATSIYA SOZLAMALARI
+    const FACE_API_MODEL_URL = "https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/";
+    const STAFF_PHOTOS_LIST = {{ staff_photos_json|default:"[]"|safe }};
+    let faceApiReady = false;
+
+    async function initFaceApiModels() {
+        if (faceApiReady || typeof faceapi === 'undefined') return;
+        try {
+            await Promise.all([
+                faceapi.nets.tinyFaceDetector.loadFromUri(FACE_API_MODEL_URL),
+                faceapi.nets.faceLandmark68Net.loadFromUri(FACE_API_MODEL_URL),
+                faceapi.nets.faceRecognitionNet.loadFromUri(FACE_API_MODEL_URL),
+            ]);
+            faceApiReady = true;
+            syncStaffPhotoDescriptors();
+        } catch (e) {
+            console.warn("face-api.js modellarini yuklashda xatolik:", e);
+        }
+    }
+
+    async function syncStaffPhotoDescriptors() {
+        if (!faceApiReady || !Array.isArray(STAFF_PHOTOS_LIST)) return;
+        for (const item of STAFF_PHOTOS_LIST) {
+            if (!item.photo_url) continue;
+            try {
+                const img = await faceapi.fetchImage(item.photo_url);
+                const det = await faceapi
+                    .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.35 }))
+                    .withFaceLandmarks()
+                    .withFaceDescriptor();
+                if (det && det.descriptor) {
+                    await fetch(verifyApiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                        body: JSON.stringify({
+                            action: 'save_descriptor',
+                            role: item.role,
+                            id: item.id,
+                            descriptor: Array.from(det.descriptor),
+                        }),
+                    });
+                }
+            } catch (e) {
+                console.warn("Staff photo descriptor sync skip:", item.name, e);
+            }
+        }
+    }
     const centerLat = parseFloat("{{ settings.latitude|default:'41.311081' }}".replace(',', '.')) || 41.311081;
     const centerLon = parseFloat("{{ settings.longitude|default:'69.240562' }}".replace(',', '.')) || 69.240562;
     const allowedRadius = parseFloat("{{ settings.allowed_radius_meters|default:'100' }}".replace(',', '.')) || 100;
@@ -957,8 +1004,10 @@
         }
     }
 
-    // ══════ MULTI-TIER ROBUST CAMERA LOADER WITH TIMEOUT (3-5s) ══════
-    function callWithTimeout(promise, ms, errorName = 'TimeoutError') {
+    // ══════ MULTI-TIER ROBUST CAMERA LOADER WITH TIMEOUT (15s) ══════
+    const CAMERA_ACCESS_TIMEOUT_MS = 15000; // 15 soniya kameraga kirish vaqti
+
+    function callWithTimeout(promise, ms = CAMERA_ACCESS_TIMEOUT_MS, errorName = 'TimeoutError') {
         let timer = null;
         const timeoutPromise = new Promise((_, reject) => {
             timer = setTimeout(() => {
@@ -985,19 +1034,19 @@
                     : 'BROWSER_UNSUPPORTED';
                 throw Object.assign(new Error(reason), { name: reason });
             }
-            // Legacy API bilan urinib ko'r (3.5 soniya timeout)
+            // Legacy API bilan urinib ko'r (15 soniya timeout)
             const constraints = { video: true, audio: false };
             return callWithTimeout(
                 new Promise((res, rej) => legacyGUM.call(navigator, constraints, res, rej)),
-                3500,
+                CAMERA_ACCESS_TIMEOUT_MS,
                 'TimeoutError'
             );
         }
 
-        // Har bir getUserMedia so'rovi uchun 3.5 soniyalik cheklov
+        // Har bir getUserMedia so'rovi uchun 15 soniyalik cheklov
         const getMedia = (constraints) => callWithTimeout(
             navigator.mediaDevices.getUserMedia(constraints),
-            3500,
+            CAMERA_ACCESS_TIMEOUT_MS,
             'TimeoutError'
         );
 
@@ -1054,11 +1103,11 @@
 
         let cameraStarted = false;
 
-        // ──── 4 SONIYALIK QAT'IY FOYDALANUVCHI TIMEOUTI (3-5 soniya talabi bo'yicha) ────
-        // Agar kamera 4 soniya ichida ochilmasa, abadiy qolib ketmasdan tushunarli xabar chiqariladi
+        // ──── 15 SONIYALIK KAMERAGA KIRISH VAQTI (TIMEOUT) ────
+        // Agar kamera 15 soniya ichida ochilmasa, tushunarli xabar chiqariladi
         const cameraTimeoutId = setTimeout(() => {
             if (!cameraStarted) {
-                console.warn('Kamera 4 soniya ichida ochilmadi — Timeout ishga tushdi');
+                console.warn('Kamera 15 soniya ichida ochilmadi — Timeout ishga tushdi');
                 if (activeMediaStream) {
                     try { activeMediaStream.getTracks().forEach(t => t.stop()); } catch(e) {}
                     activeMediaStream = null;
@@ -1069,7 +1118,7 @@
                 showCameraPrompt(
                     'danger',
                     'Kamerani ochib bo\'lmadi. Brauzer ruxsatlarini tekshiring',
-                    'Kamera 4 soniya ichida javob bermadi. Brauzer manzil satridagi qulf 🔒 belgisini bosib kameraga ruxsat berilganligini tekshiring yoki kamera boshqa dastur (Zoom, Teams va h.k.) tomonidan band emasligiga ishonch hosil qiling.',
+                    'Kamera 15 soniya ichida javob bermadi. Brauzer manzil satridagi qulf 🔒 belgisini bosib kameraga ruxsat berilganligini tekshiring yoki kamera boshqa dastur (Zoom, Teams va h.k.) tomonidan band emasligiga ishonch hosil qiling.',
                     `<div class="d-flex flex-wrap gap-2 justify-content-center">
                         <button class="btn btn-warning text-dark rounded-pill px-4 py-2 fw-bold shadow" onclick="initKioskCamera()">
                             <i class="bi bi-arrow-clockwise me-1"></i> Qayta urinish
@@ -1080,7 +1129,7 @@
                     </div>`
                 );
             }
-        }, 4000);
+        }, CAMERA_ACCESS_TIMEOUT_MS);
 
         try {
             // Avvalgi streamni to'xtatish
@@ -1159,7 +1208,7 @@
                 showCameraPrompt(
                     'danger',
                     'Kamerani ochib bo\'lmadi. Brauzer ruxsatlarini tekshiring',
-                    'Kamera 4 soniya ichida ishga tushmadi. Brauzer ruxsatlarini tekshiring yoki kamera boshqa dastur tomonidan band bo\'lishi mumkin.',
+                    'Kamera 15 soniya ichida ishga tushmadi. Brauzer ruxsatlarini tekshiring yoki kamera boshqa dastur tomonidan band bo\'lishi mumkin.',
                     `<div class="d-flex flex-wrap gap-2 justify-content-center">
                         <button class="btn btn-warning text-dark rounded-pill px-4 py-2 fw-bold shadow" onclick="initKioskCamera()">
                             <i class="bi bi-arrow-clockwise me-1"></i> Qayta urinish
@@ -1273,6 +1322,10 @@
 
     async function performAutoScanCycle(targetUserId = null) {
         if (scannerState !== 'IDLE') return;
+        if (!faceApiReady) {
+            await initFaceApiModels();
+            if (!faceApiReady) return;
+        }
         scannerState = 'SCANNING';
         lastScanTime = Date.now();
 
@@ -1280,7 +1333,25 @@
         statusDot.style.background = "var(--kiosk-cyan)";
         statusText.textContent = "Yuz tahlil qilinmoqda...";
 
-        // Kadrni olish (Optimal o'lcham 480x360 tezkor uzatish uchun)
+        // 1. face-api.js yordamida kadrdan yuzni aniqlash va 128-o'lchamli descriptor olish
+        let detection = null;
+        try {
+            detection = await faceapi
+                .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.45 }))
+                .withFaceLandmarks()
+                .withFaceDescriptor();
+        } catch (e) {
+            console.warn("face-api detect error:", e);
+        }
+
+        if (!detection || !detection.descriptor) {
+            handleRecognitionNoMatch("Yuz topilmadi");
+            return;
+        }
+
+        const descriptorArray = Array.from(detection.descriptor);
+
+        // Kadrni olish (Optimal o'lcham 480x360 jurnal uchun)
         const vw = video.videoWidth || 640;
         const vh = video.videoHeight || 480;
         canvas.width = 480;
@@ -1289,20 +1360,25 @@
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
 
-        const formData = new FormData();
-        formData.append('image', dataUrl);
-        formData.append('is_kiosk', '1');
+        const payload = {
+            descriptor: descriptorArray,
+            image: dataUrl,
+            is_kiosk: '1',
+            latitude: currentLat,
+            longitude: currentLon,
+        };
         if (targetUserId) {
-            formData.append('user_id', targetUserId);
+            payload.user_id = targetUserId;
         }
-        if (currentLat) formData.append('latitude', currentLat);
-        if (currentLon) formData.append('longitude', currentLon);
-        formData.append('csrfmiddlewaretoken', csrfToken);
 
         try {
             const resp = await fetch(verifyApiUrl, {
                 method: 'POST',
-                body: formData
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken,
+                },
+                body: JSON.stringify(payload),
             });
 
             // HTTP Status Xatoliklarini tutish (403, 404, 500)
@@ -1503,6 +1579,7 @@
             return;
         }
         console.log(`Kiosk mode: ${kioskSecureMode ? 'Xavfsiz' : 'Cheklangan'} | Host: ${hostname} | Protocol: ${location.protocol}`);
+        initFaceApiModels();
         initKioskCamera();
     }
 
