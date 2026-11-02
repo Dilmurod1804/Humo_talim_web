@@ -1,0 +1,54 @@
+{% extends 'base.html' %}
+{% block title %}OTP Tasdiqlash – HUMO Admin{% endblock %}
+{% block content %}
+<div class="row justify-content-center align-items-center" style="min-height:75vh;">
+    <div class="col-md-5 col-lg-4">
+        <div class="login-card text-center">
+            <div class="mb-4">
+                <div style="background:linear-gradient(135deg,#667eea,#764ba2);border-radius:20px;width:70px;height:70px;display:flex;align-items:center;justify-content:center;margin:0 auto;box-shadow:0 8px 25px rgba(102,126,234,.4);">
+                    <i class="bi bi-envelope-check-fill text-white" style="font-size:1.8rem;"></i>
+                </div>
+                <h3 class="fw-black text-dark mt-3 mb-1">Tasdiqlash Kodi</h3>
+                <p class="text-muted small">
+                    <b>{{ email }}</b> manziliga 6 xonali kod yuborildi.
+                </p>
+            </div>
+
+            {% if warning %}
+            <div class="alert alert-warning text-start d-flex gap-2 mb-3">
+                <i class="bi bi-exclamation-triangle-fill mt-1"></i>
+                <span>{{ warning }}</span>
+            </div>
+            {% endif %}
+
+            {% if error %}
+            <div class="alert alert-danger text-start d-flex gap-2 mb-3">
+                <i class="bi bi-x-circle-fill mt-1"></i>
+                <span>{{ error }}</span>
+            </div>
+            {% endif %}
+
+            <form method="post">
+                {% csrf_token %}
+                <div class="mb-4">
+                    <label class="form-label fw-semibold small text-dark text-start d-block">OTP Kod</label>
+                    <input type="text" name="otp" class="form-control text-center"
+                           maxlength="6" placeholder="● ● ● ● ● ●"
+                           style="font-size:1.8rem;font-weight:800;letter-spacing:10px;border:2px solid #e5e7eb;border-radius:12px;padding:14px;"
+                           autofocus required>
+                </div>
+                <button type="submit" class="btn w-100 py-2 fw-bold text-white"
+                        style="background:linear-gradient(135deg,#667eea,#764ba2);border:none;border-radius:12px;font-size:1rem;box-shadow:0 4px 15px rgba(102,126,234,.4);">
+                    <i class="bi bi-shield-check-fill me-2"></i>Tasdiqlash
+                </button>
+            </form>
+
+            <div class="mt-4">
+                <a href="{% url 'admin_login' %}" class="text-muted small text-decoration-none">
+                    <i class="bi bi-arrow-left me-1"></i> Login sahifasiga qaytish
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

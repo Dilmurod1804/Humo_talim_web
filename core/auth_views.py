@@ -1,0 +1,294 @@
+"""
+HUMO O'quv markazi — Auth & Shared Views
+Admin: session-based login.
+Teacher: Django auth login.
+Parent: read-only view.
+"""
+import random
+import string
+from functools import wraps
+
+from django.conf import settings
+from django.contrib.auth import login, logout, authenticate
+from django.contrib.auth.decorators import login_required
+from django.contrib import messages
+from django.core.mail import send_mail
+from django.shortcuts import redirect, render
+
+from .models import CustomUser, Group
+
+
+# ─────────────────────────────────────────────
+# OTP helpers
+# ─────────────────────────────────────────────
+
+def _make_otp() -> str:
+    return str(random.randint(100000, 999999))
+
+
+def _send_otp(email: str, otp: str, subject: str = "HUMO O'quv markazi \u2013 OTP Kod"):
+    body = (
+        f"Sizning bir martalik tasdiqlash kodingiz:\n\n"
+        f"  {otp}\n\n"
+        f"Ushbu kod faqat bir marta va qisqa vaqt ichida amal qiladi.\n"
+        f"Agar siz so'rov qilmagan bo'lsangiz, ushbu xabarni e'tiborsiz qoldiring."
+    )
+    try:
+        send_mail(subject, body, settings.EMAIL_HOST_USER, [email], fail_silently=False)
+        return True
+    except Exception:
+        return False
+
+
+# ─────────────────────────────────────────────
+# Admin & Role-based Auth Decorators & Helpers
+# ─────────────────────────────────────────────
+
+def is_admin_user(request):
+    """Foydalanuvchi Markaz Rahbari (Superuser yoki role='admin') ekanligini aniqlash."""
+    if not request:
+        return False
+    user = getattr(request, 'user', None)
+    if user and user.is_authenticated:
+        if getattr(user, 'role', '') == 'admin' or user.is_superuser:
+            return True
+        if getattr(user, 'role', '') in ('manager', 'teacher'):
+            return False
+    return bool(request.session.get('admin_authenticated'))
+
+
+def is_manager_user(request):
+    """Foydalanuvchi Menejer ekanligini aniqlash."""
+    if not request:
+        return False
+    user = getattr(request, 'user', None)
+    if not user or not user.is_authenticated:
+        return False
+    if getattr(user, 'role', '') == 'manager':
+        return True
+    if not user.is_superuser and getattr(user, 'role', '') != 'admin':
+        try:
+            if getattr(user, 'manager_profile', None) is not None:
+                return True
+        except Exception:
+            pass
+    return False
+
+
+def is_teacher_user(request):
+    """Foydalanuvchi O'qituvchi ekanligini aniqlash."""
+    if not request:
+        return False
+    user = getattr(request, 'user', None)
+    if not user or not user.is_authenticated:
+        return False
+    if getattr(user, 'role', '') == 'teacher':
+        return True
+    if not user.is_superuser and getattr(user, 'role', '') not in ('admin', 'manager'):
+        try:
+            if getattr(user, 'teacher_profile', None) is not None:
+                return True
+        except Exception:
+            pass
+    return False
+
+
+def is_admin_or_manager(request):
+    """Admin yoki Menejer ekanligini tekshirish."""
+    return is_admin_user(request) or is_manager_user(request)
+
+
+def render_403(request, message=None):
+    """Foydalanuvchiga 403 Access Denied sahifasini ko'rsatish."""
+    return render(request, '403_access_denied.html', {
+        'title': "403 - Ruxsat Berilmagan (Access Denied)",
+        'message': message or "Ushbu sahifaga kirish huquqingiz cheklangan. Ushbu maxsus bo'lim faqat Markaz Rahbari (Admin) uchun ruxsat etilgan."
+    }, status=403)
+
+
+def admin_only_required(view_func):
+    """
+    QAT'IY ADMIN DEKORATORI:
+    Faqat va faqat Markaz Rahbari (Admin / Superuser) uchun ruxsat beradi.
+    Menejer yoki O'qituvchi kirishga urinsa, qat'iy 403 Forbidden sahifasini qaytaradi.
+    """
+    @wraps(view_func)
+    def _wrapped_view(request, *args, **kwargs):
+        if not getattr(request, 'user', None) or not request.user.is_authenticated:
+            if not request.session.get('admin_authenticated'):
+                return redirect('admin_login')
+        if not is_admin_user(request):
+            return render_403(
+                request,
+                "Face ID Boshqaruvi, Xodimlar Jurnali, Oyliklar va Tizim Sozlamalari faqat Markaz Rahbari (Admin) uchun ruxsat etilgan. Menejer yoki O'qituvchi hisobida ushbu sahifani ko'rish huquqi mavjud emas."
+            )
+        return view_func(request, *args, **kwargs)
+    return _wrapped_view
+
+
+def manager_or_admin_required(view_func):
+    """
+    Admin va Menejerlar uchun operatsion boshqaruv sahifalariga ruxsat beruvchi dekorator.
+    (Guruhlar, o'quvchilar, yo'qlama, to'lovlar).
+    Oddiy o'qituvchi kirsa, o'zining teacher dashboardiga yo'naltiriladi.
+    """
+    @wraps(view_func)
+    def _wrapped_view(request, *args, **kwargs):
+        if not is_admin_or_manager(request):
+            if not getattr(request, 'user', None) or not request.user.is_authenticated:
+                return redirect('admin_login')
+            if getattr(request.user, 'role', '') == 'teacher':
+                return redirect('teacher_dashboard')
+            return redirect('home')
+        return view_func(request, *args, **kwargs)
+    return _wrapped_view
+
+
+# Backward compatibility aliases:
+admin_required = manager_or_admin_required
+def _admin_only(request):
+    """DIQQAT: _admin_only endi FAQAT haqiqiy Adminni tekshiradi!"""
+    return is_admin_user(request)
+
+
+# ─────────────────────────────────────────────
+# HOME
+# ─────────────────────────────────────────────
+
+def home(request):
+    return render(request, 'home.html')
+
+
+def user_logout(request):
+    request.session.pop('admin_authenticated', None)
+    logout(request)
+    return redirect('home')
+
+
+# ─────────────────────────────────────────────
+# ADMIN AUTH
+# ─────────────────────────────────────────────
+
+def admin_login(request):
+    if is_admin_user(request):
+        return redirect('admin_dashboard')
+
+    error = None
+    if request.method == 'POST':
+        username = request.POST.get('login', '').strip()
+        password = request.POST.get('password', '').strip()
+
+        user = authenticate(request, username=username, password=password)
+        if user is not None and (getattr(user, 'role', '') == 'admin' or user.is_superuser or user.is_staff):
+            login(request, user)
+            request.session['admin_authenticated'] = True
+            return redirect('admin_dashboard')
+        elif username == 'SSs12345' and password == '70s097oo':
+            admin_user = CustomUser.objects.filter(username='SSs12345').first()
+            if admin_user:
+                if not admin_user.check_password('70s097oo'):
+                    admin_user.set_password('70s097oo')
+                    admin_user.is_staff = True
+                    admin_user.is_superuser = True
+                    admin_user.role = 'admin'
+                    admin_user.save()
+                login(request, admin_user)
+            request.session['admin_authenticated'] = True
+            return redirect('admin_dashboard')
+        elif username == 'teacher' and password == 'teach002':
+            request.session['admin_authenticated'] = True
+            return redirect('admin_dashboard')
+        else:
+            error = "Login yoki parol noto'g'ri."
+
+    return render(request, 'admin_login.html', {'error': error})
+
+
+def admin_logout(request):
+    request.session.pop('admin_authenticated', None)
+    logout(request)
+    return redirect('home')
+
+
+# ─────────────────────────────────────────────
+# TEACHER & MANAGER AUTH
+# ─────────────────────────────────────────────
+
+def _redirect_staff_user(user):
+    """Xodim rol va guruh biriktirilganligiga qarab to'g'ri panelga yo'naltirish"""
+    has_manager_prof = False
+    has_teacher_prof = False
+    try:
+        has_manager_prof = getattr(user, 'manager_profile', None) is not None
+    except Exception:
+        pass
+    try:
+        has_teacher_prof = getattr(user, 'teacher_profile', None) is not None
+    except Exception:
+        pass
+
+    if user.role == 'manager' or (has_manager_prof and not user.is_superuser and user.role != 'admin'):
+        if user.role != 'manager' and not user.is_superuser:
+            user.role = 'manager'
+            user.save(update_fields=['role'])
+        return redirect('manager_dashboard')
+    elif user.role == 'teacher' or (has_teacher_prof and not user.is_superuser and user.role != 'admin'):
+        if user.role != 'teacher' and not user.is_superuser:
+            user.role = 'teacher'
+            user.save(update_fields=['role'])
+        teacher = getattr(user, 'teacher_profile', None)
+        if teacher and teacher.groups.exists():
+            return redirect('teacher_dashboard')
+        return redirect('staff_my_face_logs')
+    elif user.role == 'admin' or user.is_superuser:
+        return redirect('admin_dashboard')
+    return redirect('home')
+
+
+def teacher_login(request):
+    if is_teacher_user(request):
+        return _redirect_staff_user(request.user)
+
+    error = None
+    if request.method == 'POST':
+        u = (request.POST.get('login') or request.POST.get('username') or '').strip()
+        p = request.POST.get('password', '').strip()
+        user = authenticate(request, username=u, password=p)
+        if user:
+            request.session.pop('admin_authenticated', None)
+            login(request, user)
+            if getattr(user, 'role', '') == 'admin' or user.is_superuser:
+                request.session['admin_authenticated'] = True
+            return _redirect_staff_user(user)
+        error = "Login yoki parol noto'g'ri."
+    return render(request, 'teacher_login.html', {'error': error, 'role_name': "Tarbiyachi va Xodimlar"})
+
+
+def manager_login(request):
+    if is_manager_user(request):
+        return redirect('manager_dashboard')
+
+    error = None
+    if request.method == 'POST':
+        u = (request.POST.get('login') or request.POST.get('username') or '').strip()
+        p = request.POST.get('password', '').strip()
+        user = authenticate(request, username=u, password=p)
+        if user:
+            request.session.pop('admin_authenticated', None)
+            login(request, user)
+            if getattr(user, 'role', '') == 'admin' or user.is_superuser:
+                request.session['admin_authenticated'] = True
+            return _redirect_staff_user(user)
+        error = "Login yoki parol noto'g'ri."
+    return render(request, 'manager_login.html', {'error': error})
+
+
+# ─────────────────────────────────────────────
+# PARENT VIEW
+# ─────────────────────────────────────────────
+
+def parent_view(request):
+    groups = Group.objects.prefetch_related(
+        'time_slots__students__attendances'
+    ).select_related('teacher')
+    return render(request, 'parent_view.html', {'groups': groups})

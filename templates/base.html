@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="HUMO O'quv Markazi – zamonaviy o'quv markazi boshqaruv tizimi">
+    <title>{% block title %}HUMO O'quv Markazi{% endblock %}</title>
+
+    <!-- Bootstrap 5 -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <!-- Custom CSS -->
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'css/style.css' %}?v=20261015-01">
+
+    <style>
+        /* ════════════════ NAVBAR 2-TIER LAYOUT ════════════════ */
+        .glass-nav {
+            background: rgba(15, 23, 42, 0.95) !important;
+            backdrop-filter: blur(16px) !important;
+            -webkit-backdrop-filter: blur(16px) !important;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.12) !important;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35) !important;
+            z-index: 1030;
+        }
+
+        /* Top row */
+        .navbar-top-row {
+            min-height: 52px;
+        }
+
+        /* Sub-navbar row */
+        .sub-navbar-row {
+            background: rgba(10, 15, 30, 0.65) !important;
+            border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+        }
+
+        /* Nav scroll container */
+        .nav-scroll-container {
+            overflow-x: auto;
+            overflow-y: hidden;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+            white-space: nowrap;
+            -webkit-overflow-scrolling: touch;
+        }
+        .nav-scroll-container::-webkit-scrollbar { display: none; }
+
+        .quick-nav-pills {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 3px 0;
+        }
+
+        .quick-nav-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 5px 12px;
+            border-radius: 50px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: rgba(255, 255, 255, 0.85);
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            text-decoration: none;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+        .quick-nav-link:hover {
+            color: #fff;
+            background: rgba(255, 255, 255, 0.2);
+            border-color: rgba(255, 255, 255, 0.3);
+            transform: translateY(-1px);
+        }
+        .quick-nav-link.active {
+            color: #fff;
+            background: linear-gradient(135deg, #06b6d4, #3b82f6);
+            border-color: transparent;
+            box-shadow: 0 4px 12px rgba(6, 182, 212, 0.35);
+        }
+
+        .user-chip {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 50px;
+            color: #fff;
+            font-size: 0.8rem;
+            padding: 4px 12px;
+            white-space: nowrap;
+        }
+
+        /* Mobile specific */
+        @media (max-width: 991.98px) {
+            .sub-navbar-row {
+                background: rgba(15, 23, 42, 0.98) !important;
+                border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
+                max-height: calc(100vh - 60px);
+                overflow-y: auto;
+            }
+            .sub-navbar-row.collapse:not(.show) {
+                display: none !important;
+            }
+            .quick-nav-pills {
+                display: flex !important;
+                flex-direction: column !important;
+                width: 100% !important;
+                gap: 6px !important;
+                padding: 10px 0 !important;
+            }
+            .quick-nav-link {
+                width: 100% !important;
+                padding: 10px 14px !important;
+                border-radius: 12px !important;
+                font-size: 0.9rem !important;
+            }
+            .main-content-wrapper {
+                padding-top: 75px !important;
+            }
+        }
+
+        @media (min-width: 992px) {
+            .main-content-wrapper {
+                padding-top: 105px !important;
+            }
+        }
+
+        /* Mobile Table Scrolling & Touch UX */
+        .table-responsive {
+            -webkit-overflow-scrolling: touch;
+            overflow-x: auto;
+            border-radius: 12px;
+        }
+    </style>
+</head>
+<body><!-- ═══════════════════════ NAVBAR & 2-TIER SUB-NAVBAR ═══════════════════════ -->
+<header class="fixed-top glass-nav">
+    <!-- TIER 1: TOP NAVBAR (Brand on Left, User & Logout on Right) -->
+    <div class="navbar-top-row d-flex align-items-center justify-content-between px-2 px-sm-3 px-md-4 py-2 border-bottom border-white border-opacity-10">
+        <!-- Left: Back Button & Brand Logo -->
+        <div class="d-flex align-items-center gap-1 gap-sm-2 flex-nowrap">
+            {% if request.path != '/' and request.path != '/admin-login/' and request.path != '/teacher/login/' and request.path != '/manager/login/' %}
+            <button type="button"
+                    onclick="if (window.history.length > 1 && document.referrer && !document.referrer.includes('/login')) { window.history.back(); } else { window.location.href = '{% if is_manager %}{% url 'manager_dashboard' %}{% elif is_admin %}{% url 'admin_dashboard' %}{% elif is_teacher %}{% url 'teacher_dashboard' %}{% else %}{% url 'home' %}{% endif %}'; }"
+                    class="btn btn-sm rounded-pill px-2 px-sm-3 d-flex align-items-center gap-1 flex-shrink-0 text-white"
+                    style="background:rgba(255,255,255,0.14);border:1px solid rgba(255,255,255,0.25);font-weight:600;font-size:.78rem;backdrop-filter:blur(6px);padding-top:4px;padding-bottom:4px;"
+                    title="Ortga">
+                <i class="bi bi-arrow-left"></i> <span class="d-none d-sm-inline">Ortga</span>
+            </button>
+            {% endif %}
+
+            <a class="navbar-brand d-flex align-items-center gap-2 m-0 flex-nowrap text-decoration-none" href="{% if is_manager %}{% url 'manager_dashboard' %}{% elif is_admin %}{% url 'admin_dashboard' %}{% else %}{% url 'home' %}{% endif %}">
+                <img src="{% static 'img/humo_logo.jpg' %}" alt="HummoKids"
+                     style="height:32px;width:auto;border-radius:8px;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.3);">
+                <span class="fw-bold fs-6 text-white">HummoKids <span class="d-none d-md-inline opacity-75">Bog'chasi</span></span>
+            </a>
+        </div>
+
+        <!-- Right: Admin / User Chip & Logout (and Burger Toggle on Mobile) -->
+        <div class="d-flex align-items-center gap-2 flex-nowrap ms-auto">
+            {% if is_admin %}
+            <span class="user-chip d-inline-flex align-items-center gap-1 py-1 px-3">
+                <i class="bi bi-shield-lock-fill text-warning"></i>
+                <span style="font-size:0.82rem;" class="fw-bold">Admin</span>
+            </span>
+            <a href="{% url 'admin_logout' %}"
+               class="btn btn-sm rounded-pill px-3 text-center flex-shrink-0 d-inline-flex align-items-center gap-1 shadow-sm"
+               style="background:rgba(239,68,68,0.25);border:1px solid rgba(239,68,68,0.5);color:#fff;font-weight:600;font-size:.8rem;white-space:nowrap;">
+                <i class="bi bi-box-arrow-right"></i><span>Chiqish</span>
+            </a>
+            {% elif is_manager %}
+            <a href="{% url 'manager_dashboard' %}" class="user-chip d-inline-flex align-items-center gap-1 py-1 px-3 text-decoration-none text-white" title="Menejer Kabineti ({{ user.username }})">
+                <i class="bi bi-briefcase-fill text-warning"></i>
+                <span style="font-size:0.82rem;" class="fw-bold">Menejer: {{ user.username|truncatechars:10 }}</span>
+            </a>
+            <a href="{% url 'logout' %}"
+               class="btn btn-sm rounded-pill px-3 text-center flex-shrink-0 d-inline-flex align-items-center gap-1 shadow-sm"
+               style="background:rgba(239,68,68,0.25);border:1px solid rgba(239,68,68,0.5);color:#fff;font-weight:600;font-size:.8rem;white-space:nowrap;">
+                <i class="bi bi-box-arrow-right"></i><span>Chiqish</span>
+            </a>
+            {% elif user.is_authenticated %}
+            <span class="user-chip d-inline-flex align-items-center gap-1 py-1 px-3" title="{{ user.username }}">
+                <i class="bi bi-person-circle text-info"></i>
+                <span style="font-size:0.82rem;">{{ user.username|truncatechars:10 }}</span>
+            </span>
+            <a href="{% url 'logout' %}"
+               class="btn btn-sm rounded-pill px-3 text-center flex-shrink-0 d-inline-flex align-items-center gap-1 shadow-sm"
+               style="background:rgba(239,68,68,0.25);border:1px solid rgba(239,68,68,0.5);color:#fff;font-weight:600;font-size:.8rem;white-space:nowrap;">
+                <i class="bi bi-box-arrow-right"></i><span>Chiqish</span>
+            </a>
+            {% else %}
+            <a href="{% url 'admin_login' %}" class="btn btn-sm rounded-pill px-3 text-white fw-semibold text-center flex-shrink-0"
+               style="background:rgba(99,102,241,0.35); border:1px solid rgba(99,102,241,0.6); font-size:0.8rem;white-space:nowrap;">
+                <i class="bi bi-lock-fill me-1"></i>Kirish
+            </a>
+            {% endif %}
+
+            <!-- Mobile Burger Toggle Button -->
+            <button class="navbar-toggler border-0 p-1 text-white shadow-none d-lg-none" type="button" 
+                    data-bs-toggle="collapse" data-bs-target="#mobileNavCollapse" 
+                    aria-controls="mobileNavCollapse" aria-expanded="false" aria-label="Menyu">
+                <i class="bi bi-list fs-2 text-white"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- TIER 2: SUB-NAVBAR ROW (Desktop: horizontal clean bar, Mobile: collapsible menu) -->
+    <div class="collapse d-lg-block sub-navbar-row" id="mobileNavCollapse">
+        <div class="px-2 px-sm-3 px-md-4 py-1 py-lg-1">
+            <div class="nav-scroll-container">
+                <div class="quick-nav-pills">
+                    <!-- 1. Asosiy -->
+                    <a href="{% url 'home' %}" class="quick-nav-link {% if request.path == '/' %}active{% endif %}">
+                        <i class="bi bi-house-door-fill me-1"></i><span>Asosiy</span>
+                    </a>
+
+                    <!-- 2. ADMIN VA MENEJER UCHUN ASOSIY OPERATSION BO'LIMLAR -->
+                    {% if is_manager %}
+                        <a href="{% url 'manager_dashboard' %}" class="quick-nav-link {% if '/manager/dashboard' in request.path %}active{% endif %}">
+                            <i class="bi bi-briefcase-fill text-warning me-1"></i><span>Menejer Kabineti</span>
+                        </a>
+                    {% endif %}
+
+                    {% if is_admin or is_manager %}
+                        <a href="{% url 'admin_dashboard' %}" class="quick-nav-link {% if '/admin/' in request.path and '/temp-students' not in request.path and '/deleted-students' not in request.path and '/payments' not in request.path and '/face-id' not in request.path and '/salary' not in request.path and '/audit-logs' not in request.path and '/advances' not in request.path %}active{% endif %}">
+                            <i class="bi bi-grid-1x2-fill me-1"></i><span>Guruhlar & Xodimlar</span>
+                        </a>
+
+                        <a href="{% url 'admin_payments_all' %}" class="quick-nav-link {% if 'payments' in request.path %}active{% endif %}">
+                            <i class="bi bi-wallet2 me-1"></i><span>To'lovlar (Guruhlar)</span>
+                        </a>
+
+                        <a href="{% url 'admin_advance_list' %}" class="quick-nav-link {% if 'advances' in request.path %}active{% endif %}" style="background:rgba(245,158,11,0.18); border-color:rgba(245,158,11,0.4);">
+                            <i class="bi bi-cash-coin text-warning me-1"></i><span>Avans So'rovlari</span>
+                        </a>
+                    {% endif %}
+
+                    <!-- 3. FAQAT VA FAQAT ADMIN UCHUN RUXSAT ETILGAN BO'LIMLAR (Menejer va O'qituvchiga MUTLAQO KO'RINMAYDI) -->
+                    {% if is_admin %}
+                        <a href="{% url 'admin_face_id_logs' %}" class="quick-nav-link {% if '/admin/face-id/logs' in request.path %}active{% endif %}" style="background:rgba(6,182,212,0.18); border-color:rgba(6,182,212,0.4);">
+                            <i class="bi bi-person-bounding-box text-info me-1"></i><span>Face ID Jurnali</span>
+                        </a>
+
+                        <a href="{% url 'admin_face_id_settings' %}" class="quick-nav-link {% if '/admin/face-id/settings' in request.path %}active{% endif %}" style="background:rgba(99,102,241,0.18); border-color:rgba(99,102,241,0.4);">
+                            <i class="bi bi-sliders text-primary me-1"></i><span>Face ID Boshqaruvi</span>
+                        </a>
+
+                        <a href="{% url 'admin_salary_report' %}" class="quick-nav-link {% if '/admin/salary' in request.path %}active{% endif %}" style="background:rgba(16,185,129,0.18); border-color:rgba(16,185,129,0.4);">
+                            <i class="bi bi-cash-stack text-success me-1"></i><span>Oyliklar & Bonuslar</span>
+                        </a>
+
+                        <a href="{% url 'admin_audit_logs' %}" class="quick-nav-link {% if 'audit-logs' in request.path %}active{% endif %}">
+                            <i class="bi bi-clock-history text-secondary me-1"></i><span>Tizim Tarixi</span>
+                        </a>
+                    {% endif %}
+
+                    <!-- 4. GURUH BIRIKTIRILGAN TARBIYACHI MENYUSI -->
+                    {% if is_assigned_teacher %}
+                        <a href="{% url 'teacher_dashboard' %}" class="quick-nav-link {% if '/teacher/dashboard' in request.path or '/teacher/' in request.path and '/chat' not in request.path %}active{% endif %}">
+                            <i class="bi bi-calendar-check-fill text-success me-1"></i><span>Bolalar Davomati ({{ assigned_group.name }})</span>
+                        </a>
+
+                        <a href="{% url 'staff_my_face_logs' %}" class="quick-nav-link {% if '/staff/my-logs' in request.path %}active{% endif %}">
+                            <i class="bi bi-person-bounding-box text-info me-1"></i><span>Face ID Jurnali & Avans</span>
+                        </a>
+
+                        <a href="{% url 'teacher_chat' %}" class="quick-nav-link {% if '/teacher/chat' in request.path %}active{% endif %}">
+                            <i class="bi bi-chat-dots-fill text-primary me-1"></i><span>Chat</span>
+                        </a>
+
+                    <!-- 5. GURUH BIRIKTIRILMAGAN XODIM (Faqat Face ID va Shaxsiy profil) -->
+                    {% elif is_unassigned_staff %}
+                        <a href="{% url 'staff_my_face_logs' %}" class="quick-nav-link {% if '/staff/my-logs' in request.path %}active{% endif %}">
+                            <i class="bi bi-person-badge-fill text-warning me-1"></i><span>Xodimlar Paneli (Shaxsiy & Avans)</span>
+                        </a>
+                    {% endif %}
+
+                    <!-- Face ID Skaner Terminali (Alohida tabda to'liq ochiladi) -->
+                    <a href="{% url 'face_id_terminal' %}" class="quick-nav-link" target="_blank" style="background:rgba(14,165,233,0.18);border-color:rgba(14,165,233,0.4);">
+                        <i class="bi bi-qr-code-scan text-cyan me-1"></i><span>Face ID Skaner</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</header>
+<!-- ═══════════════════════════════════════════════════════ -->
+
+<div class="main-content-wrapper container-fluid px-2 px-sm-3 px-md-4">
+    <!-- Django Messages Alert -->
+    {% if messages %}
+    <div class="row justify-content-center mb-3">
+        <div class="col-12 col-lg-8">
+            {% for message in messages %}
+            <div class="alert alert-{% if message.tags == 'error' %}danger{% else %}{{ message.tags }}{% endif %} alert-dismissible fade show rounded-4 shadow-sm border-0 d-flex align-items-center gap-2" role="alert"
+                 style="backdrop-filter: blur(10px); background: {% if message.tags == 'error' %}rgba(254, 226, 226, 0.95){% else %}rgba(220, 252, 231, 0.95){% endif %};">
+                <i class="bi {% if message.tags == 'error' %}bi-exclamation-triangle-fill text-danger{% else %}bi-check-circle-fill text-success{% endif %} fs-5 flex-shrink-0"></i>
+                <div class="flex-grow-1 text-dark fw-semibold small">{{ message }}</div>
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Yopish"></button>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    {% block content %}{% endblock %}
+</div>
+
+<!-- Hidden Form for Photo Upload -->
+<form id="photoUploadForm" style="display:none;" enctype="multipart/form-data">
+    {% csrf_token %}
+    <input type="file" id="photoInput" name="photo" accept="image/*">
+    <input type="hidden" id="photoStudentId" name="student_id">
+</form>
+
+<!-- Global Photo Upload Loading Overlay -->
+<div id="photoUploadOverlay" style="display:none; position:fixed; inset:0; background:rgba(15, 23, 42, 0.7); backdrop-filter:blur(6px); z-index:99999; align-items:center; justify-content:center; flex-direction:column; color:#ffffff;">
+    <div class="spinner-border text-primary mb-3" style="width: 3.5rem; height: 3.5rem; border-width: 4px;" role="status"></div>
+    <h5 class="fw-bold mb-1">Rasm yuklanmoqda...</h5>
+    <p class="text-white-50 small mb-0">Rasm optimallashtirilmoqda, iltimos kuting</p>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    /**
+     * CSRF TOKEN HELPER — Django CSRF middleware bilan ishlash uchun
+     * 1-usul: DOM dagi hidden input'dan o'qish (eng ishonchli)
+     * 2-usul: Cookie'dan o'qish (fetch/AJAX uchun)
+     * Cookie'dagi %XX URL-encoded belgilarni ham to'g'ri dekod qiladi.
+     */
+    function getCsrfToken() {
+        // 1. DOM dagi csrfmiddlewaretoken input'dan olish (eng ishonchli)
+        const inp = document.querySelector('[name=csrfmiddlewaretoken]');
+        if (inp && inp.value) return inp.value;
+
+        // 2. Cookie'dan o'qish (SameSite=Lax, CSRF_COOKIE_HTTPONLY=False bo'lishi shart)
+        const cookies = document.cookie.split(';');
+        for (let c of cookies) {
+            c = c.trim();
+            if (c.startsWith('csrftoken=')) {
+                return decodeURIComponent(c.substring('csrftoken='.length));
+            }
+        }
+        return '';
+    }
+
+    /**
+     * GLOBAL csrfFetch() — Barcha fetch POST so'rovlarda X-CSRFToken
+     * headerini avtomatik qo'shib yuboruvchi yordamchi funksiya.
+     * Ishlatish: csrfFetch(url, { method: 'POST', body: ... })
+     */
+    function csrfFetch(url, options = {}) {
+        options.headers = options.headers || {};
+        // Faqat POST/PUT/PATCH/DELETE uchun CSRF token qo'shish
+        const method = (options.method || 'GET').toUpperCase();
+        if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+            options.headers['X-CSRFToken'] = getCsrfToken();
+        }
+        // credentials: 'same-origin' — session cookie avtomatik yuboriladi
+        options.credentials = options.credentials || 'same-origin';
+        return fetch(url, options);
+    }
+
+    function triggerPhotoUpload(studentId) {
+        const idInput = document.getElementById('photoStudentId');
+        const fileInput = document.getElementById('photoInput');
+        if (idInput && fileInput) {
+            idInput.value = studentId;
+            fileInput.value = ''; // Har gal toza ochilishi uchun
+            fileInput.click();
+        }
+    }
+
+    // Mobil qurilmalardan rasmni optimal hajmga keltirish (Client-side Resize Helper)
+    function compressImageIfNeeded(file) {
+        return new Promise((resolve) => {
+            // Agar HEIC bo'lsa yoki canvas o'qiy olmasa to'g'ridan-to'g'ri backendga jo'natish
+            if (file.name.toLowerCase().endsWith('.heic') || file.name.toLowerCase().endsWith('.heif')) {
+                resolve(file);
+                return;
+            }
+
+            const img = new Image();
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                img.onload = function() {
+                    const maxDim = 1280;
+                    let width = img.width;
+                    let height = img.height;
+
+                    if (width > maxDim || height > maxDim) {
+                        if (width > height) {
+                            height = Math.round((height * maxDim) / width);
+                            width = maxDim;
+                        } else {
+                            width = Math.round((width * maxDim) / height);
+                            height = maxDim;
+                        }
+                    }
+
+                    const canvas = document.createElement('canvas');
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, width, height);
+
+                    canvas.toBlob((blob) => {
+                        if (blob && blob.size < file.size) {
+                            const newFile = new File([blob], file.name.replace(/\.[^/.]+$/, ".jpg"), {
+                                type: 'image/jpeg',
+                                lastModified: Date.now()
+                            });
+                            resolve(newFile);
+                        } else {
+                            resolve(file);
+                        }
+                    }, 'image/jpeg', 0.88);
+                };
+                img.onerror = function() {
+                    resolve(file);
+                };
+                img.src = e.target.result;
+            };
+            reader.onerror = function() {
+                resolve(file);
+            };
+            reader.readAsDataURL(file);
+        });
+    }
+
+    const photoInputEl = document.getElementById('photoInput');
+    if (photoInputEl) {
+        photoInputEl.addEventListener('change', async function(e) {
+            if (!this.files || !this.files.length) return;
+
+            const studentId = document.getElementById('photoStudentId').value;
+            if (!studentId) return;
+
+            const overlay = document.getElementById('photoUploadOverlay');
+            if (overlay) overlay.style.display = 'flex';
+
+            try {
+                const originalFile = this.files[0];
+                const optimizedFile = await compressImageIfNeeded(originalFile);
+
+                const formData = new FormData();
+                formData.append('photo', optimizedFile);
+                formData.append('student_id', studentId);
+
+                let uploadUrl = '';
+                if (window.location.pathname.includes('/teacher/')) {
+                    uploadUrl = `/teacher/student/${studentId}/photo/`;
+                } else {
+                    uploadUrl = `/admin/student/${studentId}/photo/`;
+                }
+
+                const response = await fetch(uploadUrl, {
+                    method: 'POST',
+                    body: formData,
+                    headers: {
+                        'X-CSRFToken': getCsrfToken()
+                    }
+                });
+
+                const data = await response.json();
+                if (response.ok && data.status === 'success') {
+                    window.location.reload();
+                } else {
+                    if (overlay) overlay.style.display = 'none';
+                    alert(data.msg || 'Rasm yuklashda xatolik yuz berdi.');
+                }
+            } catch (err) {
+                console.error(err);
+                if (overlay) overlay.style.display = 'none';
+                alert('Aloqa xatoligi yoki server bilan bog\'lanishda muammo yuz berdi.');
+            } finally {
+                photoInputEl.value = '';
+            }
+        });
+    }
+
+    // Mobil qurilmalarga moslashtirilgan dropdown joylashuvi
+    document.addEventListener('show.bs.dropdown', function(e) {
+        const toggle = e.target.closest('.action-dot-btn');
+        if (!toggle) return;
+        const menu = toggle.nextElementSibling;
+        if (!menu) return;
+
+        document.body.appendChild(menu);
+        menu.style.position = 'fixed';
+        menu.style.zIndex = '99999';
+        menu.style.display = 'block';
+
+        const rect = toggle.getBoundingClientRect();
+        const menuWidth = menu.offsetWidth || 190;
+        const menuHeight = menu.offsetHeight || 150;
+
+        let left = rect.right - menuWidth;
+        if (left < 10) left = 10;
+        if (left + menuWidth > window.innerWidth - 10) {
+            left = window.innerWidth - menuWidth - 10;
+        }
+
+        let top = rect.bottom + 6;
+        if (top + menuHeight > window.innerHeight - 10) {
+            top = Math.max(10, rect.top - menuHeight - 6);
+        }
+
+        menu.style.top  = top + 'px';
+        menu.style.left = left + 'px';
+        toggle._movedMenu = menu;
+        toggle._menuParent = toggle.parentElement;
+    });
+
+    document.addEventListener('hide.bs.dropdown', function(e) {
+        const toggle = e.target.closest('.action-dot-btn');
+        if (toggle && toggle._movedMenu && toggle._menuParent) {
+            toggle._menuParent.appendChild(toggle._movedMenu);
+            toggle._movedMenu.style.position = '';
+            toggle._movedMenu.style.zIndex   = '';
+            toggle._movedMenu.style.top      = '';
+            toggle._movedMenu.style.left     = '';
+            toggle._movedMenu.style.display  = '';
+            toggle._movedMenu = null;
+        }
+    });
+</script>
+
+<!-- Global Phone Volume Slider Component -->
+<script src="{% static 'js/volume-slider.js' %}"></script>
+
+<!-- Quick Navigation Smooth Horizontal Wheel Scroll -->
+<script>
+(function() {
+    function initNavScroll() {
+        const navScroll = document.querySelector('.nav-scroll-container');
+        if (!navScroll) return;
+        navScroll.addEventListener('wheel', function(e) {
+            if (e.deltaY !== 0 && navScroll.scrollWidth > navScroll.clientWidth) {
+                e.preventDefault();
+                navScroll.scrollLeft += e.deltaY * 0.9;
+            }
+        }, { passive: false });
+    }
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initNavScroll);
+    } else {
+        initNavScroll();
+    }
+})();
+</script>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!-- GLOBAL SCROLL RESTORATION: Sahifaning tepaga sakrashini oldini olish -->
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<script>
+(function() {
+    const STORAGE_KEY = 'humo_saved_scroll_pos';
+    const PATH_KEY = 'humo_saved_scroll_path';
+
+    // 1. Har qanday forma submit bo'lganda scroll holatini saqlash
+    document.addEventListener('submit', function() {
+        try {
+            sessionStorage.setItem(STORAGE_KEY, window.scrollY.toString());
+            sessionStorage.setItem(PATH_KEY, window.location.pathname);
+        } catch(e) {}
+    }, true);
+
+    // 2. Sahifa qayta yuklanganda yoki sahifadan chiqilayotganda
+    window.addEventListener('beforeunload', function() {
+        try {
+            if (window.scrollY > 0) {
+                sessionStorage.setItem(STORAGE_KEY, window.scrollY.toString());
+                sessionStorage.setItem(PATH_KEY, window.location.pathname);
+            }
+        } catch(e) {}
+    });
+
+    // 3. Sahifa chizilganda scrollni tiklash
+    function restoreScrollPos() {
+        try {
+            const savedY = sessionStorage.getItem(STORAGE_KEY);
+            const savedPath = sessionStorage.getItem(PATH_KEY);
+            if (savedY !== null && savedPath === window.location.pathname) {
+                const targetY = parseInt(savedY, 10);
+                if (!isNaN(targetY) && targetY > 0) {
+                    window.scrollTo({
+                        top: targetY,
+                        behavior: 'instant'
+                    });
+                    setTimeout(function() {
+                        window.scrollTo({
+                            top: targetY,
+                            behavior: 'instant'
+                        });
+                        sessionStorage.removeItem(STORAGE_KEY);
+                        sessionStorage.removeItem(PATH_KEY);
+                    }, 50);
+                    return;
+                }
+            }
+            sessionStorage.removeItem(STORAGE_KEY);
+            sessionStorage.removeItem(PATH_KEY);
+        } catch(e) {}
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', restoreScrollPos);
+    } else {
+        restoreScrollPos();
+    }
+})();
+</script>
+{% block extra_js %}{% endblock %}
+
+<!-- ════ HIMOYA: Kod ko'rishni bloklash ════ -->
+<script>
+(function() {
+    // 1. O'ng tugmani bloklash
+    document.addEventListener('contextmenu', function(e) {
+        e.preventDefault();
+    });
+
+    // 2. Klaviatura yorliqlarini bloklash
+    document.addEventListener('keydown', function(e) {
+        // F12
+        if (e.key === 'F12') { e.preventDefault(); return; }
+        // Ctrl+Shift+I (Inspect)
+        if (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'i')) { e.preventDefault(); return; }
+        // Ctrl+Shift+J (Console)
+        if (e.ctrlKey && e.shiftKey && (e.key === 'J' || e.key === 'j')) { e.preventDefault(); return; }
+        // Ctrl+Shift+C (Inspect element)
+        if (e.ctrlKey && e.shiftKey && (e.key === 'C' || e.key === 'c')) { e.preventDefault(); return; }
+        // Ctrl+U (View Source)
+        if (e.ctrlKey && (e.key === 'U' || e.key === 'u') && !e.shiftKey) { e.preventDefault(); return; }
+        // Ctrl+S (Save page)
+        if (e.ctrlKey && (e.key === 'S' || e.key === 's') && !e.shiftKey) { e.preventDefault(); return; }
+    });
+})();
+</script>
+</body>
+</html>

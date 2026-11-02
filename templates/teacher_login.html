@@ -1,0 +1,96 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}O'qituvchi Kirish - HUMO O'quv Markazi{% endblock %}
+
+{% block content %}
+<div class="auth-wrapper">
+    <!-- Floating Background Glass Orbs -->
+    <div class="auth-bg-blob auth-blob-1" style="background: radial-gradient(circle, #10b981, #06b6d4);"></div>
+    <div class="auth-bg-blob auth-blob-2" style="background: radial-gradient(circle, #6366f1, #3b82f6);"></div>
+    <div class="auth-bg-blob auth-blob-3" style="background: radial-gradient(circle, #34d399, #6ee7b7);"></div>
+
+    <div class="glass-auth-card text-center">
+        <!-- Teacher Badge Icon -->
+        <div class="auth-icon-badge auth-icon-teacher">
+            <i class="bi bi-person-workspace"></i>
+        </div>
+
+        <h2 class="auth-title">O'qituvchi Paneli</h2>
+        <p class="auth-subtitle">Admin tomonidan taqdim etilgan login va parol bilan kiring</p>
+
+        {% if error %}
+        <div class="alert alert-danger d-flex align-items-center gap-2 text-start mb-4 rounded-4 shadow-sm border-0"
+             style="background: rgba(254, 226, 226, 0.9); color: #991b1b; backdrop-filter: blur(8px);">
+            <i class="bi bi-exclamation-octagon-fill fs-5 flex-shrink-0"></i>
+            <div class="small fw-semibold">{{ error }}</div>
+        </div>
+        {% endif %}
+
+        <form action="{% url 'teacher_login' %}" method="POST" autocomplete="off">
+            {% csrf_token %}
+
+            <div class="auth-input-group">
+                <label for="teacher_login_input">O'qituvchi Logini</label>
+                <div class="auth-input-wrapper">
+                    <i class="bi bi-person-circle auth-input-icon"></i>
+                    <input type="text" id="teacher_login_input" name="login" class="auth-input" 
+                           placeholder="Masalan: t_jas_123" required autofocus>
+                </div>
+            </div>
+
+            <div class="auth-input-group">
+                <label for="teacher_pwd_input">Parol</label>
+                <div class="auth-input-wrapper">
+                    <i class="bi bi-shield-lock-fill auth-input-icon"></i>
+                    <input type="password" id="teacher_pwd_input" name="password" class="auth-input" 
+                           placeholder="••••••••" required>
+                    <button type="button" class="auth-toggle-pwd" onclick="togglePassword('teacher_pwd_input', this)" title="Parolni ko'rsatish">
+                        <i class="bi bi-eye-fill"></i>
+                    </button>
+                </div>
+            </div>
+
+            <button type="submit" class="auth-submit-btn auth-btn-teacher">
+                <i class="bi bi-box-arrow-in-right fs-5"></i>
+                <span>Tizimga Kirish</span>
+            </button>
+        </form>
+
+        <div class="auth-footer-divider">
+            <span>yoki</span>
+        </div>
+
+        <div class="d-flex flex-column gap-2">
+            <a href="{% url 'face_id_check_in' %}" class="auth-link-btn" style="background: rgba(6, 182, 212, 0.12); border-color: rgba(6, 182, 212, 0.35);">
+                <i class="bi bi-person-bounding-box text-info"></i>
+                <span class="fw-bold text-dark">Face ID orqali kirish / Davomat</span>
+            </a>
+            <a href="{% url 'admin_login' %}" class="auth-link-btn">
+                <i class="bi bi-shield-lock-fill text-danger"></i>
+                <span>Admin sifatida kirish</span>
+            </a>
+            <a href="{% url 'home' %}" class="auth-link-btn">
+                <i class="bi bi-house-door-fill text-primary"></i>
+                <span>Asosiy sahifaga qaytish</span>
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function togglePassword(inputId, btn) {
+    const input = document.getElementById(inputId);
+    const icon = btn.querySelector('i');
+    if (input.type === 'password') {
+        input.type = 'text';
+        icon.className = 'bi bi-eye-slash-fill';
+    } else {
+        input.type = 'password';
+        icon.className = 'bi bi-eye-fill';
+    }
+}
+</script>
+{% endblock %}
