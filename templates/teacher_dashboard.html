@@ -123,7 +123,6 @@
                             <div class="att-weekday">{{ d.weekday }}</div>
                         </th>
                         {% endfor %}
-                        <th>O'chirish</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -180,14 +179,6 @@
                                         {% if student.photo %}
                                         <li><a class="dropdown-item small text-secondary" href="#" onclick="openImgPreview('{{ student.photo.url }}','{{ student.first_name }} {{ student.last_name|escapejs }}');return false;"><i class="bi bi-zoom-in me-2 text-info"></i>Rasmni ko'rish</a></li>
                                         {% endif %}
-                                        <li><hr class="dropdown-divider my-1"></li>
-                                        <li>
-                                            <a class="dropdown-item small text-danger fw-semibold btn-trigger-teacher-delete" href="#"
-                                               data-student-id="{{ student.id }}"
-                                               data-student-name="{{ student.first_name }} {{ student.last_name }}">
-                                                <i class="bi bi-trash-fill me-2 text-danger"></i>Guruhdan chiqarish
-                                            </a>
-                                        </li>
                                     </ul>
                                 </div>
                             </div>
@@ -227,16 +218,6 @@
                             </td>
                             {% endif %}
                         {% endfor %}
-
-
-                        <td>
-                            <button type="button" class="btn btn-sm btn-outline-danger border-0 action-delete-btn btn-trigger-teacher-delete"
-                                    data-student-id="{{ student.id }}"
-                                    data-student-name="{{ student.first_name }} {{ student.last_name }}"
-                                    title="O'quvchini guruhdan chiqarish">
-                                <i class="bi bi-trash-fill"></i>
-                            </button>
-                        </td>
                     </tr>
                     {% empty %}
                     <tr><td colspan="100%" class="text-center py-4 text-muted">Bu soatda faol o'quvchilar yo'q.</td></tr>
@@ -325,102 +306,12 @@
 </div>
 {% endif %}
 
-<!-- ═══ YAGONA O'CHIRISH MODALI (Konteynerlardan to'liq tashqarida) ═══ -->
-<div class="modal fade" id="teacherDeleteModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered" style="max-width:480px;">
-    <div class="modal-content border-0 rounded-4 shadow-lg overflow-hidden" style="background:#ffffff;">
-      <form id="teacherDeleteForm" method="post" action="">
-        {% csrf_token %}
-        <div class="modal-header border-0 pb-0 pt-4 px-4">
-            <h5 class="modal-title fw-bold text-danger d-flex align-items-center gap-2">
-                <i class="bi bi-person-x-fill fs-4"></i>O'quvchini guruhdan chiqarish
-            </h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Yopish"></button>
-        </div>
-        <div class="modal-body p-4">
-            <div class="alert mb-3" style="background:#fffbeb; border:1px solid #fef3c7; border-radius:12px; color:#92400e; font-size:0.9rem;">
-                <div class="d-flex align-items-start gap-2">
-                    <i class="bi bi-exclamation-triangle-fill text-warning fs-5 flex-shrink-0"></i>
-                    <div>
-                        <b><span id="delStudentNameModal">—</span></b> o'quvchi guruhdan chiqariladi va admin arxiviga o'tkaziladi.
-                    </div>
-                </div>
-            </div>
-            <div class="mb-3">
-                <label class="form-label fw-bold small text-dark">O'chirish sababi <span class="text-danger">*</span></label>
-                <textarea id="teacherDeleteReason" name="reason" class="form-control" rows="3" required
-                          placeholder="Chiqarish sababini yozing (faqat lotin harflarida, masalan: Darslarga sababsiz qatnashmadi)..."
-                          style="border-radius:12px; border:1.5px solid #cbd5e1; font-size:0.9rem; padding:10px 14px;"></textarea>
-                <div id="teacherDeleteError" class="text-danger small mt-2 fw-semibold" style="display:none;"></div>
-            </div>
-        </div>
-        <div class="modal-footer border-0 pt-0 pb-4 px-4 d-flex justify-content-end gap-2">
-            <button type="button" class="btn btn-light rounded-pill px-4 fw-semibold" data-bs-dismiss="modal">Bekor qilish</button>
-            <button type="submit" class="btn btn-danger rounded-pill px-4 fw-bold shadow-sm d-flex align-items-center gap-2">
-                <i class="bi bi-trash-fill"></i> O'chirishni tasdiqlash
-            </button>
-        </div>
-      </form>
-    </div>
-  </div>
-</div>
-
 {% endblock %}
 
 {% block extra_js %}
 <script>
     const currentMonth = "{{ current_month }}"; // YYYY-MM
     let activePayCell = null;
-
-    // ── O'QITUVCHI: O'QUVCHINI O'CHIRISH MODALI ─────────────
-    document.addEventListener('click', function(e) {
-        const btn = e.target.closest('.btn-trigger-teacher-delete');
-        if (btn) {
-            e.preventDefault();
-            const sid = btn.getAttribute('data-student-id');
-            const sname = btn.getAttribute('data-student-name') || '—';
-            openTeacherDeleteModal(sid, sname);
-        }
-    });
-
-    function openTeacherDeleteModal(studentId, studentName) {
-        const modalEl = document.getElementById('teacherDeleteModal');
-        const formEl = document.getElementById('teacherDeleteForm');
-        const nameEl = document.getElementById('delStudentNameModal');
-        const reasonEl = document.getElementById('teacherDeleteReason');
-        const errEl = document.getElementById('teacherDeleteError');
-
-        formEl.action = '/teacher/student/' + studentId + '/delete/';
-        nameEl.textContent = studentName;
-        reasonEl.value = '';
-        errEl.style.display = 'none';
-
-        const bsModal = bootstrap.Modal.getOrCreateInstance(modalEl);
-        bsModal.show();
-    }
-
-    const deleteFormEl = document.getElementById('teacherDeleteForm');
-    if (deleteFormEl) {
-        deleteFormEl.addEventListener('submit', function(e) {
-            const reason = document.getElementById('teacherDeleteReason').value.trim();
-            const errEl = document.getElementById('teacherDeleteError');
-            const cyrillicRegex = /[\u0400-\u04FF]/;
-
-            if (!reason || reason.length < 3) {
-                e.preventDefault();
-                errEl.textContent = "Iltimos, o'chirish sababini to'liqroq yozing (kamida 3 ta belgi).";
-                errEl.style.display = 'block';
-                return;
-            }
-
-            if (cyrillicRegex.test(reason)) {
-                e.preventDefault();
-                errEl.textContent = "Kirill harflari taqiqlangan! Faqat lotin alifbosidagi harflardan foydalaning.";
-                errEl.style.display = 'block';
-                return;
-            }
-        });
-    }
 
     // ── IMAGE PREVIEW ──────────────────────────────────────
     function openImgPreview(url, name) {

@@ -579,6 +579,61 @@
             .kiosk-back-btn span { display: none; }
             .kiosk-back-btn { padding: 8px 12px; }
             .kiosk-clock-date { display: none; }
+            .kiosk-mode-btn { min-width: 128px; padding: 11px 18px; font-size: 0.95rem; }
+        }
+
+        /* ══════ KELDIM / KETDIM (CHECK-IN / CHECK-OUT) REJIM TUGMALARI ══════ */
+        .kiosk-mode-switch {
+            margin-top: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 14px;
+            flex-wrap: wrap;
+        }
+        .kiosk-mode-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            min-width: 170px;
+            padding: 14px 26px;
+            border-radius: 50px;
+            border: 2px solid rgba(255, 255, 255, 0.18);
+            background: rgba(15, 23, 42, 0.75);
+            color: #e2e8f0;
+            font-size: 1.08rem;
+            font-weight: 800;
+            letter-spacing: 0.3px;
+            cursor: pointer;
+            backdrop-filter: blur(10px);
+            transition: all 0.25s ease;
+        }
+        .kiosk-mode-btn:hover { transform: translateY(-2px); }
+        .kiosk-mode-btn.checkin.active {
+            background: linear-gradient(135deg, #10b981, #059669);
+            border-color: #34d399;
+            color: #fff;
+            box-shadow: 0 8px 26px rgba(16, 185, 129, 0.45);
+        }
+        .kiosk-mode-btn.checkout.active {
+            background: linear-gradient(135deg, #f43f5e, #e11d48);
+            border-color: #fb7185;
+            color: #fff;
+            box-shadow: 0 8px 26px rgba(244, 63, 94, 0.5);
+            animation: pulse-checkout 1.4s ease-in-out infinite alternate;
+        }
+        .kiosk-mode-hint {
+            margin-top: 8px;
+            text-align: center;
+            font-size: 0.82rem;
+            color: rgba(255, 255, 255, 0.6);
+            min-height: 1.2em;
+        }
+        .kiosk-mode-hint.checkout { color: #fda4af; font-weight: 700; }
+        @keyframes pulse-checkout {
+            0% { box-shadow: 0 0 12px rgba(244, 63, 94, 0.4); }
+            100% { box-shadow: 0 0 32px rgba(244, 63, 94, 0.85); }
         }
     </style>
 </head>
@@ -708,6 +763,17 @@
                 <span id="statusText">Yuz kutilmoqda (Hands-free)</span>
             </div>
         </div>
+
+        <!-- Keldim / Ketdim rejim tugmalari -->
+        <div class="kiosk-mode-switch" role="group" aria-label="Davomat turi">
+            <button type="button" class="kiosk-mode-btn checkin active" id="modeCheckinBtn" data-scan-type="checkin">
+                <i class="bi bi-box-arrow-in-right"></i><span>Keldim</span>
+            </button>
+            <button type="button" class="kiosk-mode-btn checkout" id="modeCheckoutBtn" data-scan-type="checkout">
+                <i class="bi bi-box-arrow-right"></i><span>Ketdim</span>
+            </button>
+        </div>
+        <div class="kiosk-mode-hint" id="modeHint">Kelish rejimi: yuzingizni kameraga qarating</div>
     </main>
 
     <!-- ══════════════════════════════════════════════════════════════ -->
@@ -872,6 +938,56 @@
     let activeMediaStream = null;
     const SCAN_INTERVAL_MS = 3000; // Har 3 soniyada bir kadr avtomatik tahlil qilinadi (Hands-free)
     const COOLDOWN_DURATION_MS = 3600; // Muvaffaqiyatdan so'ng 3.6 soniya kutish
+
+    // ══════ KELDIM / KETDIM (scanType) HOLATI ══════
+    // 'checkin'  — standart hands-free kelish rejimi
+    // 'checkout' — "Ketdim" bosilganda yoqiladi, muvaffaqiyatli skan yoki timeout'dan so'ng 'checkin' ga qaytadi
+    let scanType = 'checkin';
+    let checkoutModeTimer = null;
+    const CHECKOUT_MODE_TIMEOUT_MS = 20000; // "Ketdim" rejimi 20 soniya faol turadi
+    const modeCheckinBtn = document.getElementById('modeCheckinBtn');
+    const modeCheckoutBtn = document.getElementById('modeCheckoutBtn');
+    const modeHint = document.getElementById('modeHint');
+
+    function idleStatusText() {
+        return scanType === 'checkout'
+            ? "Ketish rejimi: yuzingizni kameraga qarating"
+            : "Yuz kutilmoqda (Hands-free)";
+    }
+
+    function setScanType(type, { triggerScan = false } = {}) {
+        scanType = (type === 'checkout') ? 'checkout' : 'checkin';
+        const isCheckout = scanType === 'checkout';
+
+        modeCheckinBtn.classList.toggle('active', !isCheckout);
+        modeCheckoutBtn.classList.toggle('active', isCheckout);
+        modeHint.classList.toggle('checkout', isCheckout);
+        modeHint.textContent = isCheckout
+            ? `Ketish rejimi faol (${Math.round(CHECKOUT_MODE_TIMEOUT_MS / 1000)}s) — yuzingizni kameraga qarating`
+            : "Kelish rejimi: yuzingizni kameraga qarating";
+
+        if (checkoutModeTimer) {
+            clearTimeout(checkoutModeTimer);
+            checkoutModeTimer = null;
+        }
+        if (isCheckout) {
+            checkoutModeTimer = setTimeout(() => setScanType('checkin'), CHECKOUT_MODE_TIMEOUT_MS);
+        }
+
+        if (scannerState === 'IDLE') {
+            statusText.style.color = "";
+            statusText.textContent = idleStatusText();
+            statusDot.style.background = isCheckout ? "var(--kiosk-rose)" : "var(--kiosk-cyan)";
+        }
+
+        if (triggerScan && scannerState === 'IDLE') {
+            lastScanTime = 0;
+            performAutoScanCycle();
+        }
+    }
+
+    modeCheckinBtn.addEventListener('click', () => setScanType('checkin'));
+    modeCheckoutBtn.addEventListener('click', () => setScanType('checkout', { triggerScan: true }));
 
     // ══════ SMART BACK NAVIGATION ══════
     function handleKioskBack() {
@@ -1362,6 +1478,7 @@
 
         const payload = {
             descriptor: descriptorArray,
+            action: scanType, // 'checkin' (Keldim) yoki 'checkout' (Ketdim)
             image: dataUrl,
             is_kiosk: '1',
             latitude: currentLat,
@@ -1537,9 +1654,14 @@
         setTimeout(() => {
             resetKioskToIdle();
         }, COOLDOWN_DURATION_MS);
+
+        // "Ketdim" rejimida xodim muvaffaqiyatli qayd etilgach, terminal standart "Keldim" rejimiga qaytadi
+        if (scanType === 'checkout') {
+            setScanType('checkin');
+        }
     }
 
-    function handleRecognitionNoMatch(msg = "Yuz topilmadi") {
+    function handleRecognitionNoMatch(msg = "Yuz topilmadi", data = null) {
         if (scannerState === 'SUCCESS' || scannerState === 'LATE') return;
 
         cameraFrame.className = 'kiosk-camera-frame state-error';
@@ -1547,14 +1669,23 @@
         statusText.style.color = "#ff4d6d";
         statusText.textContent = msg;
         scannerState = 'IDLE';
+
+        // Bugun kelish qayd etilmagan xodim "Ketdim" bossa — ogohlantirib, kelish rejimiga qaytaramiz
+        if (data && data.error_type === 'no_check_in') {
+            playKioskChime('late');
+            setScanType('checkin');
+            statusText.style.color = "#ff4d6d";
+            statusText.textContent = msg;
+            lastScanTime = Date.now() + 2000; // xabarni o'qish uchun qisqa pauza
+        }
     }
 
     function resetKioskToIdle() {
         resultOverlay.classList.remove('active');
         cameraFrame.className = 'kiosk-camera-frame state-idle';
-        statusDot.style.background = "var(--kiosk-cyan)";
+        statusDot.style.background = scanType === 'checkout' ? "var(--kiosk-rose)" : "var(--kiosk-cyan)";
         statusText.style.color = "";
-        statusText.textContent = "Yuz kutilmoqda (Hands-free)";
+        statusText.textContent = idleStatusText();
         scannerState = 'IDLE';
         lastScanTime = Date.now();
     }

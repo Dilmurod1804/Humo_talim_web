@@ -17,7 +17,7 @@ from django.db.models import Q
 from django.http import JsonResponse, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 
 import openpyxl
 
@@ -27,7 +27,7 @@ from .models import (
 )
 from .services import optimize_student_photo
 from .validators import contains_cyrillic
-from .auth_views import _admin_only
+from .auth_views import _admin_only, is_admin_or_manager
 from .schedule_helper import parse_schedule_weekdays
 
 
@@ -368,18 +368,14 @@ def teacher_student_create(request, timeslot_id):
 
 @login_required(login_url='/teacher/login/')
 def teacher_student_delete(request, id):
-    """O'qituvchi o'z guruhidagi o'quvchini arxivga yuborishi."""
-    if request.user.role != 'teacher':
-        return redirect('home')
-    student = get_object_or_404(Student, id=id)
+    """
+    O'quvchini o'chirish huquqi faqat Admin va Manager rollariga berilgan.
+    O'qituvchi o'quvchini o'chirishga uringanda PermissionDenied xatosi qaytariladi.
+    """
+    if not is_admin_or_manager(request):
+        raise PermissionDenied("O'quvchini o'chirish huquqi faqat Admin va Menejerlarga berilgan!")
 
-    if not (student.time_slot and student.time_slot.group and
-            student.time_slot.group.teacher and
-            student.time_slot.group.teacher.user == request.user):
-        if request.headers.get('x-requested-with') == 'XMLHttpRequest':
-            return JsonResponse({'status': 'error', 'msg': "Bu o'quvchi sizning guruhingizga biriktirilmagan."}, status=403)
-        messages.error(request, "Bu o'quvchi sizning guruhingizga biriktirilmagan.")
-        return redirect('teacher_dashboard')
+    student = get_object_or_404(Student, id=id)
 
     if request.method == 'POST':
         reason = request.POST.get('reason', '').strip()
@@ -422,9 +418,9 @@ def teacher_student_delete(request, id):
         messages.success(
             request, f"O'quvchi '{st_full_name}' arxivga muvaffaqiyatli o'tkazildi.")
         if group_id:
-            return redirect(f"/teacher/dashboard/?group_id={group_id}")
-        return redirect('teacher_dashboard')
-    return redirect('teacher_dashboard')
+            return redirect('admin_group_detail', id=group_id)
+        return redirect('admin_dashboard')
+    return redirect('admin_dashboard')
 
 
 # ─────────────────────────────────────────────

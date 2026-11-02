@@ -6,7 +6,7 @@ import os
 from datetime import date, datetime
 
 from django.contrib import messages
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import Count, Q, Sum
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -351,7 +351,7 @@ def admin_student_delete(request, id):
     if not (is_admin_or_manager(request) or _admin_only(request)):
         if _is_ajax(request):
             return JsonResponse({'status': 'error', 'msg': "Ruxsat etilmagan amal!"}, status=403)
-        return redirect('home')
+        raise PermissionDenied("O'quvchini o'chirish huquqi faqat Admin va Menejerlarga berilgan!")
 
     student = get_object_or_404(Student, id=id)
     if request.method == 'POST':

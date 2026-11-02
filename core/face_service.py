@@ -328,6 +328,66 @@ def calculate_late_fine_percent(late_minutes: int) -> Decimal:
     return round(Decimal('0.50') + (Decimal(str(extra_minutes)) * Decimal('1.00')), 2)
 
 
+CHECKIN_ACTIONS = {'checkin', 'check_in', 'check-in', 'kelish', 'in'}
+CHECKOUT_ACTIONS = {'checkout', 'check_out', 'check-out', 'ketish', 'out'}
+CHECKOUT_DUPLICATE_WINDOW_SECONDS = 60
+
+
+def normalize_scan_action(action) -> str | None:
+    """Frontend'dan kelgan amalni 'checkin' / 'checkout' / None (avtomatik rejim) ga keltiradi."""
+    if not action:
+        return None
+    val = str(action).strip().lower()
+    if val in CHECKIN_ACTIONS:
+        return 'checkin'
+    if val in CHECKOUT_ACTIONS:
+        return 'checkout'
+    return None
+
+
+def _coerce_time(value, default: time) -> time:
+    """time obyekti yoki 'HH:MM[:SS]' satrini datetime.time ga o'giradi (model default qiymatlari satr bo'lishi mumkin)."""
+    if isinstance(value, time):
+        return value
+    if isinstance(value, str) and value.strip():
+        for fmt in ('%H:%M:%S', '%H:%M'):
+            try:
+                return datetime.strptime(value.strip(), fmt).time()
+            except ValueError:
+                continue
+    return default
+
+
+def _apply_late_check_in(log: FaceIDLog, staff, now, today):
+    """Kelish vaqtini yozadi va ish boshlanish vaqtiga nisbatan kechikish/jarimani hisoblaydi."""
+    expected_time = _coerce_time(getattr(staff, 'work_start_time', None), time(8, 0))
+    work_end_time = _coerce_time(getattr(staff, 'work_end_time', None), time(18, 0))
+
+    log.check_in_time = now
+    expected_dt = datetime.combine(today, expected_time)
+    expected_dt = timezone.make_aware(expected_dt) if timezone.is_aware(now) else expected_dt
+    end_dt = datetime.combine(today, work_end_time)
+    end_dt = timezone.make_aware(end_dt) if timezone.is_aware(now) else end_dt
+
+    diff_seconds = (now - expected_dt).total_seconds()
+    salary = Decimal(str(getattr(staff, 'monthly_salary', 0) or 0))
+
+    if diff_seconds > 0 and now <= end_dt:
+        late_mins = int(diff_seconds // 60) + (1 if (diff_seconds % 60) > 0 else 0)
+        log.is_late = True
+        log.late_minutes = late_mins
+        fine_percent = calculate_late_fine_percent(late_mins)
+        log.fine_percent_applied = fine_percent
+        log.fine_amount_deducted = round((salary * fine_percent) / Decimal('100.0'), 2)
+        log.status = 'late'
+    else:
+        log.is_late = False
+        log.late_minutes = 0
+        log.fine_percent_applied = Decimal('0.00')
+        log.fine_amount_deducted = Decimal('0.00')
+        log.status = 'on_time'
+
+
 def process_face_check_in(
     user: CustomUser,
     scan_file=None,
@@ -336,10 +396,16 @@ def process_face_check_in(
     bypass_geo=False,
     pre_verified: bool = True,
     match_score: float = 95.0,
+    action=None,
 ):
     """
     Topilgan xodimning davomatini (FaceIDLog modeliga) avtomatik yozadi va JSON javob qaytaradi:
         {"success": True, "name": "Xodim ismi", "employee_name": "Xodim ismi", ...}
+
+    `action` parametri:
+      - 'checkin'  ("Keldim")  — faqat bugungi kelish vaqtini (check_in_time) yozadi;
+      - 'checkout' ("Ketdim")  — faqat bugungi ketish vaqtini (check_out_time) yozadi;
+      - None                   — eski avtomatik rejim (birinchi skan kelish, keyingisi ketish).
     """
     settings_obj = FaceIDSettings.get_settings()
     now = timezone.localtime()
@@ -392,56 +458,63 @@ def process_face_check_in(
 
     # 3. Davomat logini (FaceIDLog) yozish
     log = FaceIDLog.objects.filter(user=user, date=today).first()
-    expected_time = getattr(staff, 'work_start_time', None) or time(8, 0)
-    work_end_time = getattr(staff, 'work_end_time', None) or time(18, 0)
+    scan_action = normalize_scan_action(action)
     action_type = 'kelish'
 
-    if log is None:
+    def _duplicate_response(dup_type: str, message: str) -> dict:
+        return {
+            'success': True,
+            'name': employee_name,
+            'employee_name': employee_name,
+            'staff_name': employee_name,
+            'message': message,
+            'role': role_title,
+            'action_type': dup_type,
+            'scan_action': scan_action,
+            'is_duplicate': True,
+            'check_in_time': log.check_in_time.strftime('%H:%M:%S') if log.check_in_time else None,
+            'check_out_time': log.check_out_time.strftime('%H:%M:%S') if log.check_out_time else None,
+            'is_late': log.is_late,
+            'late_minutes': log.late_minutes,
+            'fine_percent': float(log.fine_percent_applied),
+            'fine_amount': float(log.fine_amount_deducted),
+            'match_score': match_score,
+        }
+
+    if scan_action == 'checkout':
+        # ── "KETDIM" rejimi: faqat check_out_time yoziladi ──
+        if log is None or not log.check_in_time:
+            return {
+                'success': False,
+                'error_type': 'no_check_in',
+                'name': employee_name,
+                'employee_name': employee_name,
+                'message': f"{employee_name}, bugun kelishingiz qayd etilmagan! Avval \"Keldim\" orqali kelishni belgilang.",
+            }
+        if log.check_out_time and (now - log.check_out_time).total_seconds() < CHECKOUT_DUPLICATE_WINDOW_SECONDS:
+            return _duplicate_response('already_checked_out', "Xodim ketdi deb allaqachon belgilangan")
+        action_type = 'ketish'
+        log.check_out_time = now
+
+    elif scan_action == 'checkin':
+        # ── "KELDIM" rejimi: faqat check_in_time yoziladi (qayta skan ketish deb hisoblanmaydi) ──
+        if log is not None and log.check_in_time:
+            return _duplicate_response('already_checked_in', "Xodim keldi deb allaqachon belgilangan")
+        if log is None:
+            log = FaceIDLog(user=user, date=today)
         action_type = 'kelish'
-        log = FaceIDLog(user=user, date=today, check_in_time=now)
+        _apply_late_check_in(log, staff, now, today)
 
-        expected_dt = datetime.combine(today, expected_time)
-        expected_dt = timezone.make_aware(expected_dt) if timezone.is_aware(now) else expected_dt
-        end_dt = datetime.combine(today, work_end_time)
-        end_dt = timezone.make_aware(end_dt) if timezone.is_aware(now) else end_dt
-
-        diff_seconds = (now - expected_dt).total_seconds()
-        salary = Decimal(str(getattr(staff, 'monthly_salary', 0) or 0))
-
-        if diff_seconds > 0 and now <= end_dt:
-            late_mins = int(diff_seconds // 60) + (1 if (diff_seconds % 60) > 0 else 0)
-            log.is_late = True
-            log.late_minutes = late_mins
-            fine_percent = calculate_late_fine_percent(late_mins)
-            log.fine_percent_applied = fine_percent
-            log.fine_amount_deducted = round((salary * fine_percent) / Decimal('100.0'), 2)
-            log.status = 'late'
-        else:
-            log.is_late = False
-            log.late_minutes = 0
-            log.fine_percent_applied = Decimal('0.00')
-            log.fine_amount_deducted = Decimal('0.00')
-            log.status = 'on_time'
+    elif log is None:
+        # ── Avtomatik (eski) rejim: birinchi skan — kelish ──
+        action_type = 'kelish'
+        log = FaceIDLog(user=user, date=today)
+        _apply_late_check_in(log, staff, now, today)
 
     elif log.check_in_time and not log.check_out_time:
         diff_since_in = (now - log.check_in_time).total_seconds()
         if diff_since_in < 5:
-            return {
-                'success': True,
-                'name': employee_name,
-                'employee_name': employee_name,
-                'staff_name': employee_name,
-                'message': "Xodim keldi deb belgilandi",
-                'role': role_title,
-                'action_type': 'already_checked_in',
-                'is_duplicate': True,
-                'check_in_time': log.check_in_time.strftime('%H:%M:%S'),
-                'is_late': log.is_late,
-                'late_minutes': log.late_minutes,
-                'fine_percent': float(log.fine_percent_applied),
-                'fine_amount': float(log.fine_amount_deducted),
-                'match_score': match_score,
-            }
+            return _duplicate_response('already_checked_in', "Xodim keldi deb belgilandi")
         action_type = 'ketish'
         log.check_out_time = now
     else:
@@ -490,6 +563,7 @@ def process_face_check_in(
         'message': status_msg,
         'role': role_title,
         'action_type': action_type,
+        'scan_action': scan_action,
         'check_in_time': log.check_in_time.strftime('%H:%M:%S') if log.check_in_time else None,
         'check_out_time': log.check_out_time.strftime('%H:%M:%S') if log.check_out_time else None,
         'is_late': log.is_late,

@@ -644,6 +644,12 @@ def face_id_verify_api(request):
     bazadagi xodimlarning descriptor'lari bilan Evklid masofasi (Euclidean distance) orqali
     solishtiradigan va davomatni avtomatik yozadigan yengil Django API View.
 
+    JSON so'rov formati:
+      {"descriptor": [...128 ta son...], "action": "checkin" | "checkout", ...}
+      - action="checkin"  ("Keldim") — bugungi FaceIDLog.check_in_time yoziladi;
+      - action="checkout" ("Ketdim") — bugungi FaceIDLog.check_out_time yoziladi;
+      - action berilmasa — avtomatik rejim (birinchi skan kelish, keyingisi ketish).
+
     JSON javob formati:
       - Mos kelsa: {"success": true, "name": "Xodim ismi", "employee_name": "Xodim ismi", "message": "Xodim keldi deb belgilandi"}
       - Topilmasa: {"success": false, "message": "Yuz topilmadi yoki xodim ro'yxatda yo'q"}
@@ -745,7 +751,7 @@ def face_id_verify_api(request):
             'message': "Yuz topilmadi yoki xodim ro'yxatda yo'q",
         }, status=200)
 
-    # 4. Davomatni (FaceIDLog) avtomatik yozish va JSON javob qaytarish
+    # 4. Davomatni (FaceIDLog) yozish: action='checkin' -> check_in_time, action='checkout' -> check_out_time
     res = process_face_check_in(
         user=target_user,
         scan_file=scan_file,
@@ -754,12 +760,15 @@ def face_id_verify_api(request):
         bypass_geo=bypass_geo,
         pre_verified=True,
         match_score=similarity_score,
+        action=action,
     )
 
     if not res.get('success'):
         return JsonResponse({
             'success': False,
             'is_geo_error': res.get('is_geo_error', False),
+            'error_type': res.get('error_type', ''),
+            'employee_name': res.get('employee_name', ''),
             'message': res.get('message') or "Yuz topilmadi yoki xodim ro'yxatda yo'q",
         }, status=200)
 

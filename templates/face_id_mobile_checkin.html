@@ -52,6 +52,18 @@
             <!-- Xatolik va Muvaffaqiyat Xabarnomasi -->
             <div id="mobAlert" class="alert d-none rounded-4 text-start small p-3 mb-3" role="alert"></div>
 
+            <!-- Keldim / Ketdim rejimini tanlash -->
+            <div class="d-flex gap-2 mb-2" role="group" aria-label="Davomat turi">
+                <button type="button" id="mobModeCheckin" class="btn btn-success rounded-pill flex-fill fw-bold py-2 shadow-sm"
+                        onclick="setMobileScanType('checkin')">
+                    <i class="bi bi-box-arrow-in-right me-1"></i> Keldim
+                </button>
+                <button type="button" id="mobModeCheckout" class="btn btn-outline-danger rounded-pill flex-fill fw-bold py-2"
+                        onclick="setMobileScanType('checkout', true)">
+                    <i class="bi bi-box-arrow-right me-1"></i> Ketdim
+                </button>
+            </div>
+
             <!-- Davomatni Qayd Etish Tugmasi -->
             <button type="button" class="btn btn-primary btn-lg rounded-pill w-100 fw-bold shadow-lg py-3"
                     id="mobCheckInBtn"
@@ -107,6 +119,35 @@ let cooldownUntil = 0;
 const AUTO_SCAN_INTERVAL_MS = 3000; // Har 3 sekundda avtomatik skanerlash
 const CAMERA_ACCESS_TIMEOUT_MS = 15000; // 15 soniya kameraga kirish vaqti
 const GPS_TIMEOUT_MS = 3500; // 3.5 soniya qat'iy GPS vaqt chegarasi
+
+// ══════ KELDIM / KETDIM (scanType) HOLATI ══════
+let mobileScanType = 'checkin';
+let mobileCheckoutTimer = null;
+const MOBILE_CHECKOUT_TIMEOUT_MS = 20000;
+
+function setMobileScanType(type, triggerScan = false) {
+    mobileScanType = (type === 'checkout') ? 'checkout' : 'checkin';
+    const isCheckout = mobileScanType === 'checkout';
+    const inBtn = document.getElementById('mobModeCheckin');
+    const outBtn = document.getElementById('mobModeCheckout');
+    inBtn.className = `btn ${isCheckout ? 'btn-outline-success' : 'btn-success shadow-sm'} rounded-pill flex-fill fw-bold py-2`;
+    outBtn.className = `btn ${isCheckout ? 'btn-danger shadow-sm' : 'btn-outline-danger'} rounded-pill flex-fill fw-bold py-2`;
+
+    if (mobileCheckoutTimer) {
+        clearTimeout(mobileCheckoutTimer);
+        mobileCheckoutTimer = null;
+    }
+    if (isCheckout) {
+        mobileCheckoutTimer = setTimeout(() => setMobileScanType('checkin'), MOBILE_CHECKOUT_TIMEOUT_MS);
+        if (liveScanBadge) {
+            liveScanBadge.innerHTML = '<span style="color:#fda4af; font-weight:800;"><i class="bi bi-box-arrow-right me-1"></i>Ketish rejimi: kameraga qarang</span>';
+        }
+    }
+    if (triggerScan) {
+        cooldownUntil = 0;
+        startCheckInProcess(false);
+    }
+}
 
 function callCameraWithTimeout(promise, ms = CAMERA_ACCESS_TIMEOUT_MS) {
     let timer = null;
@@ -434,6 +475,7 @@ async function startCheckInProcess(isAuto = false) {
     // 3-QADAM: 128-D DESCRIPTOR MASSIVINI DJANGO BACKEND'GA FETCH (POST) ORQALI YUBORISH
     const payload = {
         descriptor: descriptorArray,
+        action: mobileScanType, // 'checkin' (Keldim) yoki 'checkout' (Ketdim)
         image: dataUrl,
         latitude: lat,
         longitude: lon,
@@ -476,6 +518,9 @@ async function startCheckInProcess(isAuto = false) {
             const isAlready = (res.action_type === 'already_checked_in' || res.action_type === 'already_checked_out');
             const alertClass = isAlready ? 'info' : 'success';
             const actionLabel = res.action_type === 'ketish' ? 'Ishdan ketish 👋' : (isAlready ? 'Allaqachon qayd etilgan ✅' : 'Ishga kelish 🏢');
+            const isOutAction = (res.action_type === 'ketish' || res.action_type === 'already_checked_out');
+            const shownTime = isOutAction ? (res.check_out_time || 'Hozir') : (res.check_in_time || 'Hozir');
+            if (mobileScanType === 'checkout') setMobileScanType('checkin');
             const panelLink = res.redirect_url
                 ? `<div class="mt-2"><a href="${res.redirect_url}" class="btn btn-sm btn-success rounded-pill px-3 fw-bold"><i class="bi bi-box-arrow-in-right me-1"></i> Kabinetga o'tish</a></div>`
                 : '';
@@ -485,7 +530,7 @@ async function startCheckInProcess(isAuto = false) {
                 `<b>${res.message || 'Xodim keldi deb belgilandi ✅'}</b><br>` +
                 `<b>Xodim:</b> ${res.employee_name || res.staff_name || ''} (${res.role || 'Xodim'})<br>` +
                 `<b>Amal:</b> ${actionLabel}<br>` +
-                `<b>Vaqt:</b> ${res.check_in_time || res.check_out_time || 'Hozir'}<br>` +
+                `<b>Vaqt:</b> ${shownTime}<br>` +
                 `${res.is_late && res.action_type === 'kelish' ? `<span class="text-danger fw-bold">⚠ Kechikish: +${res.late_minutes} daqiqa (Jarima: -${res.fine_percent}% | ${Number(res.fine_amount).toLocaleString()} so'm)</span><br>` : ''}` +
                 `<small class="text-muted">Aniqlik: ${res.match_score || 95}% ${res.distance ? '· Masofa: ' + Math.round(res.distance) + 'm' : ''}</small>` +
                 panelLink
@@ -505,6 +550,10 @@ async function startCheckInProcess(isAuto = false) {
                 );
             } else {
                 const redMsg = res.message || "Yuz topilmadi yoki xodim ro'yxatda yo'q";
+                if (res.error_type === 'no_check_in') {
+                    setMobileScanType('checkin');
+                    cooldownUntil = Date.now() + 5000;
+                }
                 if (liveScanBadge) {
                     liveScanBadge.innerHTML = `<span style="color:#ff4d4f; font-weight:800;"><i class="bi bi-exclamation-triangle-fill me-1"></i>${redMsg}</span>`;
                 }
