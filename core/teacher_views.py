@@ -40,9 +40,27 @@ from .schedule_helper import parse_schedule_weekdays
 def _student_visible_in_month(st, year=None, month=None):
     """
     O'quvchi faqat faol bo'lsa (is_active=True) va ketgan sanasi bo'lmasa (left_date is None)
-    jurnalda ko'rinadi. Arxivlangan/o'chirilgan o'quvchilar mutlaqo chiqarilmaydi.
+    hamda ko'rilayotgan oyda markazga qo'shilgan/o'qiyotgan bo'lsa ko'rinadi.
+    Agar o'quvchi keyingi oyda qo'shilgan bo'lsa (joined_date > month_end), o'tgan oylarda ko'rinmaydi.
     """
-    return bool(getattr(st, 'is_active', False) and getattr(st, 'left_date', None) is None)
+    if not (getattr(st, 'is_active', False) and getattr(st, 'left_date', None) is None):
+        return False
+
+    if year is not None and month is not None:
+        try:
+            year, month = int(year), int(month)
+            max_day = calendar.monthrange(year, month)[1]
+            month_end = date(year, month, max_day)
+            joined_d = getattr(st, 'joined_date', None)
+            if joined_d and joined_d > month_end:
+                return False
+            left_d = getattr(st, 'left_date', None)
+            if left_d and left_d < date(year, month, 1):
+                return False
+        except Exception:
+            pass
+
+    return True
 
 
 def _build_attendance_matrix(students, days_data, attendance_map):
@@ -509,7 +527,21 @@ def teacher_export_excel(request):
     if not teacher:
         return redirect('home')
 
-    curr_month = date.today().strftime('%Y-%m')
+    req_month = request.GET.get('month')
+    if req_month:
+        try:
+            y, m = map(int, req_month.split('-'))
+            curr_month = f"{y}-{m:02d}"
+        except Exception:
+            today = date.today()
+            y, m = today.year, today.month
+            curr_month = today.strftime('%Y-%m')
+    else:
+        today = date.today()
+        y, m = today.year, today.month
+        curr_month = today.strftime('%Y-%m')
+
+    month_end = date(y, m, calendar.monthrange(y, m)[1])
     payments = MonthlyPayment.objects.filter(month=curr_month)
     payment_map = {p.student_id: p.amount_paid for p in payments}
 
@@ -523,6 +555,7 @@ def teacher_export_excel(request):
             left_date__isnull=True,
             time_slot__isnull=False,
             time_slot__group__isnull=False,
+            joined_date__lte=month_end,
         )
         .exclude(id__in=deleted_ids)
     )

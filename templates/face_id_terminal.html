@@ -1588,7 +1588,15 @@
             resultIcon.style.display = 'flex';
         }
 
-        if (actionType === 'already_checked_in' || data.is_duplicate) {
+        const isExcused = Boolean(data.is_excused);
+
+        if (isExcused) {
+            playKioskChime('success');
+            resultIcon.className = "result-icon-ring late";
+            resultIcon.innerHTML = '<i class="bi bi-calendar2-check-fill"></i>';
+            resultActionTitle.className = "result-action-title text-warning";
+            resultActionTitle.textContent = "Sababli Qayd Etildi! (Ruxsat berilgan) 📋";
+        } else if (actionType === 'already_checked_in' || data.is_duplicate) {
             playKioskChime('success');
             resultIcon.className = "result-icon-ring success";
             resultIcon.innerHTML = '<i class="bi bi-info-circle-fill"></i>';
@@ -1625,7 +1633,7 @@
 
         const empName = data.employee_name || data.staff_name || "Xodim";
         resultStaffName.textContent = empName;
-        speakGreeting(empName, isLate, actionType);
+        speakGreeting(empName, isLate && !isExcused, actionType);
 
         // Vaqtni to'g'ri ko'rsatish
         const displayTime = isCheckout
@@ -1636,13 +1644,14 @@
         resultPills.innerHTML = `
             <span class="result-pill"><i class="bi bi-briefcase-fill text-info me-1"></i>${data.role || "Xodim"}</span>
             <span class="result-pill"><i class="bi bi-${isCheckout ? 'door-open' : 'door-closed'} me-1"></i>${timeLabel}: <b>${displayTime}</b></span>
-            ${isLate && !isCheckout ? `<span class="result-pill" style="background:rgba(245,158,11,0.2);border-color:rgba(245,158,11,0.5);color:#fde047;"><i class="bi bi-percent me-1"></i>Jarima: -${data.fine_percent}% (${Number(data.fine_amount).toLocaleString()} so'm)</span>` : ''}
+            ${isExcused ? `<span class="result-pill" style="background:rgba(245,158,11,0.2);border-color:rgba(245,158,11,0.5);color:#fde047;"><i class="bi bi-shield-check me-1"></i>Sabab: ${data.exemption_reason || 'Ruxsat berilgan'} (Jarima: 0 so'm)</span>` : ''}
+            ${!isExcused && isLate && !isCheckout ? `<span class="result-pill" style="background:rgba(245,158,11,0.2);border-color:rgba(245,158,11,0.5);color:#fde047;"><i class="bi bi-percent me-1"></i>Jarima: -${data.fine_percent}% (${Number(data.fine_amount).toLocaleString()} so'm)</span>` : ''}
             ${!isCheckout && data.check_out_time ? `<span class="result-pill" style="color:#67e8f9;"><i class="bi bi-clock-history me-1"></i>Avvalgi ketish: ${data.check_out_time}</span>` : ''}
             <span class="result-pill"><i class="bi bi-cpu-fill text-success me-1"></i>AI Aniqlik: <b>${data.match_score || 95}%</b></span>
         `;
 
-        statusDot.style.background = isLate ? "var(--kiosk-amber)" : (isCheckout ? "var(--kiosk-blue)" : "var(--kiosk-emerald)");
-        statusText.textContent = `${data.staff_name} — ${isCheckout ? 'Ketish' : 'Kelish'} qayd etildi!`;
+        statusDot.style.background = isExcused ? "var(--kiosk-amber)" : (isLate ? "var(--kiosk-amber)" : (isCheckout ? "var(--kiosk-blue)" : "var(--kiosk-emerald)"));
+        statusText.textContent = `${data.staff_name} — ${isExcused ? 'Sababli kelmadi (Ruxsat)' : (isCheckout ? 'Ketish' : 'Kelish')} qayd etildi!`;
 
         countdownBar.style.transition = 'none';
         countdownBar.style.transform = 'scaleX(1)';

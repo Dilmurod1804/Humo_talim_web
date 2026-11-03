@@ -47,10 +47,13 @@
         <a href="{% url 'admin_salary_report' %}" class="btn btn-success rounded-pill px-3 fw-semibold shadow-sm" style="background:linear-gradient(135deg, #10b981, #059669); border:none;">
             <i class="bi bi-cash-stack me-1"></i> Oyliklar
         </a>
+        {% endif %}
         <a href="{% url 'admin_face_id_logs' %}" class="btn btn-info text-white rounded-pill px-3 fw-semibold shadow-sm" style="background:linear-gradient(135deg, #06b6d4, #0891b2); border:none;">
             <i class="bi bi-person-bounding-box me-1"></i> Face ID Jurnali
         </a>
-        {% endif %}
+        <button type="button" class="btn btn-warning text-dark fw-bold rounded-pill px-3 shadow-sm" onclick="openExemptionModal('', '')">
+            <i class="bi bi-calendar2-check-fill me-1"></i> Sababli Kelmaslik
+        </button>
         <a href="{% url 'face_id_check_in' %}" class="btn btn-outline-light rounded-pill px-3 fw-semibold shadow-sm">
             <i class="bi bi-camera-fill me-1"></i> Davomat Qilish
         </a>
@@ -72,7 +75,10 @@
                 <i class="bi bi-calendar2-day text-primary me-1"></i> Bugungi Davomat
             </div>
             {% if today_log %}
-                {% if today_log.is_late %}
+                {% if today_log.status == 'excused' %}
+                <h4 class="fw-black text-warning mb-0">Sababli (Istisno)</h4>
+                <small class="text-muted">{{ today_log.notes|default:"Face ID o'chirilgan" }}</small>
+                {% elif today_log.is_late %}
                 <h4 class="fw-black text-danger mb-0">Kechikdi (+{{ today_log.late_minutes }}m)</h4>
                 <small class="text-muted">Keldi: {{ today_log.check_in_time|time:"H:i" }} | Ketdi: {{ today_log.check_out_time|time:"H:i"|default:"—" }}</small>
                 {% else %}
@@ -272,4 +278,7 @@
         </div>
     </div>
 </div>
+
+{% include '_absence_exemption_modal.html' %}
+
 {% endblock %}

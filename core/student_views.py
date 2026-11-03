@@ -112,6 +112,8 @@ def admin_dashboard(request):
         'face_stats': face_stats,
         'search_query': query,
         'search_results': search_results,
+        'all_staff_users': CustomUser.objects.filter(role__in=('manager', 'teacher'), is_active=True).order_by('first_name', 'last_name'),
+        'today': date.today(),
     })
 
 

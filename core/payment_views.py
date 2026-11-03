@@ -246,13 +246,16 @@ def filter_students_by_payment_status(students_qs, req_month: str, status_filter
     Django ORM darajasida (`Exists` va `OuterRef` orqali) o'quvchilarni
     'paid' (to'laganlar), 'unpaid' (qarzdorlar) va 'local' (mahalla) bo'yicha filtrlash.
     Shartlar:
-      1. Tanlangan oyda (`req_month`) `amount_paid` bo'sh/'0' bo'lmasa YOKI `status='paid'`
+      1. Faqat tanlangan oyda yoki undan oldin markazga qo'shilgan o'quvchilar hisobga olinadi (joined_date <= month_end).
+      2. Tanlangan oyda (`req_month`) `amount_paid` bo'sh/'0' bo'lmasa YOKI `status='paid'`
          bo'lsa -> o'quvchi to'lagan (`_has_paid=True`).
-      2. To'lagan o'quvchi QAT'IY ravishda `unpaid` ro'yxatidan chiqariladi (`_has_paid=False`).
-      3. Faqat to'lov qilmagan, mahalla (`is_local=False`) va bepul bo'lmaganlar `unpaid` ga kiradi.
+      3. To'lagan o'quvchi QAT'IY ravishda `unpaid` ro'yxatidan chiqariladi (`_has_paid=False`).
+      4. Faqat to'lov qilmagan, mahalla (`is_local=False`) va bepul bo'lmaganlar `unpaid` ga kiradi.
     """
     _enforce_archive_exclusions()
-    req_month, _, _ = normalize_month_str(req_month)
+    req_month, req_year, req_mon = normalize_month_str(req_month)
+    max_day_in_month = calendar.monthrange(req_year, req_mon)[1]
+    month_end_date = date(req_year, req_mon, max_day_in_month)
     empty_values = ['', '0', '0.0', '0.00', '-', 'none', 'None', 'null', 'NULL']
     deleted_subquery = DeletedStudent.objects.filter(student_id=OuterRef('pk'))
 
@@ -262,6 +265,7 @@ def filter_students_by_payment_status(students_qs, req_month: str, status_filter
         left_date__isnull=True,
         time_slot__isnull=False,
         time_slot__group__isnull=False,
+        joined_date__lte=month_end_date,
     )
 
     paid_payment_qs = MonthlyPayment.objects.filter(
@@ -321,14 +325,17 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
     """
     O'quvchilar va ularning to'lovlari bo'yicha jadval satrlari hamda moliyaviy statistikani qaytaradi.
     Qat'iy qoidalar:
-      1. `amount_paid > 0`, matnli to'lov yoki `status == 'paid'` bo'lsa -> FAQAT "To'lagan" ('paid').
-      2. To'lagan o'quvchi qarzdorlar ('unpaid') va kechikkanlar ('overdue') ro'yxatiga MUTLAQO kirmaydi.
-      3. Faqat haqiqatda to'lov qilmagan, mahalla va bepul bo'lmagan o'quvchilar qarzdor ('unpaid') hisoblanadi.
+      1. Faqat tanlangan oyda yoki undan oldin markazga qo'shilgan o'quvchilar (`joined_date <= month_end`) olinadi.
+         Keyingi oylarda kelgan o'quvchilar o'tgan oylarga mutlaqo hisoblanmaydi va jadvalda ko'rinmaydi.
+      2. `amount_paid > 0`, matnli to'lov yoki `status == 'paid'` bo'lsa -> FAQAT "To'lagan" ('paid').
+      3. To'lagan o'quvchi qarzdorlar ('unpaid') va kechikkanlar ('overdue') ro'yxatiga MUTLAQO kirmaydi.
+      4. Faqat haqiqatda to'lov qilmagan, mahalla va bepul bo'lmagan o'quvchilar qarzdor ('unpaid') hisoblanadi.
     """
     today = date.today()
     req_month, req_year, req_mon = normalize_month_str(req_month)
     status_filter = (status_filter or 'all').strip().lower()
     max_day_in_month = calendar.monthrange(req_year, req_mon)[1]
+    month_end_date = date(req_year, req_mon, max_day_in_month)
     curr_month_str = today.strftime('%Y-%m')
 
     _enforce_archive_exclusions()
@@ -341,6 +348,7 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
             left_date__isnull=True,
             time_slot__isnull=False,
             time_slot__group__isnull=False,
+            joined_date__lte=month_end_date,
         )
         .select_related('time_slot__group__teacher', 'time_slot__group')
         .distinct()
@@ -740,6 +748,19 @@ def admin_payment_save(request):
         except Exception:
             pass
 
+    # O'quvchi qo'shilgan oydan oldingi oylar uchun to'lov yaratilishiga yo'l qo'ymaslik
+    st_joined = student.joined_date or date.today()
+    st_joined_month = st_joined.strftime('%Y-%m')
+    if month < st_joined_month:
+        err_msg = (
+            f"O'quvchi {st_joined.strftime('%d.%m.%Y')} sanasida guruhga qo'shilgan. "
+            f"O'quvchi qo'shilishidan oldingi oy ({month}) uchun to'lov kiritish mumkin emas!"
+        )
+        if is_ajax:
+            return JsonResponse({'status': 'error', 'msg': err_msg}, status=400)
+        messages.error(request, err_msg)
+        return redirect('admin_payments_all')
+
     mp, _ = MonthlyPayment.objects.update_or_create(
         student=student,
         month=month,
@@ -896,11 +917,15 @@ def admin_export_excel(request):
     if not is_admin_or_manager(request):
         return redirect('home')
 
-    curr_month = date.today().strftime('%Y-%m')
+    curr_month, req_year, req_mon = normalize_month_str(request.GET.get('month'))
+    max_d = calendar.monthrange(req_year, req_mon)[1]
+    month_end_date = date(req_year, req_mon, max_d)
     payment_map = dict(MonthlyPayment.objects.filter(month=curr_month).values_list('student_id', 'amount_paid'))
 
     all_students = list(
-        get_active_students_qs().order_by(
+        get_active_students_qs()
+        .filter(joined_date__lte=month_end_date)
+        .order_by(
             'time_slot__group__teacher__first_name',
             'time_slot__group__teacher__last_name',
             'time_slot__group__name',
@@ -933,9 +958,15 @@ def admin_group_export_excel(request, group_id):
         return redirect('home')
 
     group = get_object_or_404(Group, id=group_id)
-    curr_month = date.today().strftime('%Y-%m')
+    curr_month, req_year, req_mon = normalize_month_str(request.GET.get('month'))
+    max_d = calendar.monthrange(req_year, req_mon)[1]
+    month_end_date = date(req_year, req_mon, max_d)
     payment_map = dict(MonthlyPayment.objects.filter(month=curr_month).values_list('student_id', 'amount_paid'))
-    students = get_active_students_qs(group=group).order_by('first_name', 'last_name')
+    students = (
+        get_active_students_qs(group=group)
+        .filter(joined_date__lte=month_end_date)
+        .order_by('first_name', 'last_name')
+    )
 
     wb = openpyxl.Workbook()
     ws = wb.active

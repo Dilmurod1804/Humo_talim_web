@@ -11,8 +11,11 @@
     </div>
 
     <div class="d-flex gap-2 flex-wrap">
+        <button type="button" class="btn btn-warning text-dark rounded-pill px-3 fw-bold shadow-sm" data-bs-toggle="modal" data-bs-target="#absenceExemptionModal">
+            <i class="bi bi-calendar-x me-1"></i> Sababli Kelmaslik Kiritish
+        </button>
         {% if is_admin %}
-        <a href="{% url 'admin_face_id_sync_staff' %}" class="btn btn-warning text-dark rounded-pill px-3 fw-bold shadow-sm" title="Barcha xodimlarni Face ID tizimiga sinxronlash">
+        <a href="{% url 'admin_face_id_sync_staff' %}" class="btn btn-light text-dark rounded-pill px-3 fw-semibold shadow-sm" title="Barcha xodimlarni Face ID tizimiga sinxronlash">
             <i class="bi bi-arrow-repeat me-1"></i> Xodimlarni Sinxronlash
         </a>
         <a href="{% url 'admin_face_id_settings' %}" class="btn btn-outline-light rounded-pill px-3 fw-semibold shadow-sm">
@@ -35,7 +38,7 @@
     <div class="col-6 col-lg-3">
         <div class="glass-card p-3 p-md-4 text-center h-100" style="background:rgba(255,255,255,0.92);">
             <div class="text-muted small fw-semibold mb-1">
-                <i class="bi bi-people-fill text-primary me-1"></i> Jami Kelganlar
+                <i class="bi bi-people-fill text-primary me-1"></i> Jami Yozuvlar
             </div>
             <h3 class="fw-black text-dark mb-0">{{ total_scans }} <small class="fs-6 text-muted font-normal">yozuv</small></h3>
         </div>
@@ -57,13 +60,11 @@
         </div>
     </div>
     <div class="col-6 col-lg-3">
-        <div class="glass-card p-3 p-md-4 text-center h-100" style="background:rgba(255,255,255,0.92);">
-            <div class="text-info small fw-semibold mb-1">
-                <i class="bi bi-person-badge-fill me-1"></i> Face ID Holati
+        <div class="glass-card p-3 p-md-4 text-center h-100" style="background:rgba(255,255,255,0.92); border:1.5px solid #f59e0b;">
+            <div class="text-warning small fw-semibold mb-1">
+                <i class="bi bi-shield-check me-1 text-warning"></i> Sababli Kelmagan
             </div>
-            <h4 class="fw-black text-dark mb-0">
-                <span class="text-success">{{ ready_staff_count }}</span> / <span class="text-muted fs-6">{{ staff_status_list|length }} xodim tayyor</span>
-            </h4>
+            <h3 class="fw-black text-warning mb-0">{{ excused_scans }} <small class="fs-6 text-muted font-normal">istisno</small></h3>
         </div>
     </div>
 </div>
@@ -129,6 +130,7 @@
                         <option value="all" {% if filter_status == 'all' %}selected{% endif %}>Barcha Holat</option>
                         <option value="on_time" {% if filter_status == 'on_time' %}selected{% endif %}>O'z vaqtida</option>
                         <option value="late" {% if filter_status == 'late' %}selected{% endif %}>Kechikkanlar</option>
+                        <option value="excused" {% if filter_status == 'excused' %}selected{% endif %}>Sababli kelmaganlar</option>
                     </select>
                 </div>
 
@@ -139,6 +141,52 @@
                 </div>
             </form>
         </div>
+
+        {% if exemptions %}
+        <!-- ══════ SABABLI KELMAGANLAR (ISTISNOLAR) JADVALI ══════ -->
+        <div class="glass-card mb-4 p-3 rounded-4 shadow-sm" style="background: rgba(254, 243, 199, 0.95); border: 1.5px solid #f59e0b;">
+            <div class="d-flex align-items-center justify-content-between mb-2 flex-wrap gap-2">
+                <div class="d-flex align-items-center gap-2">
+                    <i class="bi bi-shield-check text-warning fs-5"></i>
+                    <h6 class="fw-bold mb-0 text-dark">Sababli Kelmagan Xodimlar (Face ID Istisnolari) — {{ exemptions|length }} ta</h6>
+                </div>
+                <button type="button" class="btn btn-sm btn-warning text-dark rounded-pill px-3 fw-bold" data-bs-toggle="modal" data-bs-target="#absenceExemptionModal">
+                    <i class="bi bi-plus-lg me-1"></i> Yangi Istisno Qo'shish
+                </button>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0" style="font-size: 0.85rem;">
+                    <thead>
+                        <tr class="text-muted">
+                            <th>Xodim</th>
+                            <th>Sana</th>
+                            <th>Sabab (Majburiy kiritilgan)</th>
+                            <th>Kiritgan</th>
+                            <th class="text-end">Amal</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for ex in exemptions %}
+                        <tr>
+                            <td class="fw-bold text-dark">{{ ex.user.staff_full_name }} ({{ ex.user.get_role_display }})</td>
+                            <td><span class="badge bg-light text-dark border">{{ ex.date|date:"d.m.Y" }}</span></td>
+                            <td><span class="fw-semibold text-danger">{{ ex.reason }}</span></td>
+                            <td class="small text-muted">{{ ex.created_by.staff_full_name|default:ex.created_by.username }} ({{ ex.created_at|date:"d.m.Y H:i" }})</td>
+                            <td class="text-end">
+                                <form action="{% url 'admin_absence_exemption_delete' ex.id %}" method="post" style="display:inline;" onsubmit="return confirm('Haqiqatan ham {{ ex.user.staff_full_name }} uchun sababli kelmaslik istisnosini bekor qilmoqchimisiz?');">
+                                    {% csrf_token %}
+                                    <button type="submit" class="btn btn-sm btn-outline-danger rounded-pill px-2 py-0" title="Istisnoni bekor qilish">
+                                        <i class="bi bi-trash"></i> Bekor qilish
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
 
         <!-- ══════ JURNAL JADVALI ══════ -->
         <div class="glass-card" style="overflow:hidden; background: rgba(255,255,255,0.96);">
@@ -211,7 +259,11 @@
                             </td>
 
                             <td>
-                                {% if log.is_late %}
+                                {% if log.status == 'excused' %}
+                                <span class="badge bg-warning bg-opacity-20 text-warning border border-warning border-opacity-30 rounded-pill px-3 py-1 fw-bold text-dark">
+                                    <i class="bi bi-shield-check me-1 text-warning"></i>Sababli
+                                </span>
+                                {% elif log.is_late %}
                                 <span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25 rounded-pill px-3 py-1 fw-bold">
                                     <i class="bi bi-clock-history me-1"></i>Kechikdi
                                 </span>
@@ -223,7 +275,14 @@
                             </td>
 
                             <td>
-                                {% if log.is_late %}
+                                {% if log.status == 'excused' %}
+                                <div>
+                                    <span class="text-success small fw-semibold"><i class="bi bi-check-circle me-1"></i>0 so'm (Istisno)</span>
+                                    {% if log.notes %}
+                                    <small class="text-muted d-block text-truncate" style="font-size:0.75rem; max-width:200px;" title="{{ log.notes }}">{{ log.notes }}</small>
+                                    {% endif %}
+                                </div>
+                                {% elif log.is_late %}
                                 <div>
                                     <span class="text-danger fw-bold">+{{ log.late_minutes }} daq</span>
                                     <small class="text-muted d-block" style="font-size:0.75rem;">
@@ -363,6 +422,12 @@
                             </td>
 
                             <td class="text-end pe-4">
+                                {% if st.user_id %}
+                                <button type="button" class="btn btn-sm btn-outline-warning rounded-pill px-3 fw-semibold me-1 shadow-sm"
+                                        onclick="openExemptionModal('{{ st.user_id }}')">
+                                    <i class="bi bi-calendar-x me-1"></i> Sababli
+                                </button>
+                                {% endif %}
                                 <button type="button" class="btn btn-sm btn-primary rounded-pill px-3 fw-semibold shadow-sm"
                                         onclick="openEnrollModal('{{ st.role }}', '{{ st.id }}', '{{ st.full_name }}', '{{ st.photo_url }}')"
                                         style="background:linear-gradient(135deg, #06b6d4, #3b82f6); border:none;">
@@ -452,6 +517,8 @@
         </div>
     </div>
 </div>
+
+{% include '_absence_exemption_modal.html' %}
 
 <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
 <script>

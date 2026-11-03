@@ -43,7 +43,7 @@ from .face_service import (
 )
 from .models import (
     AdvanceRequest, AuditLog, CustomUser, FaceIDLog, FaceIDSettings,
-    Group, Manager, StaffBonus, Teacher,
+    Group, Manager, StaffAbsenceExemption, StaffBonus, Teacher,
 )
 from .payment_views import _is_ajax, normalize_month_str
 from .services import optimize_student_photo
@@ -115,6 +115,7 @@ def _serialize_staff_face_status(staff_qs, role: str, role_title: str, has_cv: b
             'photo_url': s.photo.url if has_photo else '',
             'work_time': f"{s.work_start_time.strftime('%H:%M')} - {s.work_end_time.strftime('%H:%M')}" if s.work_start_time else '—',
             'is_active': s.is_active,
+            'user_id': s.user.id if s.user else None,
         })
     return items
 
@@ -362,9 +363,9 @@ def admin_manager_delete(request, id):
 # 3. FACE ID JURNALI, SINXRONIZATSIYA VA SOZLAMALAR
 # ─────────────────────────────────────────────────────────────
 
-@admin_only_required
+@admin_required
 def admin_face_id_logs(request):
-    """Barcha xodimlarning Face ID davomat jurnali (Faqat Admin)."""
+    """Barcha xodimlarning Face ID davomat jurnali (Admin va Menejer uchun)."""
     filter_period = request.GET.get('period', 'today')
     filter_date_str = request.GET.get('date', '')
     filter_role = request.GET.get('role', 'all')
@@ -391,13 +392,16 @@ def admin_face_id_logs(request):
     if filter_role in ('manager', 'teacher'):
         logs_qs = logs_qs.filter(user__role=filter_role)
     if filter_status == 'on_time':
-        logs_qs = logs_qs.filter(is_late=False)
+        logs_qs = logs_qs.filter(is_late=False, status='on_time')
     elif filter_status == 'late':
-        logs_qs = logs_qs.filter(is_late=True)
+        logs_qs = logs_qs.filter(is_late=True, status='late')
+    elif filter_status == 'excused':
+        logs_qs = logs_qs.filter(status='excused')
 
     logs_list = list(logs_qs.order_by('-date', '-check_in_time'))
     total_scans = len(logs_list)
-    late_scans = sum(1 for l in logs_list if l.is_late)
+    late_scans = sum(1 for l in logs_list if l.is_late and l.status != 'excused')
+    excused_scans = sum(1 for l in logs_list if l.status == 'excused')
     total_fines = sum(l.fine_amount_deducted for l in logs_list)
 
     try:
@@ -412,6 +416,19 @@ def admin_face_id_logs(request):
     )
     ready_staff_count = sum(1 for s in staff_status_list if s['face_detected'])
 
+    # Barcha faol xodimlar (Sababli kelmaslik modali uchun)
+    all_staff_users = list(CustomUser.objects.filter(role__in=('manager', 'teacher'), is_active=True).order_by('first_name', 'last_name'))
+
+    # Tanlangan davrdagi yoki bugungi sababli kelmasliklar ro'yxati
+    exemptions_qs = StaffAbsenceExemption.objects.select_related('user', 'created_by')
+    if filter_period == 'today':
+        exemptions_qs = exemptions_qs.filter(date=today)
+    elif filter_period == 'custom' and filter_date_str:
+        exemptions_qs = exemptions_qs.filter(date=filter_date)
+    elif filter_period == 'month':
+        exemptions_qs = exemptions_qs.filter(date__year=today.year, date__month=today.month)
+    exemptions_list = list(exemptions_qs.order_by('-date'))
+
     return render(request, 'admin_face_id_logs.html', {
         'logs': logs_list,
         'filter_period': filter_period,
@@ -420,12 +437,128 @@ def admin_face_id_logs(request):
         'filter_status': filter_status,
         'total_scans': total_scans,
         'late_scans': late_scans,
-        'ontime_scans': total_scans - late_scans,
+        'excused_scans': excused_scans,
+        'ontime_scans': total_scans - late_scans - excused_scans,
         'total_fines': total_fines,
         'staff_status_list': staff_status_list,
         'ready_staff_count': ready_staff_count,
         'missing_staff_count': len(staff_status_list) - ready_staff_count,
+        'all_staff_users': all_staff_users,
+        'exemptions': exemptions_list,
+        'today': today,
     })
+
+
+# ─────────────────────────────────────────────────────────────
+# SABABLI KELMASLIK (FACE ID ISTISNO QILISH) VIEW'LARI
+# ─────────────────────────────────────────────────────────────
+
+@admin_required
+def admin_absence_exemption_create(request):
+    """
+    Xodim uchun sababli kelmaslik (Face ID ni vaqtincha o'chirish / Istisno qilish).
+    Admin va Menejer tomonidan kiritiladi.
+    Sabab majburiy kiritilishi shart (Mandatory Reason).
+    """
+    if request.method != 'POST':
+        return redirect('admin_face_id_logs')
+
+    user_id = request.POST.get('user_id')
+    reason = request.POST.get('reason', '').strip()
+    date_str = request.POST.get('date', '').strip()
+
+    if not user_id:
+        messages.error(request, "Xodim tanlanmadi!")
+        return redirect(request.META.get('HTTP_REFERER', 'admin_face_id_logs'))
+
+    target_user = get_object_or_404(CustomUser, id=user_id)
+
+    if not reason or len(reason) < 3:
+        messages.error(request, "Kelmaslik sababi majburiy kiritilishi shart (kamida 3 ta belgi)!")
+        return redirect(request.META.get('HTTP_REFERER', 'admin_face_id_logs'))
+
+    target_date = date.today()
+    if date_str:
+        try:
+            target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+        except Exception:
+            target_date = date.today()
+
+    # 1. StaffAbsenceExemption modelida saqlash
+    exemption, _ = StaffAbsenceExemption.objects.update_or_create(
+        user=target_user,
+        date=target_date,
+        defaults={
+            'reason': reason,
+            'created_by': request.user if request.user.is_authenticated else None,
+        }
+    )
+
+    # 2. Shu kundagi FaceIDLog ni 'excused' qilib yangilash (jarima hisoblanmaydi)
+    FaceIDLog.objects.update_or_create(
+        user=target_user,
+        date=target_date,
+        defaults={
+            'status': 'excused',
+            'is_late': False,
+            'late_minutes': 0,
+            'fine_percent_applied': Decimal('0.00'),
+            'fine_amount_deducted': Decimal('0.00'),
+            'notes': f"Sababli: {reason}",
+        }
+    )
+
+    # 3. AuditLog yozish
+    emp_name = target_user.staff_full_name if hasattr(target_user, 'staff_full_name') else target_user.username
+    creator_name = "Admin" if is_admin_user(request) else "Menejer"
+    AuditLog.objects.create(
+        action_type='exemption',
+        actor=request.user if request.user.is_authenticated else None,
+        actor_name=f"{creator_name} ({request.user.username})",
+        title=f"Sababli kelmaslik qayd etildi: {emp_name} ({target_date.strftime('%d.%m.%Y')})",
+        details=f"Xodim: {emp_name}. Sana: {target_date}. Sabab: {reason}.",
+    )
+
+    messages.success(
+        request,
+        f"✅ {emp_name} uchun {target_date.strftime('%d.%m.%Y')} sanasida Face ID tekshiruvi sababli deb belgilandi (Jarima bekor qilindi)."
+    )
+    return redirect(request.META.get('HTTP_REFERER', 'admin_face_id_logs'))
+
+
+@admin_required
+def admin_absence_exemption_delete(request, id):
+    """Sababli kelmaslik istisnosini bekor qilish."""
+    exemption = get_object_or_404(StaffAbsenceExemption, id=id)
+    target_user = exemption.user
+    target_date = exemption.date
+    emp_name = target_user.staff_full_name if hasattr(target_user, 'staff_full_name') else target_user.username
+
+    # FaceIDLog ni tozalash yoki tiklash
+    log = FaceIDLog.objects.filter(user=target_user, date=target_date).first()
+    if log:
+        if not log.check_in_time:
+            # Agar xodim umuman kelmagan bo'lsa, avtomatik yaratilgan excused log o'chiriladi
+            log.delete()
+        else:
+            # Agar xodim o'sha kuni kelgan bo'lsa, holatini 'on_time' ga qaytaramiz
+            log.status = 'on_time'
+            log.notes = ''
+            log.save()
+
+    exemption.delete()
+
+    creator_name = "Admin" if is_admin_user(request) else "Menejer"
+    AuditLog.objects.create(
+        action_type='exemption',
+        actor=request.user if request.user.is_authenticated else None,
+        actor_name=f"{creator_name} ({request.user.username})",
+        title=f"Sababli kelmaslik bekor qilindi: {emp_name} ({target_date.strftime('%d.%m.%Y')})",
+        details=f"Xodim: {emp_name}. Sana: {target_date}.",
+    )
+
+    messages.success(request, f"ℹ️ {emp_name} uchun sababli kelmaslik istisnosi bekor qilindi.")
+    return redirect(request.META.get('HTTP_REFERER', 'admin_face_id_logs'))
 
 
 @admin_only_required
@@ -991,6 +1124,8 @@ def manager_dashboard(request):
         'groups': Group.objects.select_related('teacher').prefetch_related('time_slots__students'),
         'current_month': f"{today.year}-{today.month:02d}",
         'my_advances': AdvanceRequest.objects.filter(user=request.user).order_by('-created_at')[:10],
+        'all_staff_users': CustomUser.objects.filter(role__in=('manager', 'teacher'), is_active=True).order_by('first_name', 'last_name'),
+        'today': today,
     })
 
 

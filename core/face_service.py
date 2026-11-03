@@ -20,7 +20,7 @@ from django.utils import timezone
 
 from .models import (
     AdvanceRequest, AuditLog, CustomUser, FaceIDLog,
-    FaceIDSettings, Manager, StaffBonus, Teacher,
+    FaceIDSettings, Manager, StaffAbsenceExemption, StaffBonus, Teacher,
 )
 
 # face-api.js 128-D descriptor uchun standart Evklid masofasi chegarasi (threshold)
@@ -458,6 +458,7 @@ def process_face_check_in(
 
     # 3. Davomat logini (FaceIDLog) yozish
     log = FaceIDLog.objects.filter(user=user, date=today).first()
+    exemption = StaffAbsenceExemption.objects.filter(user=user, date=today).first()
     scan_action = normalize_scan_action(action)
     action_type = 'kelish'
 
@@ -472,16 +473,48 @@ def process_face_check_in(
             'action_type': dup_type,
             'scan_action': scan_action,
             'is_duplicate': True,
-            'check_in_time': log.check_in_time.strftime('%H:%M:%S') if log.check_in_time else None,
-            'check_out_time': log.check_out_time.strftime('%H:%M:%S') if log.check_out_time else None,
-            'is_late': log.is_late,
-            'late_minutes': log.late_minutes,
-            'fine_percent': float(log.fine_percent_applied),
-            'fine_amount': float(log.fine_amount_deducted),
+            'check_in_time': log.check_in_time.strftime('%H:%M:%S') if (log and log.check_in_time) else None,
+            'check_out_time': log.check_out_time.strftime('%H:%M:%S') if (log and log.check_out_time) else None,
+            'is_late': log.is_late if log else False,
+            'late_minutes': log.late_minutes if log else 0,
+            'fine_percent': float(log.fine_percent_applied) if log else 0.0,
+            'fine_amount': float(log.fine_amount_deducted) if log else 0.0,
             'match_score': match_score,
+            'is_excused': bool(exemption or (log and log.status == 'excused')),
+            'exemption_reason': exemption.reason if exemption else (log.notes if log else ''),
         }
 
-    if scan_action == 'checkout':
+    # ── MAXSUS HOLAT: XODIMGA SABABLI KELMASLIK (ISTISNO) BELGILANGAN BO'LSA ──
+    if exemption or (log and log.status == 'excused'):
+        if log is None:
+            log = FaceIDLog(
+                user=user,
+                date=today,
+                status='excused',
+                is_late=False,
+                late_minutes=0,
+                fine_percent_applied=Decimal('0.00'),
+                fine_amount_deducted=Decimal('0.00'),
+                notes=f"Sababli: {exemption.reason if exemption else ''}"
+            )
+        else:
+            log.status = 'excused'
+            log.is_late = False
+            log.late_minutes = 0
+            log.fine_percent_applied = Decimal('0.00')
+            log.fine_amount_deducted = Decimal('0.00')
+            if exemption and not log.notes:
+                log.notes = f"Sababli: {exemption.reason}"
+
+        if scan_action == 'checkout':
+            action_type = 'ketish'
+            log.check_out_time = now
+        else:
+            action_type = 'kelish'
+            if not log.check_in_time:
+                log.check_in_time = now
+
+    elif scan_action == 'checkout':
         # ── "KETDIM" rejimi: faqat check_out_time yoziladi ──
         if log is None or not log.check_in_time:
             return {
@@ -553,7 +586,11 @@ def process_face_check_in(
     except Exception:
         pass
 
-    status_msg = "Xodim keldi deb belgilandi" if action_type == 'kelish' else "Xodim ketdi deb belgilandi"
+    if exemption or (log and log.status == 'excused'):
+        ex_reason = exemption.reason if exemption else (log.notes.replace('Sababli:', '').strip() if log and log.notes else 'Ruxsat berilgan')
+        status_msg = f"Sababli qayd etildi ({ex_reason}) ✅"
+    else:
+        status_msg = "Xodim keldi deb belgilandi" if action_type == 'kelish' else "Xodim ketdi deb belgilandi"
 
     return {
         'success': True,
@@ -564,6 +601,8 @@ def process_face_check_in(
         'role': role_title,
         'action_type': action_type,
         'scan_action': scan_action,
+        'is_excused': bool(exemption or (log and log.status == 'excused')),
+        'exemption_reason': exemption.reason if exemption else (log.notes if log else ''),
         'check_in_time': log.check_in_time.strftime('%H:%M:%S') if log.check_in_time else None,
         'check_out_time': log.check_out_time.strftime('%H:%M:%S') if log.check_out_time else None,
         'is_late': log.is_late,

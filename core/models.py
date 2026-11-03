@@ -453,6 +453,7 @@ class AuditLog(models.Model):
         ('bonus', 'Berilgan Bonus'),
         ('advance', 'Xodim Avansi'),
         ('payment', "Qilingan To'lov"),
+        ('exemption', 'Sababli Kelmaslik / Istisno'),
         ('system', 'Tizim Boshqaruvi'),
     )
     action_type = models.CharField(max_length=30, choices=ACTION_CHOICES)
@@ -468,4 +469,25 @@ class AuditLog(models.Model):
 
     def __str__(self):
         return f"[{self.get_action_type_display()}] {self.title} ({self.created_at.strftime('%Y-%m-%d %H:%M')})"
+
+
+class StaffAbsenceExemption(models.Model):
+    """
+    Xodimlar uchun sababli kelmaslik (Face ID ni vaqtincha o'chirish / Istisno qilish) modeli.
+    Xodim ma'lum bir sana sababli kelmaganda Face ID tekshiruvi istisno qilinadi,
+    jarima hisoblanmaydi va FaceIDLog statusi 'excused' qilib belgilanadi.
+    """
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='absence_exemptions', verbose_name="Xodim")
+    date = models.DateField(default=date.today, verbose_name="Kelmagan sana")
+    reason = models.TextField(verbose_name="Kelmaslik sababi", help_text="Masalan: Kasallik, xizmat safari, ruxsat")
+    created_by = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_exemptions', verbose_name="Kiritgan foydalanuvchi")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('user', 'date')
+        ordering = ['-date', '-created_at']
+
+    def __str__(self):
+        staff_name = self.user.staff_full_name if hasattr(self.user, 'staff_full_name') else self.user.username
+        return f"{staff_name} - {self.date} ({self.reason[:30]})"
 

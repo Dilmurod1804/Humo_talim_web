@@ -516,8 +516,8 @@ async function startCheckInProcess(isAuto = false) {
             }
 
             const isAlready = (res.action_type === 'already_checked_in' || res.action_type === 'already_checked_out');
-            const alertClass = isAlready ? 'info' : 'success';
-            const actionLabel = res.action_type === 'ketish' ? 'Ishdan ketish 👋' : (isAlready ? 'Allaqachon qayd etilgan ✅' : 'Ishga kelish 🏢');
+            const alertClass = res.is_excused ? 'warning' : (isAlready ? 'info' : 'success');
+            const actionLabel = res.is_excused ? 'Sababli (Face ID istisno) 📋' : (res.action_type === 'ketish' ? 'Ishdan ketish 👋' : (isAlready ? 'Allaqachon qayd etilgan ✅' : 'Ishga kelish 🏢'));
             const isOutAction = (res.action_type === 'ketish' || res.action_type === 'already_checked_out');
             const shownTime = isOutAction ? (res.check_out_time || 'Hozir') : (res.check_in_time || 'Hozir');
             if (mobileScanType === 'checkout') setMobileScanType('checkin');
@@ -527,11 +527,12 @@ async function startCheckInProcess(isAuto = false) {
 
             showAlert(
                 alertClass,
-                `<b>${res.message || 'Xodim keldi deb belgilandi ✅'}</b><br>` +
+                `<b>${res.message || 'Xodim qayd etildi ✅'}</b><br>` +
                 `<b>Xodim:</b> ${res.employee_name || res.staff_name || ''} (${res.role || 'Xodim'})<br>` +
                 `<b>Amal:</b> ${actionLabel}<br>` +
                 `<b>Vaqt:</b> ${shownTime}<br>` +
-                `${res.is_late && res.action_type === 'kelish' ? `<span class="text-danger fw-bold">⚠ Kechikish: +${res.late_minutes} daqiqa (Jarima: -${res.fine_percent}% | ${Number(res.fine_amount).toLocaleString()} so'm)</span><br>` : ''}` +
+                `${res.is_excused ? `<span class="text-warning fw-bold"><i class="bi bi-shield-check me-1"></i>Sabab: ${res.exemption_reason || 'Ruxsat berilgan'} (Jarima: 0 so'm)</span><br>` : ''}` +
+                `${!res.is_excused && res.is_late && res.action_type === 'kelish' ? `<span class="text-danger fw-bold">⚠ Kechikish: +${res.late_minutes} daqiqa (Jarima: -${res.fine_percent}% | ${Number(res.fine_amount).toLocaleString()} so'm)</span><br>` : ''}` +
                 `<small class="text-muted">Aniqlik: ${res.match_score || 95}% ${res.distance ? '· Masofa: ' + Math.round(res.distance) + 'm' : ''}</small>` +
                 panelLink
             );

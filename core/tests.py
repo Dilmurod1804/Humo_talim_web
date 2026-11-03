@@ -1,7 +1,12 @@
+from datetime import date, timedelta
 from django.test import TestCase
 from django.urls import reverse
 
-from .models import AdvanceRequest, CustomUser, Group, Manager, MonthlyPayment, Student, Teacher, TimeSlot
+from .models import (
+    AdvanceRequest, CustomUser, FaceIDLog, Group, Manager, MonthlyPayment,
+    StaffAbsenceExemption, Student, Teacher, TimeSlot,
+)
+from core.face_service import process_face_check_in
 
 
 class ManagerDashboardAndPermissionsTests(TestCase):
@@ -321,4 +326,271 @@ class TeacherStudentDeletePermissionsTests(TestCase):
         self.student.refresh_from_db()
         self.assertFalse(self.student.is_active)
         self.assertIsNone(self.student.time_slot)
+
+
+class StaffAbsenceExemptionTests(TestCase):
+    def setUp(self):
+        self.admin_user = CustomUser.objects.create_superuser(
+            username='admin_boss',
+            password='AdminPass123',
+            role='admin',
+            first_name='Admin',
+            last_name='Boshliq',
+        )
+        self.manager_user = CustomUser.objects.create_user(
+            username='manager_alisher',
+            password='ManagerPass123',
+            role='manager',
+            first_name='Alisher',
+            last_name='Menejerov',
+        )
+        self.manager = Manager.objects.create(
+            user=self.manager_user,
+            first_name='Alisher',
+            last_name='Menejerov',
+            generated_login='manager_alisher',
+            generated_password='ManagerPass123',
+            monthly_salary=5000000,
+        )
+        self.teacher_user = CustomUser.objects.create_user(
+            username='teacher_dilnoza',
+            password='TeacherPass123',
+            role='teacher',
+            first_name='Dilnoza',
+            last_name='Ustozova',
+        )
+        self.teacher = Teacher.objects.create(
+            user=self.teacher_user,
+            first_name='Dilnoza',
+            last_name='Ustozova',
+            generated_login='teacher_dilnoza',
+            generated_password='TeacherPass123',
+            monthly_salary=3000000,
+            late_fine_rate=2.0,
+        )
+        self.today = date.today()
+
+    def test_absence_exemption_mandatory_reason_validation(self):
+        """Kelmaslik sababi majburiy kiritilishi shart (bo'sh yoki 3 belgidan kam bo'lsa rad etiladi)."""
+        self.client.force_login(self.manager_user)
+
+        # 1. Bo'sh sabab bilan yuborish
+        resp1 = self.client.post(reverse('admin_absence_exemption_create'), {
+            'user_id': self.teacher_user.id,
+            'date': self.today.strftime('%Y-%m-%d'),
+            'reason': '   ',
+        })
+        self.assertEqual(resp1.status_code, 302)
+        self.assertFalse(StaffAbsenceExemption.objects.filter(user=self.teacher_user, date=self.today).exists())
+
+        # 2. Juda qisqa sabab (<3 belgi) bilan yuborish
+        resp2 = self.client.post(reverse('admin_absence_exemption_create'), {
+            'user_id': self.teacher_user.id,
+            'date': self.today.strftime('%Y-%m-%d'),
+            'reason': 'ok',
+        })
+        self.assertEqual(resp2.status_code, 302)
+        self.assertFalse(StaffAbsenceExemption.objects.filter(user=self.teacher_user, date=self.today).exists())
+
+    def test_absence_exemption_creation_success(self):
+        """Menejer yoki Admin sabab kiritganda istisno saqlanadi va FaceIDLog excused holatga o'tadi."""
+        self.client.force_login(self.manager_user)
+        reason_text = "Kasallik varaqasi asosida ruxsat berildi"
+
+        resp = self.client.post(reverse('admin_absence_exemption_create'), {
+            'user_id': self.teacher_user.id,
+            'date': self.today.strftime('%Y-%m-%d'),
+            'reason': reason_text,
+        })
+        self.assertEqual(resp.status_code, 302)
+
+        # StaffAbsenceExemption tekshirish
+        exemption = StaffAbsenceExemption.objects.filter(user=self.teacher_user, date=self.today).first()
+        self.assertIsNotNone(exemption)
+        self.assertEqual(exemption.reason, reason_text)
+        self.assertEqual(exemption.created_by, self.manager_user)
+
+        # FaceIDLog holati tekshirish (jarima 0 bo'lishi shart)
+        face_log = FaceIDLog.objects.filter(user=self.teacher_user, date=self.today).first()
+        self.assertIsNotNone(face_log)
+        self.assertEqual(face_log.status, 'excused')
+        self.assertFalse(face_log.is_late)
+        self.assertEqual(face_log.late_minutes, 0)
+        self.assertEqual(face_log.fine_percent_applied, 0)
+        self.assertEqual(face_log.fine_amount_deducted, 0)
+
+    def test_face_check_in_with_active_exemption_protects_staff(self):
+        """Istisno qilingan kuni Face ID skaner qilinsa ham xodimga jarima yozilmaydi, excused qaytadi."""
+        StaffAbsenceExemption.objects.create(
+            user=self.teacher_user,
+            date=self.today,
+            reason="Xizmat safari (Seminar)",
+            created_by=self.admin_user,
+        )
+
+        from datetime import time
+        # Belgilangan ish vaqti 09:00, xodim 11:30 da kech qolib skan qilsa ham:
+        result = process_face_check_in(self.teacher_user, self.today, time(11, 30))
+
+        self.assertTrue(result['success'])
+        self.assertTrue(result.get('is_excused'))
+        self.assertEqual(result.get('exemption_reason'), "Xizmat safari (Seminar)")
+        self.assertFalse(result.get('is_late', False))
+        self.assertEqual(result.get('fine_amount', 0), 0)
+
+        log = FaceIDLog.objects.filter(user=self.teacher_user, date=self.today).first()
+        self.assertEqual(log.status, 'excused')
+        self.assertFalse(log.is_late)
+        self.assertEqual(log.fine_amount_deducted, 0)
+
+    def test_delete_absence_exemption(self):
+        """Istisnoni bekor qilish muvaffaqiyatli ishlaydi."""
+        exemption = StaffAbsenceExemption.objects.create(
+            user=self.teacher_user,
+            date=self.today,
+            reason="Vaqtincha ruxsat",
+            created_by=self.manager_user,
+        )
+        self.client.force_login(self.manager_user)
+
+        resp = self.client.post(reverse('admin_absence_exemption_delete', args=[exemption.id]))
+        self.assertEqual(resp.status_code, 302)
+        self.assertFalse(StaffAbsenceExemption.objects.filter(id=exemption.id).exists())
+
+    def test_teacher_cannot_create_exemption(self):
+        """O'qituvchi o'ziga yoki boshqalarga istisno yarata olmaydi."""
+        self.client.force_login(self.teacher_user)
+        resp = self.client.post(reverse('admin_absence_exemption_create'), {
+            'user_id': self.teacher_user.id,
+            'date': self.today.strftime('%Y-%m-%d'),
+            'reason': "O'zimga o'zim ruxsat berdim",
+        })
+        self.assertIn(resp.status_code, (302, 403))
+        self.assertFalse(StaffAbsenceExemption.objects.filter(user=self.teacher_user, date=self.today).exists())
+
+
+class StudentJoinedDateScopingTests(TestCase):
+    def setUp(self):
+        self.manager_user = CustomUser.objects.create_user(
+            username='mgr_test',
+            password='ManagerPass123',
+            role='manager',
+            first_name='Menejer',
+            last_name='Sinovchi',
+        )
+        self.manager = Manager.objects.create(
+            user=self.manager_user,
+            first_name='Menejer',
+            last_name='Sinovchi',
+            phone='+998901234500',
+            generated_login='mgr_test',
+            generated_password='ManagerPass123',
+        )
+        self.teacher_user = CustomUser.objects.create_user(
+            username='tch_test',
+            password='TeacherPass123',
+            role='teacher',
+            first_name='Ustoz',
+            last_name='Sinovchi',
+        )
+        self.teacher = Teacher.objects.create(
+            user=self.teacher_user,
+            first_name='Ustoz',
+            last_name='Sinovchi',
+            generated_login='tch_test',
+            generated_password='TeacherPass123',
+        )
+        self.group = Group.objects.create(
+            name='Matematika 1',
+            subject='Matematika',
+            teacher=self.teacher,
+        )
+        self.timeslot = TimeSlot.objects.create(
+            group=self.group,
+            days='Du-Chor-Ju',
+            start_time='14:00',
+            end_time='16:00',
+        )
+        # 2026-11-01 da qo'shilgan yangi o'quvchi
+        self.new_student = Student.objects.create(
+            first_name='Yangi',
+            last_name='Oquvchi',
+            phone_1='+998909998877',
+            time_slot=self.timeslot,
+            payment_rate=400000,
+            joined_date=date(2026, 11, 1),
+        )
+        # 2026-09-01 da qo'shilgan eski o'quvchi
+        self.old_student = Student.objects.create(
+            first_name='Eski',
+            last_name='Oquvchi',
+            phone_1='+998901110000',
+            time_slot=self.timeslot,
+            payment_rate=300000,
+            joined_date=date(2026, 9, 1),
+        )
+
+    def test_new_student_not_visible_in_past_month_payments(self):
+        """2026-11 da qo'shilgan o'quvchi 2026-10 (o'tgan oy) to'lovlar jadvaliga kirmasligi lozim."""
+        from core.payment_views import _build_payments_data, get_active_students_qs, filter_students_by_payment_status
+
+        qs = get_active_students_qs(group=self.group)
+        rows, stats = _build_payments_data(qs, req_month='2026-10')
+        student_ids_in_rows = [r['student_id'] for r in rows]
+
+        self.assertIn(self.old_student.id, student_ids_in_rows)
+        self.assertNotIn(self.new_student.id, student_ids_in_rows)
+        # Statistika faqat eski o'quvchi bo'yicha hisoblanadi (300 000, 400 000 qo'shilmasligi kerak)
+        self.assertEqual(stats['total_rate'], 300000)
+        self.assertEqual(stats['total_students'], 1)
+
+        # filter_students_by_payment_status ham o'tgan oyni to'g'ri filtrlashi kerak
+        unpaid_qs = filter_students_by_payment_status(qs, req_month='2026-10', status_filter='unpaid')
+        unpaid_ids = list(unpaid_qs.values_list('id', flat=True))
+        self.assertIn(self.old_student.id, unpaid_ids)
+        self.assertNotIn(self.new_student.id, unpaid_ids)
+
+    def test_new_student_visible_in_current_and_future_month_payments(self):
+        """2026-11 da qo'shilgan o'quvchi 2026-11 (joriy oy) to'lovlar jadvalida ko'rinishi lozim."""
+        from core.payment_views import _build_payments_data, get_active_students_qs
+
+        qs = get_active_students_qs(group=self.group)
+        rows, stats = _build_payments_data(qs, req_month='2026-11')
+        student_ids_in_rows = [r['student_id'] for r in rows]
+
+        self.assertIn(self.old_student.id, student_ids_in_rows)
+        self.assertIn(self.new_student.id, student_ids_in_rows)
+        self.assertEqual(stats['total_rate'], 700000)
+        self.assertEqual(stats['total_students'], 2)
+
+    def test_new_student_not_visible_in_past_month_attendance(self):
+        """2026-11 da qo'shilgan o'quvchi 2026-10 davomat jurnali (_student_visible_in_month) da ko'rinmasligi lozim."""
+        from core.teacher_views import _student_visible_in_month
+
+        self.assertFalse(_student_visible_in_month(self.new_student, year=2026, month=10))
+        self.assertTrue(_student_visible_in_month(self.new_student, year=2026, month=11))
+        self.assertTrue(_student_visible_in_month(self.old_student, year=2026, month=10))
+
+    def test_prevent_payment_creation_for_past_months_before_student_joined(self):
+        """O'quvchi qo'shilishidan oldingi oylar uchun to'lov kiritishga yo'l qo'yilmaydi."""
+        self.client.force_login(self.manager_user)
+
+        resp = self.client.post(
+            reverse('admin_payment_save'),
+            {
+                'student_id': self.new_student.id,
+                'month': '2026-10',  # O'quvchi 2026-11 da kelgan
+                'amount': '400000',
+                'payment_type': 'cash',
+                'ajax': '1',
+            },
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+        self.assertEqual(resp.status_code, 400)
+        data = resp.json()
+        self.assertEqual(data['status'], 'error')
+        self.assertIn("oldingi oy", data['msg'])
+        self.assertFalse(MonthlyPayment.objects.filter(student=self.new_student, month='2026-10').exists())
+
+
 

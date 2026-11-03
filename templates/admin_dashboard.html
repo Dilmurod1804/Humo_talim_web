@@ -317,6 +317,10 @@
                     <small class="text-muted">Menejerlar: <b>{{ managers|length }}</b> | O'qituvchilar: <b>{{ teachers|length }}</b></small>
                 </div>
                 <div class="d-flex gap-2 flex-wrap">
+                    <button type="button" class="btn btn-warning text-dark fw-bold px-3 py-2 d-flex align-items-center gap-1 shadow-sm"
+                        style="border-radius:10px;" onclick="openExemptionModal('', '')">
+                        <i class="bi bi-calendar2-check-fill"></i> Sababli Kelmaslik
+                    </button>
                     {% if is_admin %}
                     <a href="{% url 'admin_manager_create' %}"
                         class="btn btn-warning text-dark fw-bold px-3 py-2 d-flex align-items-center gap-1 shadow-sm"
@@ -396,8 +400,15 @@
                                 </div>
                             </div>
 
-                            {% if is_admin %}
                             <div class="d-flex gap-1">
+                                {% if manager.user %}
+                                <button type="button" class="btn btn-sm btn-outline-warning btn-icon-circle"
+                                    onclick="openExemptionModal('{{ manager.user.id }}')"
+                                    title="Sababli kelmaslik (Face ID istisno)">
+                                    <i class="bi bi-calendar2-check"></i>
+                                </button>
+                                {% endif %}
+                                {% if is_admin %}
                                 <a href="{% url 'admin_manager_edit' manager.id %}"
                                     class="btn btn-sm btn-outline-primary btn-icon-circle"
                                     title="Tahrirlash va Yuz rasmini yuklash">
@@ -408,8 +419,8 @@
                                     title="O'chirish">
                                     <i class="bi bi-trash-fill"></i>
                                 </button>
+                                {% endif %}
                             </div>
-                            {% endif %}
                         </div>
 
                         <!-- Login & Parol -->
@@ -525,8 +536,15 @@
                                 </div>
                             </div>
 
-                            {% if is_admin %}
                             <div class="d-flex gap-1">
+                                {% if teacher.user %}
+                                <button type="button" class="btn btn-sm btn-outline-warning btn-icon-circle"
+                                    onclick="openExemptionModal('{{ teacher.user.id }}')"
+                                    title="Sababli kelmaslik (Face ID istisno)">
+                                    <i class="bi bi-calendar2-check"></i>
+                                </button>
+                                {% endif %}
+                                {% if is_admin %}
                                 <a href="{% url 'admin_teacher_edit' teacher.id %}"
                                     class="btn btn-sm btn-outline-primary btn-icon-circle"
                                     title="Tahrirlash va Yuz rasmini yuklash">
@@ -537,8 +555,8 @@
                                     title="O'chirish">
                                     <i class="bi bi-trash-fill"></i>
                                 </button>
+                                {% endif %}
                             </div>
-                            {% endif %}
                         </div>
 
                         <!-- Login & Parol -->
@@ -749,5 +767,7 @@
 </div>
 {% endfor %}
 {% endif %}
+
+{% include '_absence_exemption_modal.html' %}
 
 {% endblock %}
