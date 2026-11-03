@@ -3,7 +3,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from .models import (
-    AdvanceRequest, CustomUser, FaceIDLog, Group, Manager, MonthlyPayment,
+    AdvanceRequest, CustomUser, DeletedStudent, FaceIDLog, Group, Manager, MonthlyPayment,
     StaffAbsenceExemption, Student, Teacher, TimeSlot,
 )
 from core.face_service import process_face_check_in
@@ -594,3 +594,184 @@ class StudentJoinedDateScopingTests(TestCase):
 
 
 
+
+
+class GroupArchiveAndStudentIsolationTests(TestCase):
+    def setUp(self):
+        self.manager_user = CustomUser.objects.create_user(
+            username='mgr_arch',
+            password='ManagerPass123',
+            role='manager',
+            first_name='Menejer',
+            last_name='Arxiv',
+        )
+        self.manager = Manager.objects.create(
+            user=self.manager_user,
+            first_name='Menejer',
+            last_name='Arxiv',
+            phone='+998901112299',
+            generated_login='mgr_arch',
+            generated_password='ManagerPass123',
+        )
+
+        self.teacher_user = CustomUser.objects.create_user(
+            username='tch_arch',
+            password='TeacherPass123',
+            role='teacher',
+            first_name='Zarif',
+            last_name='Ustoz',
+        )
+        self.teacher = Teacher.objects.create(
+            user=self.teacher_user,
+            first_name='Zarif',
+            last_name='Ustoz',
+            generated_login='tch_arch',
+            generated_password='TeacherPass123',
+        )
+
+        self.group1 = Group.objects.create(
+            name='Fizika Guruh A',
+            subject='Fizika',
+            teacher=self.teacher,
+        )
+        self.group2 = Group.objects.create(
+            name='Kimyo Guruh B',
+            subject='Kimyo',
+            teacher=self.teacher,
+        )
+
+        self.slot1 = TimeSlot.objects.create(
+            group=self.group1,
+            days='Du-Chor-Ju',
+            start_time='10:00',
+            end_time='12:00',
+        )
+        self.slot2 = TimeSlot.objects.create(
+            group=self.group2,
+            days='Se-Pay-Sha',
+            start_time='14:00',
+            end_time='16:00',
+        )
+
+        self.student1 = Student.objects.create(
+            first_name='Davron',
+            last_name='Kimsanov',
+            phone_1='+998901234561',
+            time_slot=self.slot1,
+            payment_rate=450000,
+            joined_date=date(2026, 9, 1),
+            is_active=True,
+        )
+        self.student2 = Student.objects.create(
+            first_name='Jasur',
+            last_name='Rahimov',
+            phone_1='+998901234562',
+            time_slot=self.slot2,
+            payment_rate=500000,
+            joined_date=date(2026, 9, 1),
+            is_active=True,
+        )
+
+    def test_archive_student_stores_group_and_reason_properly(self):
+        """O'quvchini arxivlaganda qaysi guruhdan va nima sababdan o'chirilgani aniq saqlanadi."""
+        self.client.force_login(self.manager_user)
+        resp = self.client.post(
+            reverse('admin_student_delete', args=[self.student1.id]),
+            {'reason': 'Boshqa shaharga kochib ketdi'},
+        )
+        self.assertEqual(resp.status_code, 302)
+
+        # Student holati
+        self.student1.refresh_from_db()
+        self.assertFalse(self.student1.is_active)
+        self.assertIsNotNone(self.student1.left_date)
+        self.assertIsNone(self.student1.time_slot)
+
+        # DeletedStudent yozuvi
+        ds = DeletedStudent.objects.filter(student_id=self.student1.id).first()
+        self.assertIsNotNone(ds)
+        self.assertEqual(ds.group_id, self.group1.id)
+        self.assertEqual(ds.group_name, self.group1.name)
+        self.assertEqual(ds.reason, "Boshqa shaharga kochib ketdi")
+
+    def test_archived_student_completely_isolated_from_payments_and_reports(self):
+        """Arxivlangan o'quvchi to'lovlar, qarzdorlar va hisobotlarda MUTLAQO ko'rinmaydi."""
+        from core.payment_views import get_active_students_qs, _build_payments_data, filter_students_by_payment_status
+
+        # 1-o'quvchini arxivlaymiz
+        from core.student_views import _archive_student_record
+        _archive_student_record(self.student1, reason="Kursni tugatdi")
+
+        # get_active_students_qs
+        active_ids = list(get_active_students_qs().values_list('id', flat=True))
+        self.assertNotIn(self.student1.id, active_ids)
+        self.assertIn(self.student2.id, active_ids)
+
+        # To'lovlar ro'yxatida ko'rinmaydi
+        rows, stats = _build_payments_data(get_active_students_qs(), req_month='2026-11')
+        row_student_ids = [r['student_id'] for r in rows]
+        self.assertNotIn(self.student1.id, row_student_ids)
+        self.assertIn(self.student2.id, row_student_ids)
+
+        # Qarzdorlar ro'yxatiga kirmaydi
+        unpaid_qs = filter_students_by_payment_status(get_active_students_qs(), req_month='2026-11', status_filter='unpaid')
+        unpaid_ids = list(unpaid_qs.values_list('id', flat=True))
+        self.assertNotIn(self.student1.id, unpaid_ids)
+
+    def test_group_archive_pages_for_admin_and_teacher(self):
+        """Admin, Menejer va O'qituvchi guruh arxivi sahifasi to'g'ri ishlaydi."""
+        from core.student_views import _archive_student_record
+        _archive_student_record(self.student1, reason="Vaxti togri kelmadi")
+        _archive_student_record(self.student2, reason="Moddiy qiyinchilik")
+
+        # 1. Admin/Menejer guruh arxivi
+        self.client.force_login(self.manager_user)
+        resp1 = self.client.get(reverse('admin_group_archive', args=[self.group1.id]))
+        self.assertEqual(resp1.status_code, 200)
+        self.assertContains(resp1, self.student1.first_name)
+        self.assertContains(resp1, "Vaxti togri kelmadi")
+        # group2 dagi o'quvchi group1 arxivida ko'rinmasligi kerak
+        self.assertNotContains(resp1, self.student2.first_name)
+
+        # 2. O'qituvchi guruh arxivi
+        self.client.force_login(self.teacher_user)
+        t_resp = self.client.get(reverse('teacher_group_archive', args=[self.group1.id]))
+        self.assertEqual(t_resp.status_code, 200)
+        self.assertContains(t_resp, self.student1.first_name)
+        self.assertContains(t_resp, "Vaxti togri kelmadi")
+        self.assertNotContains(t_resp, self.student2.first_name)
+
+        # 3. Admin group detail sahifasida inline collapse arxiv mavjudligi
+        self.client.force_login(self.manager_user)
+        resp_detail = self.client.get(reverse('admin_group_detail', args=[self.group1.id]))
+        self.assertEqual(resp_detail.status_code, 200)
+        self.assertContains(resp_detail, 'id="groupArchiveCollapse"')
+        self.assertContains(resp_detail, self.student1.first_name)
+        self.assertContains(resp_detail, "Vaxti togri kelmadi")
+
+        # 4. Teacher dashboardda inline collapse arxiv mavjudligi
+        self.client.force_login(self.teacher_user)
+        resp_tdash = self.client.get(reverse('teacher_dashboard'))
+        self.assertEqual(resp_tdash.status_code, 200)
+        self.assertContains(resp_tdash, f'id="teacherGroupArchive{self.group1.id}"')
+        self.assertContains(resp_tdash, self.student1.first_name)
+        self.assertContains(resp_tdash, "Vaxti togri kelmadi")
+
+    def test_general_archive_filtering_by_group(self):
+        """Umumiy arxiv sahifasida guruh bo'yicha filtrlash to'g'ri ishlaydi."""
+        from core.student_views import _archive_student_record
+        _archive_student_record(self.student1, reason="Sabab 1")
+        _archive_student_record(self.student2, reason="Sabab 2")
+
+        self.client.force_login(self.manager_user)
+        # Barcha arxiv
+        resp_all = self.client.get(reverse('admin_deleted_students'))
+        self.assertEqual(resp_all.status_code, 200)
+        self.assertContains(resp_all, self.student1.first_name)
+        self.assertContains(resp_all, self.student2.first_name)
+
+        # Faqat group1 bo'yicha filter
+        resp_g1 = self.client.get(reverse('admin_deleted_students') + f'?group_id={self.group1.id}')
+        self.assertEqual(resp_g1.status_code, 200)
+        self.assertContains(resp_g1, self.student1.first_name)
+        self.assertNotContains(resp_g1, self.student2.first_name)

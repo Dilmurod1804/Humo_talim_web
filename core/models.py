@@ -310,6 +310,7 @@ class DeletedStudent(models.Model):
     # Old text fields (kept for backwards compatibility or simple display)
     student_name = models.CharField(max_length=200)
     phones = models.CharField(max_length=100)
+    group = models.ForeignKey('Group', on_delete=models.SET_NULL, null=True, blank=True, related_name='deleted_students', verbose_name="Guruh")
     group_name = models.CharField(max_length=100)
     reason = models.TextField(blank=True, default='')
     deleted_at = models.DateTimeField(auto_now_add=True)

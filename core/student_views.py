@@ -33,12 +33,12 @@ from .validators import contains_cyrillic
 
 def _archive_student_record(student: Student, reason: str, group_name: str | None = None, clear_timeslot: bool = True):
     """O'quvchini DeletedStudent arxiv jadvaliga yozib, nofaol holatga o'tkazadi."""
-    grp_name = group_name or (
-        student.time_slot.group.name if (student.time_slot and student.time_slot.group) else "Noma'lum"
-    )
+    grp = student.time_slot.group if (student.time_slot and student.time_slot.group) else None
+    grp_name = group_name or (grp.name if grp else "Noma'lum")
     DeletedStudent.objects.create(
         student_name=f"{student.first_name} {student.last_name}".strip(),
         phones=f"{student.phone_1}, {student.phone_2 or ''}".rstrip(', '),
+        group=grp,
         group_name=grp_name,
         reason=reason,
         first_name=student.first_name,
@@ -217,6 +217,12 @@ def admin_group_detail(request, id):
         for sid, att_date, status in attendances:
             attendance_map[sid][att_date.day] = status
 
+    archived_students = list(
+        DeletedStudent.objects.filter(
+            Q(group=group) | Q(group_name=group.name)
+        ).order_by('-deleted_at')
+    )
+
     for ts in timeslots:
         ts_weekdays = parse_schedule_weekdays(ts.days)
         ts.active_students = [
@@ -244,6 +250,28 @@ def admin_group_detail(request, id):
         'timeslots': timeslots,
         'current_month': req_month,
         'days_data': days_data,
+        'archived_students': archived_students,
+        'archived_count': len(archived_students),
+    })
+
+
+@admin_required
+def admin_group_archive(request, id):
+    """Admin va Menejer: Har bir guruh uchun alohida guruh arxivi sahifasi."""
+    if not is_admin_or_manager(request):
+        return redirect('home')
+    group = get_object_or_404(Group, id=id)
+    archived = DeletedStudent.objects.filter(
+        Q(group=group) | Q(group_name=group.name)
+    ).order_by('-deleted_at')
+    timeslots = group.time_slots.all()
+    all_timeslots = TimeSlot.objects.select_related('group').all()
+    return render(request, 'admin_group_archive.html', {
+        'group': group,
+        'archived': archived,
+        'archived_count': archived.count(),
+        'timeslots': timeslots,
+        'all_timeslots': all_timeslots,
     })
 
 
@@ -388,11 +416,26 @@ def admin_student_delete(request, id):
 
 @admin_required
 def admin_deleted_students(request):
+    """Admin va Menejer: Barcha guruhlar bo'yicha umumiy arxiv sahifasi."""
     if not is_admin_or_manager(request):
         return redirect('home')
+    group_id = request.GET.get('group_id')
     deleted = DeletedStudent.objects.order_by('-deleted_at')
+    selected_group = None
+    if group_id and str(group_id).isdigit():
+        selected_group = Group.objects.filter(id=int(group_id)).first()
+        if selected_group:
+            deleted = deleted.filter(Q(group=selected_group) | Q(group_name=selected_group.name))
+
+    groups = Group.objects.order_by('name')
     timeslots = TimeSlot.objects.select_related('group').all()
-    return render(request, 'admin_deleted_students.html', {'deleted': deleted, 'timeslots': timeslots})
+    return render(request, 'admin_deleted_students.html', {
+        'deleted': deleted,
+        'timeslots': timeslots,
+        'groups': groups,
+        'selected_group': selected_group,
+        'selected_group_id': int(group_id) if (group_id and str(group_id).isdigit()) else None,
+    })
 
 
 @admin_required
@@ -423,7 +466,10 @@ def admin_deleted_student_restore(request, id):
                     is_active=True,
                 )
             ds.delete()
-            messages.success(request, "O'quvchi guruhga qayta tiklandi.")
+            messages.success(request, f"O'quvchi '{ds.student_name}' guruhga muvaffaqiyatli qayta tiklandi.")
+        next_url = request.POST.get('next') or request.GET.get('next')
+        if next_url:
+            return redirect(next_url)
     return redirect('admin_deleted_students')
 
 
@@ -437,6 +483,9 @@ def admin_deleted_student_delete_permanent(request, id):
             Student.objects.filter(id=ds.student_id).delete()
         ds.delete()
         messages.success(request, "O'quvchi arxivdan butunlay o'chirildi.")
+        next_url = request.POST.get('next') or request.GET.get('next')
+        if next_url:
+            return redirect(next_url)
     return redirect('admin_deleted_students')
 
 

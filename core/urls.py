@@ -13,6 +13,7 @@ urlpatterns = [
     path('admin/dashboard/', student_views.admin_dashboard, name='admin_dashboard'),
     path('admin/group/create/', student_views.admin_group_create, name='admin_group_create'),
     path('admin/group/<int:id>/', student_views.admin_group_detail, name='admin_group_detail'),
+    path('admin/group/<int:id>/archive/', student_views.admin_group_archive, name='admin_group_archive'),
     path('admin/group/<int:id>/delete/', student_views.admin_group_delete, name='admin_group_delete'),
     path('admin/timeslot/<int:timeslot_id>/student/create/', student_views.admin_student_create, name='admin_student_create'),
     path('admin/timeslot/<int:id>/delete/', student_views.admin_timeslot_delete, name='admin_timeslot_delete'),
@@ -84,6 +85,7 @@ urlpatterns = [
     path('teacher/student/<int:id>/edit/', teacher_views.teacher_student_edit, name='teacher_student_edit'),
     path('teacher/student/<int:id>/photo/', student_views.student_photo_upload, name='teacher_student_photo_upload'),
     path('teacher/chat/', teacher_views.teacher_chat, name='teacher_chat'),
+    path('teacher/group/<int:group_id>/archive/', teacher_views.teacher_group_archive, name='teacher_group_archive'),
 
     # ── Parent ───────────────────────────────────────────────────────────────
     path('parent/view/', auth_views.parent_view, name='parent_view'),

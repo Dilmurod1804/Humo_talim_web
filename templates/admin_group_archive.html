@@ -1,0 +1,148 @@
+{% extends 'base.html' %}
+{% block title %}{{ group.name }} — Guruh arxivi - HUMO{% endblock %}
+
+{% block content %}
+<!-- Header -->
+<div class="d-flex flex-column flex-md-row align-items-start align-items-md-center justify-content-between gap-3 mb-4">
+    <div class="d-flex align-items-center gap-3">
+        <div style="background:linear-gradient(135deg,#f59e0b,#d97706);border-radius:14px;width:54px;height:54px;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 20px rgba(245,158,11,0.35);flex-shrink:0;">
+            <i class="bi bi-archive-fill text-white fs-4"></i>
+        </div>
+        <div>
+            <h2 class="text-white fw-black mb-0 fs-3" style="letter-spacing:-0.5px; text-shadow:0 2px 8px rgba(0,0,0,0.15);">
+                {{ group.name }} — Guruh arxivi
+            </h2>
+            <small class="text-white" style="opacity:0.9;">
+                <i class="bi bi-journal-bookmark me-1"></i>Fan: <b>{{ group.subject|default:group.name }}</b> &bull;
+                <i class="bi bi-person-badge ms-2 me-1"></i>O'qituvchi: <b>{{ group.teacher|default:"Biriktirilmagan" }}</b>
+            </small>
+        </div>
+    </div>
+
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+        <a href="{% url 'admin_group_detail' group.id %}" class="btn btn-light btn-sm rounded-pill px-3 shadow-sm d-flex align-items-center gap-1 fw-semibold">
+            <i class="bi bi-arrow-left"></i> Guruh jurnali
+        </a>
+        <a href="{% url 'admin_group_payments' group.id %}" class="btn btn-success btn-sm rounded-pill px-3 shadow-sm d-flex align-items-center gap-1" style="background:linear-gradient(135deg,#10b981,#059669); border:none;">
+            <i class="bi bi-wallet2"></i> To'lovlar
+        </a>
+        <a href="{% url 'admin_deleted_students' %}" class="btn btn-outline-light btn-sm rounded-pill px-3 d-flex align-items-center gap-1">
+            <i class="bi bi-collection"></i> Barcha guruhlar arxivi
+        </a>
+    </div>
+</div>
+
+<!-- Arxivlangan o'quvchilar jadvali -->
+<div class="glass-card mb-4" style="overflow:hidden; border: 1.5px solid rgba(245, 158, 11, 0.35);">
+    <div class="p-3 p-md-4 d-flex align-items-center justify-content-between flex-wrap gap-2" style="background: rgba(245, 158, 11, 0.08); border-bottom: 1px solid rgba(245, 158, 11, 0.2);">
+        <div class="d-flex align-items-center gap-2">
+            <span class="badge py-2 px-3" style="background:rgba(245, 158, 11, 0.2); color:#b45309; border-radius:20px; font-weight:700; font-size:0.95rem;">
+                <i class="bi bi-people-fill me-1"></i> Ushbu guruhdan o'chirilgan o'quvchilar
+            </span>
+            <span class="badge bg-white text-dark border fw-semibold rounded-pill px-3">{{ archived_count }} ta o'quvchi</span>
+        </div>
+        <small class="text-muted"><i class="bi bi-shield-check me-1 text-success"></i>Faol guruhlar va to'lov hisobotlaridan to'liq ajratilgan</small>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-modern mb-0">
+            <thead>
+                <tr>
+                    <th class="ps-4">F.I.O.</th>
+                    <th>Telefon raqami</th>
+                    <th>Guruh</th>
+                    <th>O'chirish / Arxivlanish sababi</th>
+                    <th>Arxivlangan sana</th>
+                    <th class="text-end pe-4">Amallar</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for ds in archived %}
+                <tr>
+                    <td class="ps-4">
+                        <div class="fw-bold text-dark">{{ ds.student_name }}</div>
+                        {% if ds.age %}<small class="text-muted"><i class="bi bi-calendar-check me-1"></i>{{ ds.age }} yosh</small>{% endif %}
+                    </td>
+                    <td>
+                        <div class="small fw-semibold"><i class="bi bi-telephone-fill text-muted me-1"></i>{{ ds.phones }}</div>
+                    </td>
+                    <td>
+                        <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 rounded-pill px-3 fw-semibold">
+                            {{ ds.group_name }}
+                        </span>
+                    </td>
+                    <td>
+                        <span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25 rounded-pill px-3 py-1.5 fw-bold small">
+                            <i class="bi bi-exclamation-triangle-fill me-1"></i>{{ ds.reason|default:"Guruhdan chiqarildi" }}
+                        </span>
+                    </td>
+                    <td class="text-muted small">
+                        <i class="bi bi-clock-history me-1"></i>{{ ds.deleted_at|date:"d.m.Y H:i" }}
+                    </td>
+                    <td class="text-end pe-4">
+                        <div class="d-inline-flex gap-2">
+                            <!-- Restore button -->
+                            <button type="button" class="btn btn-sm btn-outline-success rounded-pill px-3 fw-semibold"
+                                    data-bs-toggle="modal" data-bs-target="#restoreModal{{ ds.id }}" title="Guruhga qayta tiklash">
+                                <i class="bi bi-arrow-counterclockwise me-1"></i>Tiklash
+                            </button>
+                            <!-- Permanent Delete -->
+                            <form action="{% url 'admin_deleted_student_delete_permanent' ds.id %}" method="post" style="display:inline;">
+                                {% csrf_token %}
+                                <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                                <button type="submit" class="btn btn-sm btn-outline-danger rounded-pill px-3"
+                                        onclick="return confirm('O\'quvchi butunlay o\'chirilsinmi?');" title="Butunlay o'chirish">
+                                    <i class="bi bi-trash-fill"></i>
+                                </button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="6" class="text-center py-5">
+                        <i class="bi bi-check2-circle text-success" style="font-size:3rem; opacity:0.5;"></i>
+                        <p class="text-muted mt-3 mb-0 fw-semibold">"{{ group.name }}" guruhida arxivlangan o'quvchilar mavjud emas.</p>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- ═══════════════════════ RESTORE MODALLAR ═══════════════════════ -->
+{% for ds in archived %}
+<div class="modal fade" id="restoreModal{{ ds.id }}" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0">
+            <form action="{% url 'admin_deleted_student_restore' ds.id %}" method="post">
+                {% csrf_token %}
+                <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="modal-title fw-bold text-success">
+                        <i class="bi bi-arrow-counterclockwise me-2"></i>O'quvchini qayta tiklash
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Yopish"></button>
+                </div>
+                <div class="modal-body text-start">
+                    <p class="mb-3"><b>{{ ds.student_name }}</b> ni <b>{{ group.name }}</b> guruhiga qayta tiklash:</p>
+                    <label class="form-label small fw-semibold">Dars vaqtini tanlang:</label>
+                    <select name="timeslot_id" class="form-select" required>
+                        <option value="" selected disabled>-- Dars Vaqtini tanlang --</option>
+                        {% for ts in timeslots %}
+                        <option value="{{ ts.id }}">{{ ts.days }} ({{ ts.start_time|time:"H:i" }}–{{ ts.end_time|time:"H:i" }})</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="modal-footer border-0 pt-0">
+                    <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Bekor qilish</button>
+                    <button type="submit" class="btn btn-success rounded-pill px-4 fw-bold">Tiklash</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endfor %}
+{% endblock %}
+

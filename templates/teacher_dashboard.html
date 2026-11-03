@@ -88,9 +88,87 @@
             </div>
         </div>
         <div class="d-flex align-items-center gap-2">
+            <button type="button" class="btn btn-sm btn-outline-warning rounded-pill px-3 fw-bold d-flex align-items-center gap-1.5 shadow-sm"
+                    data-bs-toggle="collapse" data-bs-target="#teacherGroupArchive{{ group.id }}" aria-expanded="false" aria-controls="teacherGroupArchive{{ group.id }}"
+                    style="background: rgba(245, 158, 11, 0.1); border-color: #f59e0b; color: #b45309;">
+                <i class="bi bi-archive-fill"></i> Guruh arxivi
+                {% if group.archived_count %}
+                <span class="badge bg-warning text-dark rounded-pill ms-1">{{ group.archived_count }}</span>
+                {% endif %}
+                <i class="bi bi-chevron-down ms-1" style="font-size:0.75rem;"></i>
+            </button>
             <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 rounded-pill px-3 py-2 fw-semibold">
                 {{ group.time_slots.count }} ta dars vaqti
             </span>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════ INLINE GURUH ARXIVI (COLLAPSE/ACCORDION) ═══════════════════════ -->
+    <div class="collapse" id="teacherGroupArchive{{ group.id }}">
+        <div class="m-3 p-3 rounded-3" style="background: rgba(245, 158, 11, 0.08); border: 1.5px solid rgba(245, 158, 11, 0.35);">
+            <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+                <div class="d-flex align-items-center gap-2">
+                    <div style="background:linear-gradient(135deg,#f59e0b,#d97706); border-radius:8px; width:34px; height:34px; display:flex; align-items:center; justify-content:center; color:#fff;">
+                        <i class="bi bi-archive-fill"></i>
+                    </div>
+                    <div>
+                        <h6 class="fw-bold mb-0 text-dark">"{{ group.name }}" guruhi arxivi</h6>
+                        <small class="text-muted">Ushbu guruhdan chiqarilgan / arxivlangan o'quvchilar ro'yxati</small>
+                    </div>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <span class="badge bg-white text-dark border fw-semibold rounded-pill px-3 py-1.5 shadow-sm">{{ group.archived_count|default:0 }} ta o'quvchi</span>
+                    <button type="button" class="btn btn-sm btn-light rounded-circle shadow-none" data-bs-toggle="collapse" data-bs-target="#teacherGroupArchive{{ group.id }}" title="Yopish">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div class="table-responsive bg-white rounded-3 border">
+                <table class="table table-hover mb-0" style="font-size: 0.9rem;">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="ps-3">F.I.O.</th>
+                            <th>Telefon raqami</th>
+                            <th>O'chirish / Ketish sababi</th>
+                            <th>Chiqarilgan sana</th>
+                            <th class="text-end pe-3">Holat</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for ds in group.archived_students %}
+                        <tr>
+                            <td class="ps-3 fw-bold text-dark">
+                                {{ ds.student_name }}
+                                {% if ds.age %}<small class="text-muted fw-normal ms-1">({{ ds.age }} yosh)</small>{% endif %}
+                            </td>
+                            <td>
+                                <i class="bi bi-telephone-fill text-muted me-1 small"></i>{{ ds.phones }}
+                            </td>
+                            <td>
+                                <span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25 rounded-pill px-3 py-1.5 fw-bold small">
+                                    <i class="bi bi-exclamation-triangle-fill me-1"></i>{{ ds.reason|default:"Guruhdan chiqarildi" }}
+                                </span>
+                            </td>
+                            <td class="text-muted small">
+                                <i class="bi bi-clock-history me-1"></i>{{ ds.deleted_at|date:"d.m.Y H:i" }}
+                            </td>
+                            <td class="text-end pe-3">
+                                <span class="badge bg-secondary bg-opacity-10 text-secondary border rounded-pill px-2.5 py-1 small fw-semibold">
+                                    Arxivda
+                                </span>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="5" class="text-center py-4 text-muted">
+                                <i class="bi bi-check-circle text-success me-1"></i> Ushbu guruhda arxivlangan o'quvchilar mavjud emas.
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 
@@ -230,6 +308,20 @@
     </div>
     {% if not forloop.last %}<hr class="m-0">{% endif %}
     {% endfor %}
+    <!-- Guruh arxivi footer qismi -->
+    <div class="p-3 border-top bg-light bg-opacity-50 d-flex align-items-center justify-content-between flex-wrap gap-2">
+        <div class="d-flex align-items-center gap-2">
+            <span class="badge bg-warning bg-opacity-25 text-dark border border-warning rounded-pill px-3 py-1.5 fw-bold small">
+                <i class="bi bi-archive-fill me-1"></i> Guruh arxivi: {{ group.archived_count|default:0 }} ta o'quvchi
+            </span>
+            <small class="text-muted">Guruhdan o'chirilgan yoki arxivlangan bolalar</small>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-warning text-dark fw-bold rounded-pill px-3"
+                data-bs-toggle="collapse" data-bs-target="#teacherGroupArchive{{ group.id }}" aria-expanded="false" aria-controls="teacherGroupArchive{{ group.id }}"
+                style="background:#fff;">
+            <i class="bi bi-archive-fill me-1"></i> Guruh arxivini ko'rish
+        </button>
+    </div>
 </div>
 {% empty %}
 <div class="glass-card p-5 text-center">

@@ -212,6 +212,12 @@ def teacher_dashboard(request):
             attendance_map[a.student_id][a.date.day] = a.status
 
     for g in groups:
+        g.archived_students = list(
+            DeletedStudent.objects.filter(
+                Q(group=g) | Q(group_name=g.name)
+            ).order_by('-deleted_at')
+        )
+        g.archived_count = len(g.archived_students)
         for ts in g.time_slots.all():
             ts_weekdays = parse_schedule_weekdays(ts.days)
             ts.active_students = [
@@ -244,6 +250,28 @@ def teacher_dashboard(request):
         'teacher_groups': teacher_groups,
         'current_month': req_month,
         'days_data': days_data,
+    })
+
+
+@login_required(login_url='/teacher/login/')
+def teacher_group_archive(request, group_id):
+    """O'qituvchi: O'z guruhining arxivlangan o'quvchilari ro'yxati (Guruh arxivi)."""
+    if request.user.role != 'teacher':
+        return redirect('home')
+    teacher = getattr(request.user, 'teacher_profile', None)
+    if not teacher:
+        return redirect('staff_my_face_logs')
+
+    group = get_object_or_404(teacher.groups.all(), id=group_id)
+    archived = DeletedStudent.objects.filter(
+        Q(group=group) | Q(group_name=group.name)
+    ).order_by('-deleted_at')
+
+    return render(request, 'teacher_group_archive.html', {
+        'teacher': teacher,
+        'group': group,
+        'archived': archived,
+        'archived_count': archived.count(),
     })
 
 
@@ -402,14 +430,15 @@ def teacher_student_delete(request, id):
         elif contains_cyrillic(reason):
             reason = "Guruhdan chiqarildi"
 
-        group_name = (student.time_slot.group.name
-                      if (student.time_slot and student.time_slot.group) else "Noma'lum")
-        group_id = student.time_slot.group.id if (student.time_slot and student.time_slot.group) else None
+        grp = student.time_slot.group if (student.time_slot and student.time_slot.group) else None
+        group_name = grp.name if grp else "Noma'lum"
+        group_id = grp.id if grp else None
         st_full_name = f"{student.first_name} {student.last_name}".strip()
 
         DeletedStudent.objects.create(
             student_name=st_full_name,
             phones=f"{student.phone_1}, {student.phone_2 or ''}".rstrip(', '),
+            group=grp,
             group_name=group_name,
             reason=reason,
             first_name=student.first_name,
