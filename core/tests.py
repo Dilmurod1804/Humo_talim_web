@@ -1257,3 +1257,77 @@ class FaceMatchingStrictnessAndMultiFaceTests(TestCase):
         self.assertIn("bir nechta", data['message'].lower())
 
 
+class StudentPhotoPreviewAndMediaSettingsTests(TestCase):
+    """O'quvchi rasmini ochuvchi modal, placeholder va MEDIA_URL sozlamalarini tekshirish."""
+
+    def setUp(self):
+        self.manager_user = CustomUser.objects.create_user(
+            username='mgr_photo_test', password='Password123', role='manager'
+        )
+        self.manager = Manager.objects.create(
+            user=self.manager_user, first_name='Menejer', last_name='Testov',
+            generated_login='mgr_photo_test', generated_password='Password123'
+        )
+        self.teacher_user = CustomUser.objects.create_user(
+            username='tch_photo_test', password='Password123', role='teacher'
+        )
+        self.teacher = Teacher.objects.create(
+            user=self.teacher_user, first_name='Ustoz', last_name='Testova',
+            generated_login='tch_photo_test', generated_password='Password123'
+        )
+        self.group = Group.objects.create(
+            name='Fizika Guruh', subject='Fizika', teacher=self.teacher
+        )
+        self.timeslot = TimeSlot.objects.create(
+            group=self.group, days='Dushanba-Chorshanba', start_time='10:00', end_time='12:00'
+        )
+        # 1. Rasmi bor o'quvchi
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        test_photo = SimpleUploadedFile('student1.jpg', b'dummy_image_data', content_type='image/jpeg')
+        self.student_with_photo = Student.objects.create(
+            first_name='Anvar', last_name='Zokirov', phone_1='+998901112233',
+            time_slot=self.timeslot, photo=test_photo
+        )
+        # 2. Rasmi yo'q o'quvchi
+        self.student_without_photo = Student.objects.create(
+            first_name='Botir', last_name='Komilov', phone_1='+998904445566',
+            time_slot=self.timeslot, photo=None
+        )
+
+    def test_student_photo_url_property(self):
+        """photo_url property rasmi bo'lsa URL qaytaradi, bo'lmasa xavfsiz bo'sh satr qaytaradi."""
+        self.assertTrue(self.student_with_photo.photo_url.startswith('/media/'))
+        self.assertEqual(self.student_without_photo.photo_url, '')
+
+    def test_group_detail_renders_photo_and_placeholder_correctly(self):
+        """Guruh sahifasida rasmi bor o'quvchiga <img>, rasmi yo'qqa esa placeholder chiqadi."""
+        self.client.force_login(self.manager_user)
+        resp = self.client.get(reverse('admin_group_detail', args=[self.group.id]))
+        self.assertEqual(resp.status_code, 200)
+
+        # 1. Rasmi bor o'quvchi uchun <img> va openImgPreview chaqiruvi bo'lishi kerak
+        self.assertContains(resp, self.student_with_photo.photo.url)
+        self.assertContains(resp, 'openImgPreview')
+
+        # 2. Rasmi yo'q o'quvchi uchun placeholder class bo'lishi kerak
+        self.assertContains(resp, 'student-avatar-thumb no-photo')
+
+        # 3. imgPreviewModal da preview va placeholder elementlari mavjud bo'lishi kerak
+        self.assertContains(resp, 'id="imgPreviewModal"')
+        self.assertContains(resp, 'id="imgPreviewSrc"')
+        self.assertContains(resp, 'id="imgPreviewPlaceholder"')
+
+    def test_media_context_processor_in_templates(self):
+        """django.template.context_processors.media sababli MEDIA_URL shablonda mavjud bo'ladi."""
+        from django.template import Template, Context
+        from django.test import RequestFactory
+
+        rf = RequestFactory()
+        request = rf.get('/')
+        t = Template("MEDIA:{{ MEDIA_URL }}")
+        c = Context({'request': request})
+        rendered = t.render(c)
+        self.assertIn('/media/', rendered)
+
+
+

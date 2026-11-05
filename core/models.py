@@ -358,6 +358,16 @@ class Student(models.Model):
     photo = models.ImageField(upload_to='students/photos/', blank=True, null=True, help_text="O'quvchi rasmi (ixtiyoriy)")
 
     @property
+    def photo_url(self):
+        """Xavfsiz photo URL olish (agar rasm yo'q bo'lsa xatolik bermasdan bo'sh satr qaytaradi)."""
+        if self.photo:
+            try:
+                return self.photo.url
+            except Exception:
+                return ''
+        return ''
+
+    @property
     def is_mahalla(self):
         """Mahalladan keladigan o'quvchi belgisi (is_local uchun qulay alias)."""
         return self.is_local

@@ -211,12 +211,19 @@
                                 <div class="d-flex align-items-center gap-2" style="min-width:0; flex:1 1 auto;">
                                     <span class="student-counter-badge">{{ forloop.counter }}</span>
                                     {% if student.photo %}
-                                    <img src="{{ student.photo.url }}" alt="Rasm"
+                                    <img src="{{ student.photo.url }}" alt="{{ student.first_name }} {{ student.last_name }}"
                                          class="student-avatar-thumb flex-shrink-0"
                                          onclick="openImgPreview('{{ student.photo.url }}','{{ student.first_name }} {{ student.last_name|escapejs }}')"
-                                         title="Kattalashtirish uchun bosing">
+                                         onerror="this.onerror=null; this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';"
+                                         title="Kattalashtirish uchun bosing" style="cursor:pointer;">
+                                    <div class="student-avatar-thumb no-photo flex-shrink-0" style="display:none; cursor:pointer;"
+                                         onclick="openImgPreview('','{{ student.first_name }} {{ student.last_name|escapejs }}')"
+                                         title="Rasm topilmadi"><i class="bi bi-person"></i></div>
                                     {% else %}
-                                    <div class="student-avatar-thumb no-photo flex-shrink-0"><i class="bi bi-person"></i></div>
+                                    <div class="student-avatar-thumb no-photo flex-shrink-0"
+                                         onclick="openImgPreview('','{{ student.first_name }} {{ student.last_name|escapejs }}')"
+                                         style="cursor:pointer;"
+                                         title="Rasm yuklanmagan (Standart avatar)"><i class="bi bi-person"></i></div>
                                     {% endif %}
                                     <div class="student-info-block {% if request.user.teacher_profile.can_edit_students %}inline-edit-trigger{% endif %}"
                                          {% if request.user.teacher_profile.can_edit_students %}
@@ -256,6 +263,8 @@
                                         <li><a class="dropdown-item small fw-semibold text-primary" href="#" onclick="triggerPhotoUpload({{ student.id }});return false;"><i class="bi bi-camera-fill me-2 text-primary"></i>Rasmni almashtirish</a></li>
                                         {% if student.photo %}
                                         <li><a class="dropdown-item small text-secondary" href="#" onclick="openImgPreview('{{ student.photo.url }}','{{ student.first_name }} {{ student.last_name|escapejs }}');return false;"><i class="bi bi-zoom-in me-2 text-info"></i>Rasmni ko'rish</a></li>
+                                        {% else %}
+                                        <li><a class="dropdown-item small text-muted" href="#" onclick="openImgPreview('','{{ student.first_name }} {{ student.last_name|escapejs }}');return false;"><i class="bi bi-person me-2 text-muted"></i>Profil rasmi (yo'q)</a></li>
                                         {% endif %}
                                     </ul>
                                 </div>
@@ -332,15 +341,31 @@
 
 <!-- IMAGE PREVIEW MODAL -->
 <div class="modal fade" id="imgPreviewModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered" style="max-width:420px;">
-    <div class="modal-content border-0 rounded-4 shadow-lg" style="background:rgba(15,23,42,0.95);backdrop-filter:blur(20px);">
-      <div class="modal-header border-0 pb-1" style="background:linear-gradient(135deg,#10b981,#059669);border-radius:1rem 1rem 0 0;">
-        <h6 class="modal-title fw-bold text-white" id="imgPreviewName"></h6>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+  <div class="modal-dialog modal-dialog-centered" style="max-width:440px;">
+    <div class="modal-content border-0 rounded-4 shadow-lg overflow-hidden" style="background:#0f172a; border:1px solid rgba(255,255,255,0.1);">
+      <div class="modal-header border-0 py-3 px-4" style="background:linear-gradient(135deg,#10b981,#059669);">
+        <h6 class="modal-title fw-bold text-white mb-0 d-flex align-items-center gap-2">
+          <i class="bi bi-person-bounding-box"></i>
+          <span id="imgPreviewName">O'quvchi fotosurati</span>
+        </h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Yopish"></button>
       </div>
-      <div class="modal-body text-center p-3">
-        <img id="imgPreviewSrc" src="" alt="O'quvchi rasmi"
-             style="max-width:100%;max-height:70vh;border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,0.5);">
+      <div class="modal-body text-center p-4">
+        <!-- 1. O'quvchi fotosurati (mavjud bo'lsa) -->
+        <img id="imgPreviewSrc" src="" alt="O'quvchi fotosurati"
+             class="img-fluid rounded-4 shadow"
+             style="max-width:100%; max-height:65vh; object-fit:contain; display:none;"
+             onerror="handleModalImageError()">
+
+        <!-- 2. Rasm mavjud bo'lmaganda yoki yuklanmaganda standart placeholder -->
+        <div id="imgPreviewPlaceholder" class="p-4 rounded-4 text-center" style="display:none; background:rgba(255,255,255,0.05); border:1px dashed rgba(255,255,255,0.15);">
+          <div class="mx-auto mb-3 d-flex align-items-center justify-content-center"
+               style="width:96px; height:96px; border-radius:50%; background:linear-gradient(135deg,rgba(16,185,129,0.25),rgba(5,150,105,0.25)); color:#6ee7b7; font-size:3.2rem; border:2px solid rgba(110,231,183,0.4); box-shadow:0 0 25px rgba(16,185,129,0.3);">
+            <i class="bi bi-person-fill"></i>
+          </div>
+          <h6 class="text-white fw-bold mb-1" id="imgPreviewPlaceholderName">O'quvchi</h6>
+          <p class="text-muted small mb-0"><i class="bi bi-info-circle me-1"></i>Fotosurat yuklanmagan (Standart profil)</p>
+        </div>
       </div>
     </div>
   </div>
@@ -407,9 +432,36 @@
 
     // ── IMAGE PREVIEW ──────────────────────────────────────
     function openImgPreview(url, name) {
-        document.getElementById('imgPreviewSrc').src = url;
-        document.getElementById('imgPreviewName').textContent = name;
+        const imgEl = document.getElementById('imgPreviewSrc');
+        const placeholderEl = document.getElementById('imgPreviewPlaceholder');
+        const nameEl = document.getElementById('imgPreviewName');
+        const placeholderNameEl = document.getElementById('imgPreviewPlaceholderName');
+
+        if (nameEl) nameEl.textContent = name || "O'quvchi fotosurati";
+        if (placeholderNameEl) placeholderNameEl.textContent = name || "O'quvchi";
+
+        if (url && String(url).trim() !== '' && url !== 'None' && url !== 'null') {
+            imgEl.src = url;
+            imgEl.style.display = 'inline-block';
+            if (placeholderEl) placeholderEl.style.display = 'none';
+        } else {
+            imgEl.removeAttribute('src');
+            imgEl.style.display = 'none';
+            if (placeholderEl) placeholderEl.style.display = 'block';
+        }
         new bootstrap.Modal(document.getElementById('imgPreviewModal')).show();
+    }
+
+    function handleModalImageError() {
+        const imgEl = document.getElementById('imgPreviewSrc');
+        const placeholderEl = document.getElementById('imgPreviewPlaceholder');
+        if (imgEl) {
+            imgEl.removeAttribute('src');
+            imgEl.style.display = 'none';
+        }
+        if (placeholderEl) {
+            placeholderEl.style.display = 'block';
+        }
     }
 
     // ── INLINE QUICK-EDIT (teacher) ────────────────────────
