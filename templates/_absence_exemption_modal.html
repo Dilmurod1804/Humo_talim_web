@@ -1,0 +1,74 @@
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- SABABLI KELMASLIK (FACE ID ISTISNO) MODALI                -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="modal fade" id="absenceExemptionModal" tabindex="-1" aria-labelledby="absenceExemptionModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+            <div class="modal-header bg-warning bg-opacity-10 border-0 p-4">
+                <div class="d-flex align-items-center">
+                    <div class="rounded-3 bg-warning text-dark p-2 me-3 d-flex align-items-center justify-content-center" style="width: 44px; height: 44px;">
+                        <i class="bi bi-calendar2-check-fill fs-5"></i>
+                    </div>
+                    <div>
+                        <h5 class="modal-title fw-bold text-dark mb-0" id="absenceExemptionModalLabel">Sababli Kelmaslik Kiritish</h5>
+                        <small class="text-muted">Face ID tekshiruvini ushbu sana uchun istisno qilish</small>
+                    </div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form action="{% url 'admin_absence_exemption_create' %}" method="POST" id="absenceExemptionForm">
+                {% csrf_token %}
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold text-dark small">Xodimni tanlang <span class="text-danger">*</span></label>
+                        <select name="user_id" id="exemptionUserId" class="form-select form-select-lg rounded-3" required>
+                            <option value="">-- Xodimni tanlang --</option>
+                            {% for u in all_staff_users %}
+                            <option value="{{ u.id }}">{{ u.get_full_name|default:u.username }} ({{ u.get_role_display }})</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold text-dark small">Sana <span class="text-danger">*</span></label>
+                        <input type="date" name="date" id="exemptionDate" class="form-control form-control-lg rounded-3" value="{{ today|date:'Y-m-d' }}" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold text-dark small">Kelmaslik sababi (Majburiy) <span class="text-danger">*</span></label>
+                        <textarea name="reason" id="exemptionReason" class="form-control rounded-3" rows="3" placeholder="Masalan: Kasallik varaqasi bor, xizmat safari, rahbariyat ruxsati bilan..." required minlength="3"></textarea>
+                        <div class="form-text text-muted">
+                            <i class="bi bi-shield-exclamation text-warning me-1"></i> Sababsiz Face ID istisno qilib bo'lmaydi. Sabab majburiy kiritilishi shart.
+                        </div>
+                    </div>
+                    <div class="alert alert-info py-2 px-3 small rounded-3 mb-0">
+                        <i class="bi bi-info-circle me-1"></i> Ushbu xodim ko'rsatilgan sanada davomatda <strong>Sababli</strong> deb belgilanadi va jarima hisoblanmaydi.
+                    </div>
+                </div>
+                <div class="modal-footer border-0 p-4 pt-0">
+                    <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Bekor qilish</button>
+                    <button type="submit" class="btn btn-warning rounded-pill px-4 fw-bold shadow-sm">
+                        <i class="bi bi-check2-circle me-1"></i> Saqlash va Tasdiqlash
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+function openExemptionModal(userId, dateVal) {
+    if (userId) {
+        const sel = document.getElementById('exemptionUserId');
+        if (sel) sel.value = userId;
+    }
+    if (dateVal) {
+        const dt = document.getElementById('exemptionDate');
+        if (dt) dt.value = dateVal;
+    }
+    const modalEl = document.getElementById('absenceExemptionModal');
+    if (modalEl) {
+        const modal = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
+        modal.show();
+    }
+}
+</script>
+

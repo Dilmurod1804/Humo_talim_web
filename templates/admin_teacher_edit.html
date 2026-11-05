@@ -1,0 +1,374 @@
+{% extends 'base.html' %}
+{% block title %}O'qituvchini Tahrirlash - HUMO{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8 col-lg-6">
+        <div class="glass-card p-4 p-md-5">
+            <div class="text-center mb-4">
+                <div class="position-relative d-inline-block">
+                    {% if teacher.photo %}
+                    <img src="{{ teacher.photo.url }}" alt="{{ teacher.first_name }}" style="width: 80px; height: 80px; border-radius: 22px; object-fit: cover; border: 3px solid #10b981; box-shadow: 0 8px 24px rgba(16,185,129,0.3);">
+                    {% else %}
+                    <div style="background:linear-gradient(135deg,#10b981,#059669);border-radius:22px;width:80px;height:80px;display:flex;align-items:center;justify-content:center;margin:0 auto;box-shadow:0 8px 24px rgba(16,185,129,0.35);">
+                        <i class="bi bi-person-fill text-white fs-2"></i>
+                    </div>
+                    {% endif %}
+                </div>
+                <h3 class="fw-black text-dark mt-3 mb-1">{{ teacher.first_name }} {{ teacher.last_name }}</h3>
+                <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill px-3 py-1 fw-bold">O'qituvchi Profili</span>
+            </div>
+
+            <form method="post" enctype="multipart/form-data">
+                {% csrf_token %}
+                <div class="row mb-3">
+                    <div class="col-sm-6 mb-3 mb-sm-0">
+                        <label class="form-label fw-semibold small text-dark">Ism (Lotin) *</label>
+                        <input type="text" name="first_name" class="form-control" value="{{ teacher.first_name }}" required>
+                    </div>
+                    <div class="col-sm-6">
+                        <label class="form-label fw-semibold small text-dark">Familiya (Lotin) *</label>
+                        <input type="text" name="last_name" class="form-control" value="{{ teacher.last_name }}" required>
+                    </div>
+                </div>
+
+                <div class="row mb-3">
+                    <div class="col-sm-6 mb-3 mb-sm-0">
+                        <label class="form-label fw-semibold small text-dark">Telefon raqami</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-white" style="border:1.5px solid #e2e8f0;border-right:none;border-radius:10px 0 0 10px;">
+                                <i class="bi bi-telephone text-muted"></i>
+                            </span>
+                            <input type="text" name="phone" class="form-control" value="{{ teacher.phone|default:'' }}"
+                                   style="border:1.5px solid #e2e8f0;border-left:none;border-radius:0 10px 10px 0;">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ══════ STANDART UMUMIY ISH VAQTI (FALLBACK) ══════ -->
+                <div class="p-3 mb-4 rounded-3 border bg-light">
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <label class="fw-bold text-dark small mb-0 d-flex align-items-center gap-1">
+                            <i class="bi bi-clock-history text-primary"></i> Standart Ish Vaqti (Asosiy)
+                        </label>
+                        <span class="badge bg-secondary bg-opacity-10 text-secondary rounded-pill small">Fallback</span>
+                    </div>
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <label class="form-label text-muted" style="font-size:0.75rem;">Standart kelish vaqti</label>
+                            <input type="time" id="global_work_start" name="work_start_time" class="form-control form-control-sm" value="{{ teacher.work_start_time|time:'H:i'|default:'09:00' }}" required>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label text-muted" style="font-size:0.75rem;">Standart ketish vaqti</label>
+                            <input type="time" id="global_work_end" name="work_end_time" class="form-control form-control-sm" value="{{ teacher.work_end_time|time:'H:i'|default:'18:00' }}" required>
+                        </div>
+                    </div>
+                    <div class="form-text" style="font-size:0.72rem;">Quyidagi haftalik jadvalda kiritilmagan kunlar uchun ushbu standart vaqt qo'llaniladi.</div>
+                </div>
+
+                <!-- ══════ HAFTALIK SHAXSIY KUNLIK GRAFIK (DUSHANBA - YAKSHANBA) ══════ -->
+                <div class="card border-primary border-opacity-25 shadow-sm mb-4" style="background:#ffffff; border-radius:16px;">
+                    <div class="card-header bg-primary bg-opacity-10 border-0 py-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
+                        <div>
+                            <h6 class="fw-bold text-primary mb-0 d-flex align-items-center gap-2">
+                                <i class="bi bi-calendar-week-fill fs-5"></i> Haftalik Shaxsiy Ish Grafigi
+                            </h6>
+                            <small class="text-muted" style="font-size:0.73rem;">Face ID aynan shu kunlik grafik bo'yicha kechikish va ketishni tekshiradi</small>
+                        </div>
+                        <div class="d-flex gap-1 flex-wrap">
+                            <button type="button" class="btn btn-xs btn-outline-primary rounded-pill px-2 py-1 fw-bold" style="font-size:0.7rem;" onclick="applySchedulePreset('odd')">
+                                <i class="bi bi-check2 me-1"></i>Toq kunlar (Du,Chor,Ju)
+                            </button>
+                            <button type="button" class="btn btn-xs btn-outline-info rounded-pill px-2 py-1 fw-bold" style="font-size:0.7rem;" onclick="applySchedulePreset('even')">
+                                <i class="bi bi-check2 me-1"></i>Juft kunlar (Se,Pay,Sha)
+                            </button>
+                            <button type="button" class="btn btn-xs btn-outline-success rounded-pill px-2 py-1 fw-bold" style="font-size:0.7rem;" onclick="applySchedulePreset('all')">
+                                <i class="bi bi-calendar-check me-1"></i>Du-Sha (Har kuni)
+                            </button>
+                            <button type="button" class="btn btn-xs btn-outline-secondary rounded-pill px-2 py-1 fw-bold" style="font-size:0.7rem;" onclick="copyGlobalTimeToActiveDays()">
+                                <i class="bi bi-arrow-repeat me-1"></i>Vaqtni nusxalash
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body p-2 p-md-3">
+                        <div class="table-responsive">
+                            <table class="table table-sm table-hover align-middle mb-0" style="font-size:0.83rem;">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th style="width: 140px;">Hafta kuni</th>
+                                        <th style="width: 90px;" class="text-center">Ish kuni?</th>
+                                        <th style="width: 130px;">Kelish (Boshlanish)</th>
+                                        <th style="width: 130px;">Ketish (Tugash)</th>
+                                        <th>Izoh (Guruh/Dars)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for item in weekly_schedule %}
+                                    <tr id="schedule_row_{{ item.weekday }}" class="{% if not item.is_working_day %}table-secondary bg-opacity-50{% endif %}">
+                                        <td class="fw-bold">
+                                            <span class="d-flex align-items-center gap-1">
+                                                {% if item.weekday == 0 %}<span class="badge bg-primary">Du</span>
+                                                {% elif item.weekday == 1 %}<span class="badge bg-info text-dark">Se</span>
+                                                {% elif item.weekday == 2 %}<span class="badge bg-primary">Chor</span>
+                                                {% elif item.weekday == 3 %}<span class="badge bg-info text-dark">Pay</span>
+                                                {% elif item.weekday == 4 %}<span class="badge bg-primary">Ju</span>
+                                                {% elif item.weekday == 5 %}<span class="badge bg-warning text-dark">Sha</span>
+                                                {% else %}<span class="badge bg-danger">Yak</span>
+                                                {% endif %}
+                                                {{ item.weekday_name }}
+                                            </span>
+                                        </td>
+                                        <td class="text-center">
+                                            <div class="form-check form-switch d-inline-block m-0">
+                                                <input class="form-check-input day-active-switch" type="checkbox"
+                                                       name="schedule_day_{{ item.weekday }}_active"
+                                                       id="sched_active_{{ item.weekday }}"
+                                                       value="1"
+                                                       data-weekday="{{ item.weekday }}"
+                                                       {% if item.is_working_day %}checked{% endif %}
+                                                       onchange="toggleDayRow({{ item.weekday }})">
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <input type="time"
+                                                   name="schedule_day_{{ item.weekday }}_start"
+                                                   id="sched_start_{{ item.weekday }}"
+                                                   class="form-control form-control-sm day-start-input"
+                                                   value="{{ item.work_start_time|time:'H:i'|default:'09:00' }}"
+                                                   {% if not item.is_working_day %}disabled style="opacity:0.5;"{% endif %}>
+                                        </td>
+                                        <td>
+                                            <input type="time"
+                                                   name="schedule_day_{{ item.weekday }}_end"
+                                                   id="sched_end_{{ item.weekday }}"
+                                                   class="form-control form-control-sm day-end-input"
+                                                   value="{{ item.work_end_time|time:'H:i'|default:'18:00' }}"
+                                                   {% if not item.is_working_day %}disabled style="opacity:0.5;"{% endif %}>
+                                        </td>
+                                        <td>
+                                            <input type="text"
+                                                   name="schedule_day_{{ item.weekday }}_note"
+                                                   id="sched_note_{{ item.weekday }}"
+                                                   class="form-control form-control-sm"
+                                                   placeholder="Masalan: 1-smena yoki guruh nomi"
+                                                   value="{{ item.note|default:'' }}">
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                {% if is_admin %}
+                <div class="mb-4">
+                    <label class="form-label fw-semibold small text-dark">Oylik maosh stavkasi (so'm)</label>
+                    <div class="input-group">
+                        <span class="input-group-text bg-white" style="border:1.5px solid #e2e8f0;border-right:none;border-radius:10px 0 0 10px;">
+                            <i class="bi bi-cash-stack text-success"></i>
+                        </span>
+                        <input type="number" step="1000" name="monthly_salary" class="form-control" value="{{ teacher.monthly_salary|stringformat:'.0f' }}" required
+                                style="border:1.5px solid #e2e8f0;border-left:none;border-radius:0 10px 10px 0; font-weight:700;">
+                    </div>
+                    <div class="form-text" style="font-size:0.75rem;">Oy oxirida darsga kechikish jarimalari shu summadan chegiriladi.</div>
+                </div>
+
+                <!-- ══════ INTERAKTIV PHONE VOLUME SLIDER (Jarima foizi) ══════ -->
+                <div class="phone-volume-card mb-4">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <label class="fw-bold fs-6 mb-0 d-flex align-items-center gap-2">
+                            <i class="bi bi-percent text-danger fs-5"></i> Kechikish jarima foizi
+                        </label>
+                        <span class="badge bg-danger bg-opacity-25 text-danger border border-danger border-opacity-30 rounded-pill px-3 py-1">
+                            Har bir kechikish uchun
+                        </span>
+                    </div>
+                    <p class="small text-white opacity-75 mb-3">O'qituvchi darsga kechikib kelganda ushlab qolinadigan jarima foizini telefon ovoz paneli orqali sozlang:</p>
+
+                    <div class="phone-volume-widget" id="teacherEditFineSlider" data-min="0" data-max="15" data-step="0.5" data-unit="%" data-value="{{ teacher.late_fine_rate|default:'2.0' }}">
+                        <input type="hidden" name="late_fine_rate" value="{{ teacher.late_fine_rate|default:'2.0' }}">
+                        
+                        <div class="phone-volume-capsule-wrap">
+                            <button type="button" class="volume-step-btn volume-step-dec" title="Kamaytirish">
+                                <i class="bi bi-dash"></i>
+                            </button>
+
+                            <div class="phone-volume-capsule horizontal fine-slider flex-grow-1">
+                                <div class="phone-volume-fill"></div>
+                                <div class="phone-volume-overlay">
+                                    <i class="bi bi-percent phone-volume-icon"></i>
+                                    <span class="phone-volume-badge-val">{{ teacher.late_fine_rate|default:'2.0' }} %</span>
+                                </div>
+                            </div>
+
+                            <button type="button" class="volume-step-btn volume-step-inc" title="Ko'paytirish">
+                                <i class="bi bi-plus"></i>
+                            </button>
+                        </div>
+
+                        <div class="volume-presets-wrap mt-3">
+                            <button type="button" class="volume-preset-btn" data-val="0.5">0.5%</button>
+                            <button type="button" class="volume-preset-btn" data-val="1.0">1.0%</button>
+                            <button type="button" class="volume-preset-btn" data-val="2.0">2.0%</button>
+                            <button type="button" class="volume-preset-btn" data-val="3.0">3.0%</button>
+                            <button type="button" class="volume-preset-btn" data-val="5.0">5.0%</button>
+                            <button type="button" class="volume-preset-btn" data-val="10.0">10.0%</button>
+                        </div>
+                    </div>
+                </div>
+                {% else %}
+                <input type="hidden" name="monthly_salary" value="{{ teacher.monthly_salary|stringformat:'.0f' }}">
+                <input type="hidden" name="late_fine_rate" value="{{ teacher.late_fine_rate|default:'2.0' }}">
+                {% endif %}
+
+                <!-- ══════ YUZ RASMI YUKLASH (Face ID) ══════ -->
+                <div class="mb-4">
+                    <label class="form-label fw-semibold small text-dark d-flex align-items-center gap-1">
+                        <i class="bi bi-camera-fill text-primary"></i> Face ID Yuz Fotosurati (Taqqoslash uchun rasm)
+                    </label>
+                    <div class="d-flex align-items-center gap-3 p-3 rounded-3" style="background:#f8fafc; border:1.5px dashed #cbd5e1;">
+                        <div id="photoPreviewBox" style="width:72px; height:72px; border-radius:16px; background:#e2e8f0; display:flex; align-items:center; justify-content:center; overflow:hidden; flex-shrink:0;">
+                            {% if teacher.photo %}
+                            <img id="imgPreview" src="{{ teacher.photo.url }}" alt="{{ teacher.first_name }}" style="width:100%; height:100%; object-fit:cover;">
+                            <i class="bi bi-person-bounding-box text-muted fs-2" id="placeholderIcon" style="display:none;"></i>
+                            {% else %}
+                            <i class="bi bi-person-bounding-box text-muted fs-2" id="placeholderIcon"></i>
+                            <img id="imgPreview" src="" alt="Preview" style="width:100%; height:100%; object-fit:cover; display:none;">
+                            {% endif %}
+                        </div>
+                        <div class="flex-grow-1">
+                            <input type="file" name="photo" id="photoInput" class="form-control form-control-sm" accept="image/*" onchange="previewPhoto(event)">
+                            <div class="form-text" style="font-size:0.75rem;">Yangi rasm tanlansa, Face ID tizimi shu rasmdan foydalanadi.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- O'quvchini tahrirlash huquqi -->
+                <div class="p-3 mb-3 rounded-3 border d-flex justify-content-between align-items-center bg-light">
+                    <div>
+                        <div class="fw-semibold text-dark small">O'quvchilarni tahrirlash ruxsati</div>
+                        <div class="text-muted" style="font-size:0.75rem;">O'qituvchi o'z kabinetida o'quvchilarni tahrirlash huquqiga ega bo'lsinmi?</div>
+                    </div>
+                    <div class="form-check form-switch fs-5 m-0">
+                        <input class="form-check-input" type="checkbox" name="can_edit_students" value="1" id="canEditSwitch" {% if teacher.can_edit_students or teacher.can_edit %}checked{% endif %}>
+                    </div>
+                </div>
+
+                <!-- Login va yangi parol -->
+                <div class="p-3 mb-4 rounded-3 border" style="background: rgba(15, 23, 42, 0.03);">
+                    <div class="d-flex justify-content-between mb-2">
+                        <span class="text-muted small">Tizimga kirish logini:</span>
+                        <strong class="text-primary font-monospace">{{ teacher.generated_login }}</strong>
+                    </div>
+                    <div>
+                        <label class="form-label small fw-semibold text-dark">Yangi parol (ixtiyoriy):</label>
+                        <input type="text" name="new_password" class="form-control form-control-sm font-monospace" placeholder="Yangi parol kiriting yoki bo'sh qoldiring">
+                    </div>
+                </div>
+
+                <div class="d-flex gap-2">
+                    <a href="{% url 'admin_dashboard' %}" class="btn btn-light rounded-pill px-4 fw-semibold flex-grow-1 text-center">
+                        Bekor qilish
+                    </a>
+                    <button type="submit" class="btn fw-bold text-white rounded-pill px-5 flex-grow-1"
+                            style="background:linear-gradient(135deg,#10b981,#059669);border:none;box-shadow:0 4px 15px rgba(16,185,129,0.35);">
+                        <i class="bi bi-check-circle-fill me-1"></i> Saqlash
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+function previewPhoto(event) {
+    const input = event.target;
+    if (input.files && input.files[0]) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const preview = document.getElementById('imgPreview');
+            const icon = document.getElementById('placeholderIcon');
+            preview.src = e.target.result;
+            preview.style.display = 'block';
+            if (icon) icon.style.display = 'none';
+        }
+        reader.readAsDataURL(input.files[0]);
+    }
+}
+
+function toggleDayRow(wIdx) {
+    const sw = document.getElementById('sched_active_' + wIdx);
+    const sInp = document.getElementById('sched_start_' + wIdx);
+    const eInp = document.getElementById('sched_end_' + wIdx);
+    const row = document.getElementById('schedule_row_' + wIdx);
+    const isAct = sw && sw.checked;
+    if (sInp) {
+        sInp.disabled = !isAct;
+        sInp.style.opacity = isAct ? '1' : '0.45';
+    }
+    if (eInp) {
+        eInp.disabled = !isAct;
+        eInp.style.opacity = isAct ? '1' : '0.45';
+    }
+    if (row) {
+        if (isAct) {
+            row.classList.remove('table-secondary', 'bg-opacity-50');
+        } else {
+            row.classList.add('table-secondary', 'bg-opacity-50');
+        }
+    }
+}
+
+function applySchedulePreset(type) {
+    for (let i = 0; i < 7; i++) {
+        const sw = document.getElementById('sched_active_' + i);
+        if (!sw) continue;
+        if (type === 'odd') { // Toq kunlar: Du(0), Chor(2), Ju(4)
+            sw.checked = (i === 0 || i === 2 || i === 4);
+        } else if (type === 'even') { // Juft kunlar: Se(1), Pay(3), Sha(5)
+            sw.checked = (i === 1 || i === 3 || i === 5);
+        } else if (type === 'all') { // Du-Sha: 0..5
+            sw.checked = (i !== 6);
+        }
+        toggleDayRow(i);
+    }
+}
+
+function copyGlobalTimeToActiveDays() {
+    const gStart = document.getElementById('global_work_start').value || '09:00';
+    const gEnd = document.getElementById('global_work_end').value || '18:00';
+    for (let i = 0; i < 7; i++) {
+        const sw = document.getElementById('sched_active_' + i);
+        if (sw && sw.checked) {
+            const sInp = document.getElementById('sched_start_' + i);
+            const eInp = document.getElementById('sched_end_' + i);
+            if (sInp) sInp.value = gStart;
+            if (eInp) eInp.value = gEnd;
+        }
+    }
+}
+
+// Forma yuborishdan oldin inputlarni tekshirish va tozalash
+document.addEventListener('DOMContentLoaded', function() {
+    const form = document.querySelector('form');
+    if (form) {
+        form.addEventListener('submit', function() {
+            // Disabled inputlarni submit oldidan vaqtincha enable qilish, toki backend qiymatlarini o'qiy olsin
+            document.querySelectorAll('.day-start-input, .day-end-input').forEach(function(inp) {
+                inp.disabled = false;
+            });
+
+            ['monthly_salary', 'late_fine_rate'].forEach(function(name) {
+                const inp = form.querySelector('[name="' + name + '"]');
+                if (inp) {
+                    let v = inp.value.replace(',', '.').trim();
+                    if (!v || isNaN(parseFloat(v))) v = name === 'monthly_salary' ? '0' : '2.0';
+                    inp.value = parseFloat(v).toString();
+                }
+            });
+        });
+    }
+});
+</script>
+{% endblock %}

@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+{% block title %}OTP Tasdiqlash - HUMO{% endblock %}
+{% block content %}
+<div class="row justify-content-center align-items-center" style="min-height: 75vh;">
+    <div class="col-md-5 col-lg-4">
+        <div class="login-card">
+            <div class="text-center mb-4">
+                <div style="background:linear-gradient(135deg,#11998e,#38ef7d);border-radius:20px;width:70px;height:70px;display:flex;align-items:center;justify-content:center;margin:0 auto;box-shadow:0 8px 25px rgba(17,153,142,0.35);">
+                    <i class="bi bi-key-fill text-white" style="font-size:1.8rem;"></i>
+                </div>
+                <h3 class="fw-black text-dark mt-3 mb-1">OTP Tasdiqlash</h3>
+                <p class="text-muted small">Email ga yuborilgan kodni va yangi parolni kiriting</p>
+            </div>
+            {% if error %}
+            <div class="alert alert-danger d-flex align-items-center gap-2 mb-4">
+                <i class="bi bi-exclamation-triangle-fill"></i> {{ error }}
+            </div>
+            {% endif %}
+            <form method="post">
+                {% csrf_token %}
+                <div class="mb-3">
+                    <label class="form-label fw-semibold small text-dark">Tasdiqlash Kodi (OTP)</label>
+                    <input type="text" name="otp" class="form-control" placeholder="6 xonali kod" maxlength="6" required style="letter-spacing:4px; font-size:1.2rem; font-weight:bold; text-align:center;">
+                </div>
+                <div class="mb-4">
+                    <label class="form-label fw-semibold small text-dark">Yangi Parol</label>
+                    <div class="input-group">
+                        <span class="input-group-text bg-white border-end-0" style="border:1.5px solid #e5e7eb;border-right:none;border-radius:10px 0 0 10px;">
+                            <i class="bi bi-lock text-muted"></i>
+                        </span>
+                        <input type="password" name="password" class="form-control border-start-0" placeholder="Yangi parol"
+                               style="border:1.5px solid #e5e7eb;border-left:none;border-radius:0 10px 10px 0;" required>
+                    </div>
+                </div>
+                <button type="submit" class="btn w-100 py-2 fw-bold text-white"
+                        style="background:linear-gradient(135deg,#11998e,#38ef7d);border:none;border-radius:12px;box-shadow:0 4px 15px rgba(17,153,142,0.35);">
+                    <i class="bi bi-shield-check-fill me-2"></i>Parolni Yangilash
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

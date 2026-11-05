@@ -1,0 +1,537 @@
+{% extends 'base.html' %}
+{% block title %}O'qituvchi Paneli - HUMO{% endblock %}
+
+{% block content %}
+
+
+<!-- Header -->
+<div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center mb-4 gap-3">
+    <div>
+        <h2 class="text-white fw-black mb-0" style="letter-spacing:-1px; text-shadow: 0 2px 8px rgba(0,0,0,0.15);">
+            <i class="bi bi-hand-wave me-2"></i>Salom, {{ teacher.first_name }}!
+        </h2>
+        <p class="text-white mb-0" style="opacity:0.85;">Davomat jurnali (<b>{{ current_month }}</b>)</p>
+    </div>
+
+    <div class="d-flex flex-wrap align-items-center gap-2">
+        <a href="{% url 'staff_my_face_logs' %}" class="btn text-white fw-bold d-flex align-items-center gap-2 shadow-sm" style="background: linear-gradient(135deg, #06b6d4, #0891b2); border:none; border-radius:10px;">
+            <i class="bi bi-person-bounding-box"></i> Mening Davomatim & Oyligim
+        </a>
+        <a href="{% url 'face_id_check_in' %}" target="_blank" class="btn text-white fw-bold d-flex align-items-center gap-2 shadow-sm" style="background: linear-gradient(135deg, #6366f1, #8b5cf6); border:none; border-radius:10px;">
+            <i class="bi bi-camera-fill"></i> Face ID Kirish
+        </a>
+        <a href="{% url 'teacher_export_excel' %}{% if selected_group %}?group_id={{ selected_group.id }}{% endif %}" class="btn text-white fw-bold d-flex align-items-center gap-2" style="background: linear-gradient(135deg,#10b981,#059669); border:none; border-radius:10px;">
+            <i class="bi bi-file-earmark-excel-fill"></i> Excel
+        </a>
+        <a href="{% url 'teacher_chat' %}" class="btn text-white fw-bold d-flex align-items-center gap-2" style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.4); border-radius:10px;">
+            <i class="bi bi-chat-dots-fill"></i> Chat
+        </a>
+        <form method="get" class="d-flex align-items-center gap-2 m-0">
+            {% if selected_group %}
+            <input type="hidden" name="group_id" value="{{ selected_group.id }}">
+            {% endif %}
+            <label class="text-white fw-bold mb-0 d-none d-sm-block">Oy:</label>
+            <input type="month" name="month" class="form-control border-0 shadow-sm" value="{{ current_month }}" onchange="this.form.submit()" style="border-radius:10px; max-width:180px; background:rgba(255,255,255,0.9);">
+        </form>
+    </div>
+</div>
+
+{% if teacher_groups and teacher_groups|length > 1 %}
+<div class="card border-0 shadow-sm mb-4" style="border-radius:16px; background: rgba(255,255,255,0.95); backdrop-filter:blur(8px);">
+    <div class="card-body p-3 d-flex align-items-center justify-content-between flex-wrap gap-2">
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            <span class="fw-bold text-muted small text-uppercase me-2"><i class="bi bi-collection-fill text-primary me-1"></i>Mening Guruhlarim:</span>
+            <!-- Barcha guruhlarni birgalikda ko'rish tugmasi -->
+            <a href="?month={{ current_month }}"
+               class="btn btn-sm d-flex align-items-center gap-2 px-3 py-2 {% if not selected_group %}btn-primary text-white shadow-sm fw-bold{% else %}btn-outline-secondary bg-white text-dark{% endif %}"
+               style="border-radius:12px; font-size:0.88rem; transition: all 0.2s ease;">
+                <i class="bi bi-grid-fill"></i>
+                <span>Barcha guruhlar</span>
+                <span class="badge {% if not selected_group %}bg-white text-primary{% else %}bg-secondary text-white{% endif %} ms-1">{{ teacher_groups.count }}</span>
+            </a>
+            <!-- Har bir guruh bo'yicha alohida ko'rish tugmalari -->
+            {% for tg in teacher_groups %}
+            <a href="?group_id={{ tg.id }}&month={{ current_month }}"
+               class="btn btn-sm d-flex align-items-center gap-2 px-3 py-2 {% if selected_group and tg.id == selected_group.id %}btn-primary text-white shadow-sm fw-bold{% else %}btn-outline-secondary bg-white text-dark{% endif %}"
+               style="border-radius:12px; font-size:0.88rem; transition: all 0.2s ease;">
+                <i class="bi bi-journal-bookmark-fill"></i>
+                <span>{{ tg.name }}</span>
+                {% if tg.subject %}<small class="badge bg-white bg-opacity-25 ms-1">{{ tg.subject }}</small>{% endif %}
+            </a>
+            {% endfor %}
+        </div>
+        <div class="text-muted small">
+            Hozirgi ko'rinish: 
+            {% if selected_group %}
+                <b class="text-dark">{{ selected_group.name }}</b>
+                {% if selected_group.subject %}<span class="badge bg-secondary ms-1">{{ selected_group.subject }}</span>{% endif %}
+            {% else %}
+                <span class="badge bg-primary text-white"><i class="bi bi-check-all me-1"></i>Barcha guruhlar ({{ teacher_groups.count }} ta)</span>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% for group in groups %}
+<div class="glass-card mb-4">
+    <div class="p-4 border-bottom d-flex align-items-center justify-content-between flex-wrap gap-2">
+        <div class="d-flex align-items-center gap-3">
+            <div style="background: linear-gradient(135deg, #667eea, #764ba2); border-radius:12px; width:46px; height:46px; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                <i class="bi bi-book-fill text-white fs-5"></i>
+            </div>
+            <div>
+                <h4 class="fw-bold text-dark mb-0">{{ group.name }}</h4>
+                {% if group.subject and group.subject != group.name %}
+                <small class="text-muted"><i class="bi bi-mortarboard-fill me-1 text-primary"></i>Fan: <b class="text-dark">{{ group.subject }}</b></small>
+                {% endif %}
+            </div>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            <button type="button" class="btn btn-sm btn-outline-warning rounded-pill px-3 fw-bold d-flex align-items-center gap-1.5 shadow-sm"
+                    data-bs-toggle="collapse" data-bs-target="#teacherGroupArchive{{ group.id }}" aria-expanded="false" aria-controls="teacherGroupArchive{{ group.id }}"
+                    style="background: rgba(245, 158, 11, 0.1); border-color: #f59e0b; color: #b45309;">
+                <i class="bi bi-archive-fill"></i> Guruh arxivi
+                {% if group.archived_count %}
+                <span class="badge bg-warning text-dark rounded-pill ms-1">{{ group.archived_count }}</span>
+                {% endif %}
+                <i class="bi bi-chevron-down ms-1" style="font-size:0.75rem;"></i>
+            </button>
+            <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 rounded-pill px-3 py-2 fw-semibold">
+                {{ group.time_slots.count }} ta dars vaqti
+            </span>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════ INLINE GURUH ARXIVI (COLLAPSE/ACCORDION) ═══════════════════════ -->
+    <div class="collapse" id="teacherGroupArchive{{ group.id }}">
+        <div class="m-3 p-3 rounded-3" style="background: rgba(245, 158, 11, 0.08); border: 1.5px solid rgba(245, 158, 11, 0.35);">
+            <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+                <div class="d-flex align-items-center gap-2">
+                    <div style="background:linear-gradient(135deg,#f59e0b,#d97706); border-radius:8px; width:34px; height:34px; display:flex; align-items:center; justify-content:center; color:#fff;">
+                        <i class="bi bi-archive-fill"></i>
+                    </div>
+                    <div>
+                        <h6 class="fw-bold mb-0 text-dark">"{{ group.name }}" guruhi arxivi</h6>
+                        <small class="text-muted">Ushbu guruhdan chiqarilgan / arxivlangan o'quvchilar ro'yxati</small>
+                    </div>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <span class="badge bg-white text-dark border fw-semibold rounded-pill px-3 py-1.5 shadow-sm">{{ group.archived_count|default:0 }} ta o'quvchi</span>
+                    <button type="button" class="btn btn-sm btn-light rounded-circle shadow-none" data-bs-toggle="collapse" data-bs-target="#teacherGroupArchive{{ group.id }}" title="Yopish">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div class="table-responsive bg-white rounded-3 border">
+                <table class="table table-hover mb-0" style="font-size: 0.9rem;">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="ps-3">F.I.O.</th>
+                            <th>Telefon raqami</th>
+                            <th>O'chirish / Ketish sababi</th>
+                            <th>Chiqarilgan sana</th>
+                            <th class="text-end pe-3">Holat</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for ds in group.archived_students %}
+                        <tr>
+                            <td class="ps-3 fw-bold text-dark">
+                                {{ ds.student_name }}
+                                {% if ds.age %}<small class="text-muted fw-normal ms-1">({{ ds.age }} yosh)</small>{% endif %}
+                            </td>
+                            <td>
+                                <i class="bi bi-telephone-fill text-muted me-1 small"></i>{{ ds.phones }}
+                            </td>
+                            <td>
+                                <span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25 rounded-pill px-3 py-1.5 fw-bold small">
+                                    <i class="bi bi-exclamation-triangle-fill me-1"></i>{{ ds.reason|default:"Guruhdan chiqarildi" }}
+                                </span>
+                            </td>
+                            <td class="text-muted small">
+                                <i class="bi bi-clock-history me-1"></i>{{ ds.deleted_at|date:"d.m.Y H:i" }}
+                            </td>
+                            <td class="text-end pe-3">
+                                <span class="badge bg-secondary bg-opacity-10 text-secondary border rounded-pill px-2.5 py-1 small fw-semibold">
+                                    Arxivda
+                                </span>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="5" class="text-center py-4 text-muted">
+                                <i class="bi bi-check-circle text-success me-1"></i> Ushbu guruhda arxivlangan o'quvchilar mavjud emas.
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    {% for ts in group.time_slots.all %}
+    <div class="p-3">
+        <div class="d-flex align-items-center justify-content-between mb-3 px-2">
+            <div class="d-flex align-items-center gap-2">
+                <span class="badge py-2 px-3" style="background: rgba(102,126,234,0.1); color:#667eea; border-radius:20px; font-weight:600; font-size:0.9rem;">
+                    <i class="bi bi-calendar-event me-1"></i>{{ ts.days }} |
+                    <i class="bi bi-clock me-1"></i>{{ ts.start_time|time:"H:i" }} – {{ ts.end_time|time:"H:i" }}
+                </span>
+                <small class="text-muted">{{ ts.active_students|length }} o'quvchi</small>
+            </div>
+            <a href="{% url 'teacher_student_create' ts.id %}" class="btn btn-sm btn-outline-primary" style="border-radius:20px;">
+                <i class="bi bi-person-plus-fill me-1"></i>O'quvchi qo'shish
+            </a>
+        </div>
+
+        <div class="journal-wrapper">
+            <table class="table journal-table mb-0">
+                <thead>
+                    <tr>
+                        <th class="student-name"><span class="text-muted opacity-75 me-1">#</span> F.I.O. (Tarif)</th>
+                        <th class="joined-date-col text-center" title="Guruhga kelgan sana">
+                            <i class="bi bi-calendar2-event me-1 text-primary"></i>Kelgan sana
+                        </th>
+                        {% for d in days_data %}
+                        <th class="att-header-cell {% if d.is_today %}today-col{% elif d.is_weekend %}weekend-col{% endif %}" title="{{ d.date_str }} ({{ d.weekday }})">
+                            <div class="att-date-num">{{ d.display_date }}</div>
+                            <div class="att-weekday">{{ d.weekday }}</div>
+                        </th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for student in ts.active_students %}
+                    <tr>
+                        <td class="student-name">
+                            <div class="student-cell-inner d-flex align-items-center justify-content-between gap-2">
+                                <div class="d-flex align-items-center gap-2" style="min-width:0; flex:1 1 auto;">
+                                    <span class="student-counter-badge">{{ forloop.counter }}</span>
+                                    {% if student.photo %}
+                                    <img src="{{ student.photo.url }}" alt="Rasm"
+                                         class="student-avatar-thumb flex-shrink-0"
+                                         onclick="openImgPreview('{{ student.photo.url }}','{{ student.first_name }} {{ student.last_name|escapejs }}')"
+                                         title="Kattalashtirish uchun bosing">
+                                    {% else %}
+                                    <div class="student-avatar-thumb no-photo flex-shrink-0"><i class="bi bi-person"></i></div>
+                                    {% endif %}
+                                    <div class="student-info-block {% if request.user.teacher_profile.can_edit_students %}inline-edit-trigger{% endif %}"
+                                         {% if request.user.teacher_profile.can_edit_students %}
+                                         onclick="openInlineEdit({{ student.id }},'{{ student.first_name|escapejs }}','{{ student.last_name|escapejs }}','{{ student.age|default:'' }}','{{ student.phone_1|escapejs }}','{{ student.phone_2|default:''|escapejs }}','{{ student.joined_date|date:'Y-m-d'|default:'' }}')"
+                                         title="Bosib tahrirlash"
+                                         {% endif %}>
+                                        <div class="student-name-row d-flex align-items-center flex-wrap gap-1">
+                                            <span class="student-last-name fw-bold">{{ student.last_name }}</span>
+                                            {% if student.is_local %}
+                                            <span class="badge badge-mahalla rounded-pill px-1.5 py-0" title="Mahalladan kelgan o'quvchi"><i class="bi bi-geo-alt-fill"></i> Mahalla</span>
+                                            {% endif %}
+                                            {% if request.user.teacher_profile.can_edit_students %}
+                                            <span class="student-edit-hint" title="Tahrirlash"><i class="bi bi-pencil-fill"></i></span>
+                                            {% endif %}
+                                        </div>
+                                        <div class="student-first-name fw-semibold">
+                                            {{ student.first_name }}
+                                        </div>
+                                        <div class="student-rate">
+                                            {{ student.payment_rate }} so'm
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="dropdown flex-shrink-0">
+                                    <button class="btn btn-sm btn-light rounded-circle action-dot-btn" type="button"
+                                            data-bs-toggle="dropdown" aria-expanded="false" title="Amallar">
+                                        <i class="bi bi-three-dots-vertical"></i>
+                                    </button>
+                                    <ul class="dropdown-menu dropdown-menu-end shadow-sm" style="border:none;border-radius:12px;min-width:185px;">
+                                        {% if request.user.teacher_profile.can_edit_students %}
+                                        <li><a class="dropdown-item small" href="{% url 'teacher_student_edit' student.id %}?next={{ request.path|urlencode }}"><i class="bi bi-pencil-square me-2 text-primary"></i>Tahrirlash</a></li>
+                                        <li><a class="dropdown-item small" href="#" onclick="openInlineEdit({{ student.id }},'{{ student.first_name|escapejs }}','{{ student.last_name|escapejs }}','{{ student.age|default:'' }}','{{ student.phone_1|escapejs }}','{{ student.phone_2|default:''|escapejs }}','{{ student.joined_date|date:'Y-m-d'|default:'' }}');return false;"><i class="bi bi-lightning-charge-fill me-2 text-warning"></i>Tez tahrirlash</a></li>
+                                        {% else %}
+                                        <li><a class="dropdown-item small disabled" href="#"><i class="bi bi-pencil-square me-2 text-muted"></i>Tahrirlash</a></li>
+                                        {% endif %}
+                                        <li><hr class="dropdown-divider my-1"></li>
+                                        <li><a class="dropdown-item small fw-semibold text-primary" href="#" onclick="triggerPhotoUpload({{ student.id }});return false;"><i class="bi bi-camera-fill me-2 text-primary"></i>Rasmni almashtirish</a></li>
+                                        {% if student.photo %}
+                                        <li><a class="dropdown-item small text-secondary" href="#" onclick="openImgPreview('{{ student.photo.url }}','{{ student.first_name }} {{ student.last_name|escapejs }}');return false;"><i class="bi bi-zoom-in me-2 text-info"></i>Rasmni ko'rish</a></li>
+                                        {% endif %}
+                                    </ul>
+                                </div>
+                            </div>
+                        </td>
+
+                        <!-- Kelgan sana ustuni -->
+                        <td class="cell-joined-date text-center">
+                            <div class="joined-date-cell-wrap d-inline-flex align-items-center justify-content-center">
+                                <input type="date"
+                                       class="form-control form-control-sm joined-date-input"
+                                       value="{{ student.joined_date|date:'Y-m-d' }}"
+                                       data-sid="{{ student.id }}"
+                                       data-original="{{ student.joined_date|date:'Y-m-d' }}"
+                                       title="Kelgan sanani o'zgartirish (tanlaganda avtomatik saqlanadi)"
+                                       aria-label="Kelgan sana">
+                            </div>
+                        </td>
+                        
+                        {% for item in student.attendance_matrix %}
+                            {% if item.is_lesson %}
+                                {% if item.is_today %}
+                                <td class="cell-att cell-today active-today {% if item.status == 'present' %}present{% elif item.status == 'absent' %}absent{% endif %}"
+                                    data-sid="{{ student.id }}" data-day="{{ item.day }}" data-date="{{ item.date_str }}" data-today="true"
+                                    title="Bugungi sana: {{ item.date_str }} — Davomat belgilash uchun bosing">
+                                    {% if item.status == 'present' %}+{% elif item.status == 'absent' %}-{% else %}&nbsp;{% endif %}
+                                </td>
+                                {% else %}
+                                <td class="cell-att cell-locked disabled {% if item.status == 'present' %}present-locked{% elif item.status == 'absent' %}absent-locked{% endif %}"
+                                    data-sid="{{ student.id }}" data-day="{{ item.day }}" data-date="{{ item.date_str }}" data-today="false"
+                                    title="{% if item.is_past %}O'tgan kun ({{ item.date_str }}) — Yo'qlama qulflangan{% else %}Kelgusi kun ({{ item.date_str }}) — Yo'qlama qulflangan{% endif %}">
+                                    {% if item.status == 'present' %}+{% elif item.status == 'absent' %}-{% else %}&nbsp;{% endif %}
+                                </td>
+                                {% endif %}
+                            {% else %}
+                            <td class="cell-not-lesson" title="{{ item.date_str }} - Dars kuni emas">
+                                <span class="no-lesson-dot">—</span>
+                            </td>
+                            {% endif %}
+                        {% endfor %}
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="100%" class="text-center py-4 text-muted">Bu soatda faol o'quvchilar yo'q.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+
+    </div>
+    {% if not forloop.last %}<hr class="m-0">{% endif %}
+    {% endfor %}
+    <!-- Guruh arxivi footer qismi -->
+    <div class="p-3 border-top bg-light bg-opacity-50 d-flex align-items-center justify-content-between flex-wrap gap-2">
+        <div class="d-flex align-items-center gap-2">
+            <span class="badge bg-warning bg-opacity-25 text-dark border border-warning rounded-pill px-3 py-1.5 fw-bold small">
+                <i class="bi bi-archive-fill me-1"></i> Guruh arxivi: {{ group.archived_count|default:0 }} ta o'quvchi
+            </span>
+            <small class="text-muted">Guruhdan o'chirilgan yoki arxivlangan bolalar</small>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-warning text-dark fw-bold rounded-pill px-3"
+                data-bs-toggle="collapse" data-bs-target="#teacherGroupArchive{{ group.id }}" aria-expanded="false" aria-controls="teacherGroupArchive{{ group.id }}"
+                style="background:#fff;">
+            <i class="bi bi-archive-fill me-1"></i> Guruh arxivini ko'rish
+        </button>
+    </div>
+</div>
+{% empty %}
+<div class="glass-card p-5 text-center">
+    <i class="bi bi-calendar-x text-muted" style="font-size:4rem; opacity:0.5;"></i>
+    <h5 class="text-muted mt-3">Sizga biriktirilgan guruhlar mavjud emas.</h5>
+</div>
+{% endfor %}
+
+<!-- IMAGE PREVIEW MODAL -->
+<div class="modal fade" id="imgPreviewModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered" style="max-width:420px;">
+    <div class="modal-content border-0 rounded-4 shadow-lg" style="background:rgba(15,23,42,0.95);backdrop-filter:blur(20px);">
+      <div class="modal-header border-0 pb-1" style="background:linear-gradient(135deg,#10b981,#059669);border-radius:1rem 1rem 0 0;">
+        <h6 class="modal-title fw-bold text-white" id="imgPreviewName"></h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body text-center p-3">
+        <img id="imgPreviewSrc" src="" alt="O'quvchi rasmi"
+             style="max-width:100%;max-height:70vh;border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,0.5);">
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- INLINE QUICK-EDIT MODAL (only if teacher has permission) -->
+{% if request.user.teacher_profile.can_edit_students %}
+<div class="modal fade" id="inlineEditModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered" style="max-width:460px;">
+    <div class="modal-content border-0 rounded-4 shadow-lg">
+      <form id="inlineEditForm" method="post">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <div class="modal-header border-0 pb-0" style="background:linear-gradient(135deg,#10b981,#059669);border-radius:1rem 1rem 0 0;">
+          <h6 class="modal-title fw-bold text-white"><i class="bi bi-lightning-charge-fill me-2"></i>Tez Tahrirlash</h6>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body p-4">
+          <div class="row g-3">
+            <div class="col-6">
+              <label class="form-label small fw-semibold text-muted">Ism *</label>
+              <input type="text" name="first_name" id="ie_first_name" class="form-control" required>
+            </div>
+            <div class="col-6">
+              <label class="form-label small fw-semibold text-muted">Familiya *</label>
+              <input type="text" name="last_name" id="ie_last_name" class="form-control" required>
+            </div>
+            <div class="col-4">
+              <label class="form-label small fw-semibold text-muted">Yoshi</label>
+              <input type="number" name="age" id="ie_age" class="form-control" placeholder="—">
+            </div>
+            <div class="col-8">
+              <label class="form-label small fw-semibold text-muted">Telefon 1 *</label>
+              <input type="text" name="phone_1" id="ie_phone1" class="form-control" required>
+            </div>
+            <div class="col-12">
+              <label class="form-label small fw-semibold text-muted">Telefon 2</label>
+              <input type="text" name="phone_2" id="ie_phone2" class="form-control">
+            </div>
+            <div class="col-12">
+              <label class="form-label small fw-semibold text-muted">
+                <i class="bi bi-calendar2-event me-1 text-success"></i>Kelgan sana (Guruhga qo'shilgan)
+              </label>
+              <input type="date" name="joined_date" id="ie_joined_date" class="form-control">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer border-0 pt-0">
+          <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Bekor</button>
+          <button type="submit" class="btn text-white rounded-pill px-4 fw-bold" style="background:linear-gradient(135deg,#10b981,#059669);border:none;"><i class="bi bi-save-fill me-1"></i>Saqlash</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const currentMonth = "{{ current_month }}"; // YYYY-MM
+    let activePayCell = null;
+
+    // ── IMAGE PREVIEW ──────────────────────────────────────
+    function openImgPreview(url, name) {
+        document.getElementById('imgPreviewSrc').src = url;
+        document.getElementById('imgPreviewName').textContent = name;
+        new bootstrap.Modal(document.getElementById('imgPreviewModal')).show();
+    }
+
+    // ── INLINE QUICK-EDIT (teacher) ────────────────────────
+    function openInlineEdit(id, fn, ln, age, ph1, ph2, jd) {
+        const modal = document.getElementById('inlineEditModal');
+        if (!modal) return;
+        const form = document.getElementById('inlineEditForm');
+        form.action = '/teacher/student/' + id + '/edit/';
+        document.getElementById('ie_first_name').value = fn;
+        document.getElementById('ie_last_name').value  = ln;
+        document.getElementById('ie_age').value        = age;
+        document.getElementById('ie_phone1').value     = ph1;
+        document.getElementById('ie_phone2').value     = ph2 || '';
+        if (document.getElementById('ie_joined_date')) {
+            document.getElementById('ie_joined_date').value = jd || '';
+        }
+        new bootstrap.Modal(modal).show();
+    }
+
+    // ── KELGAN SANA TAHRIRLASH (AJAX) ──────────────────────
+    document.querySelectorAll('.joined-date-input').forEach(input => {
+        input.addEventListener('change', function() {
+            const sid = this.dataset.sid;
+            const newDate = this.value;
+            const self = this;
+            if (!newDate) return;
+
+            self.style.opacity = '0.6';
+            const body = new URLSearchParams({
+                joined_date: newDate
+            });
+
+            fetch(`/student/${sid}/joined-date/`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRFToken': '{{ csrf_token }}',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: body
+            })
+            .then(r => r.json())
+            .then(data => {
+                self.style.opacity = '1';
+                if (data.status === 'success') {
+                    self.classList.add('saved-pulse');
+                    self.dataset.original = newDate;
+                    setTimeout(() => { self.classList.remove('saved-pulse'); }, 1400);
+                } else {
+                    alert("Xatolik: " + (data.msg || "Kelgan sanani saqlab bo'lmadi"));
+                    self.value = self.dataset.original || '';
+                }
+            })
+            .catch(e => {
+                self.style.opacity = '1';
+                console.error(e);
+                alert("Server bilan bog'lanishda xatolik yuz berdi.");
+                self.value = self.dataset.original || '';
+            });
+        });
+    });
+
+    document.querySelectorAll('.cell-att').forEach(cell => {
+        cell.addEventListener('click', function(e) {
+            const isToday = this.dataset.today === 'true';
+            if (!isToday) {
+                e.preventDefault();
+                alert("Yo'qlama faqat joriy kun (bugun) uchun kiritilishi mumkin!");
+                return;
+            }
+
+            const sid = this.dataset.sid;
+            const dateStr = this.dataset.date || (currentMonth + '-' + this.dataset.day.toString().padStart(2, '0'));
+
+            let currentStatus = '';
+            if (this.classList.contains('present')) currentStatus = 'present';
+            else if (this.classList.contains('absent')) currentStatus = 'absent';
+
+            // Toggle logic: '' -> 'present' -> 'absent' -> ''
+            let nextStatus = '';
+            if (currentStatus === '') nextStatus = 'present';
+            else if (currentStatus === 'present') nextStatus = 'absent';
+            else nextStatus = '';
+
+            const body = new URLSearchParams({
+                student_id: sid,
+                date: dateStr,
+                status: nextStatus
+            });
+
+            // Mikro-animatsiya
+            this.style.transform = 'scale(1.25)';
+            setTimeout(() => { this.style.transform = 'none'; }, 150);
+
+            fetch("{% url 'teacher_attendance_mark' %}", {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRFToken': '{{ csrf_token }}'
+                },
+                body: body
+            })
+            .then(r => r.json())
+            .then(data => {
+                if(data.status === 'success'){
+                    this.classList.remove('present', 'absent');
+                    this.innerHTML = '&nbsp;';
+                    if (data.attendance === 'present') {
+                        this.classList.add('present');
+                        this.innerText = '+';
+                    } else if (data.attendance === 'absent') {
+                        this.classList.add('absent');
+                        this.innerText = '-';
+                    }
+                } else {
+                    alert("Xatolik: " + (data.msg || "Davomatni saqlab bo'lmadi"));
+                }
+            }).catch(e => {
+                console.error(e);
+                alert("Server bilan bog'lanishda xatolik yuz berdi.");
+            });
+        });
+    });
+</script>
+{% endblock %}

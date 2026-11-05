@@ -1,0 +1,241 @@
+{% extends 'base.html' %}
+{% block title %}Yangi O'qituvchi - HUMO{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6 col-lg-5">
+        <div class="glass-card p-5">
+            <div class="text-center mb-4">
+                <div style="background:linear-gradient(135deg,#11998e,#38ef7d);border-radius:16px;width:60px;height:60px;display:flex;align-items:center;justify-content:center;margin:0 auto;box-shadow:0 6px 20px rgba(17,153,142,0.35);">
+                    <i class="bi bi-person-plus-fill text-white fs-4"></i>
+                </div>
+                <h3 class="fw-black text-dark mt-3 mb-1">Yangi O'qituvchi</h3>
+                <p class="text-muted small">Login va parol avtomatik yaratiladi</p>
+            </div>
+            <form method="post" enctype="multipart/form-data">
+                {% csrf_token %}
+                <div class="alert alert-info py-2 px-3 small rounded-3 mb-3" style="background:rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.25); color:#065f46;">
+                    <i class="bi bi-info-circle-fill me-1"></i> Iltimos, ism va familiyani faqat <b>Lotin alifbosida</b> kiriting.
+                </div>
+                <div class="row mb-3">
+                    <div class="col-6">
+                        <label class="form-label fw-semibold small text-dark">Ism (Lotin) *</label>
+                        <input type="text" name="first_name" class="form-control" placeholder="Masalan: Aziz" value="{{ first_name_val|default:'' }}" required>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label fw-semibold small text-dark">Familiya (Lotin) *</label>
+                        <input type="text" name="last_name" class="form-control" placeholder="Masalan: Rahimov" value="{{ last_name_val|default:'' }}" required>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-semibold small text-dark">Telefon (ixtiyoriy)</label>
+                    <div class="input-group">
+                        <span class="input-group-text bg-white" style="border:1.5px solid #e5e7eb;border-right:none;border-radius:10px 0 0 10px;">
+                            <i class="bi bi-telephone text-muted"></i>
+                        </span>
+                        <input type="text" name="phone" class="form-control" placeholder="+998 90 123 45 67" value="{{ phone_val|default:'' }}"
+                               style="border:1.5px solid #e5e7eb;border-left:none;border-radius:0 10px 10px 0;">
+                    </div>
+                </div>
+
+                <!-- ══════ FACE ID YUZ FOTOSI YUKLASH ══════ -->
+                <div class="mb-3">
+                    <label class="form-label fw-semibold small text-dark d-flex align-items-center gap-1">
+                        <i class="bi bi-person-bounding-box text-primary"></i> Face ID Yuz Fotosurati (Biometrik Davomat)
+                    </label>
+                    <div class="d-flex align-items-center gap-3 p-3 rounded-3" style="background:#f8fafc; border:1.5px dashed #cbd5e1;">
+                        <div id="createPhotoPreview" style="width:54px; height:54px; border-radius:14px; background:#e2e8f0; display:flex; align-items:center; justify-content:center; overflow:hidden; flex-shrink:0;">
+                            <i class="bi bi-camera text-muted fs-4" id="createPlaceholderIcon"></i>
+                            <img id="createImgPreview" src="" alt="Preview" style="width:100%; height:100%; object-fit:cover; display:none;">
+                        </div>
+                        <div class="flex-grow-1">
+                            <input type="file" name="photo" id="createPhotoInput" class="form-control form-control-sm" accept="image/*" onchange="previewCreatePhoto(event)">
+                            <div class="form-text" style="font-size:0.72rem;">Face ID terminalida avtomatik tanilishi uchun xodimning yuz rasmi.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row mb-3">
+                    <div class="col-6">
+                        <label class="form-label fw-semibold small text-dark">
+                            <i class="bi bi-box-arrow-in-right text-success me-1"></i>Standart Kelish vaqti
+                        </label>
+                        <input type="time" id="global_create_start" name="work_start_time" class="form-control" value="{{ default_start_time|time:'H:i'|default:'09:00' }}" required>
+                        <div class="form-text" style="font-size:0.72rem;">Standart boshlanish soati</div>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label fw-semibold small text-dark">
+                            <i class="bi bi-box-arrow-right text-info me-1"></i>Standart Ketish vaqti
+                        </label>
+                        <input type="time" id="global_create_end" name="work_end_time" class="form-control" value="{{ default_end_time|time:'H:i'|default:'18:00' }}" required>
+                        <div class="form-text" style="font-size:0.72rem;">Standart tugash soati</div>
+                    </div>
+                </div>
+
+                <!-- ══════ HAFTALIK GRAFIK (Ixtiyoriy kengaytirish) ══════ -->
+                <div class="accordion mb-3" id="createScheduleAccordion">
+                    <div class="accordion-item border rounded-3 overflow-hidden">
+                        <h2 class="accordion-header" id="headingSchedule">
+                            <button class="accordion-button collapsed py-2 bg-light text-primary fw-bold small" type="button" data-bs-toggle="collapse" data-bs-target="#collapseSchedule" aria-expanded="false" aria-controls="collapseSchedule">
+                                <i class="bi bi-calendar-week-fill me-2"></i> Kunlik Grafiklar (Hafta kunlari bo'yicha)
+                            </button>
+                        </h2>
+                        <div id="collapseSchedule" class="accordion-collapse collapse" aria-labelledby="headingSchedule" data-bs-parent="#createScheduleAccordion">
+                            <div class="accordion-body p-2 bg-white">
+                                <div class="d-flex gap-1 flex-wrap mb-2">
+                                    <button type="button" class="btn btn-xs btn-outline-primary rounded-pill px-2 py-0 fw-bold" style="font-size:0.68rem;" onclick="applyCreatePreset('odd')">Toq kunlar</button>
+                                    <button type="button" class="btn btn-xs btn-outline-info rounded-pill px-2 py-0 fw-bold" style="font-size:0.68rem;" onclick="applyCreatePreset('even')">Juft kunlar</button>
+                                    <button type="button" class="btn btn-xs btn-outline-success rounded-pill px-2 py-0 fw-bold" style="font-size:0.68rem;" onclick="applyCreatePreset('all')">Du-Sha</button>
+                                    <button type="button" class="btn btn-xs btn-outline-secondary rounded-pill px-2 py-0 fw-bold" style="font-size:0.68rem;" onclick="copyCreateGlobalTime()">Vaqtni nusxalash</button>
+                                </div>
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-hover align-middle mb-0" style="font-size:0.78rem;">
+                                        <thead class="table-light">
+                                            <tr>
+                                                <th>Kun</th>
+                                                <th class="text-center">Ish?</th>
+                                                <th>Kelish</th>
+                                                <th>Ketish</th>
+                                                <th>Izoh</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for item in default_weekly %}
+                                            <tr id="create_row_{{ item.weekday }}" class="{% if not item.is_working_day %}table-secondary bg-opacity-50{% endif %}">
+                                                <td class="fw-bold">{{ item.weekday_name }}</td>
+                                                <td class="text-center">
+                                                    <input class="form-check-input create-day-sw" type="checkbox"
+                                                           name="schedule_day_{{ item.weekday }}_active"
+                                                           id="create_sw_{{ item.weekday }}"
+                                                           value="1"
+                                                           {% if item.is_working_day %}checked{% endif %}
+                                                           onchange="toggleCreateDayRow({{ item.weekday }})">
+                                                </td>
+                                                <td>
+                                                    <input type="time" name="schedule_day_{{ item.weekday }}_start"
+                                                           id="create_start_{{ item.weekday }}"
+                                                           class="form-control form-control-sm p-1 create-start-inp"
+                                                           value="{{ default_start_time|time:'H:i'|default:'09:00' }}"
+                                                           {% if not item.is_working_day %}disabled style="opacity:0.45;"{% endif %}>
+                                                </td>
+                                                <td>
+                                                    <input type="time" name="schedule_day_{{ item.weekday }}_end"
+                                                           id="create_end_{{ item.weekday }}"
+                                                           class="form-control form-control-sm p-1 create-end-inp"
+                                                           value="{{ default_end_time|time:'H:i'|default:'18:00' }}"
+                                                           {% if not item.is_working_day %}disabled style="opacity:0.45;"{% endif %}>
+                                                </td>
+                                                <td>
+                                                    <input type="text" name="schedule_day_{{ item.weekday }}_note"
+                                                           class="form-control form-control-sm p-1"
+                                                           placeholder="Izoh"
+                                                           value="{{ item.note }}">
+                                                </td>
+                                            </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {% if is_admin %}
+                <div class="mb-3">
+                    <label class="form-label fw-semibold small text-dark">Oylik maosh stavkasi (so'm)</label>
+                    <input type="number" step="1000" name="monthly_salary" class="form-control" placeholder="Masalan: 4000000" value="0">
+                </div>
+                {% endif %}
+
+                <div class="alert small" style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;color:#166534;">
+                    <i class="bi bi-info-circle-fill me-2"></i>Saqlangandan so'ng yangi login va parol boshqaruv panelida ko'rinadi.
+                </div>
+                <button type="submit" class="btn w-100 py-2 fw-bold text-white mt-2"
+                        style="background:linear-gradient(135deg,#11998e,#38ef7d);border:none;border-radius:10px;box-shadow:0 4px 15px rgba(17,153,142,0.35);">
+                    <i class="bi bi-check-circle-fill me-2"></i>Saqlash
+                </button>
+            </form>
+
+            <script>
+            function previewCreatePhoto(e) {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = function(evt) {
+                        const img = document.getElementById('createImgPreview');
+                        const icon = document.getElementById('createPlaceholderIcon');
+                        img.src = evt.target.result;
+                        img.style.display = 'block';
+                        icon.style.display = 'none';
+                    };
+                    reader.readAsDataURL(file);
+                }
+            }
+
+            function toggleCreateDayRow(wIdx) {
+                const sw = document.getElementById('create_sw_' + wIdx);
+                const sInp = document.getElementById('create_start_' + wIdx);
+                const eInp = document.getElementById('create_end_' + wIdx);
+                const row = document.getElementById('create_row_' + wIdx);
+                const isAct = sw && sw.checked;
+                if (sInp) {
+                    sInp.disabled = !isAct;
+                    sInp.style.opacity = isAct ? '1' : '0.45';
+                }
+                if (eInp) {
+                    eInp.disabled = !isAct;
+                    eInp.style.opacity = isAct ? '1' : '0.45';
+                }
+                if (row) {
+                    if (isAct) {
+                        row.classList.remove('table-secondary', 'bg-opacity-50');
+                    } else {
+                        row.classList.add('table-secondary', 'bg-opacity-50');
+                    }
+                }
+            }
+
+            function applyCreatePreset(type) {
+                for (let i = 0; i < 7; i++) {
+                    const sw = document.getElementById('create_sw_' + i);
+                    if (!sw) continue;
+                    if (type === 'odd') {
+                        sw.checked = (i === 0 || i === 2 || i === 4);
+                    } else if (type === 'even') {
+                        sw.checked = (i === 1 || i === 3 || i === 5);
+                    } else if (type === 'all') {
+                        sw.checked = (i !== 6);
+                    }
+                    toggleCreateDayRow(i);
+                }
+            }
+
+            function copyCreateGlobalTime() {
+                const gStart = document.getElementById('global_create_start').value || '09:00';
+                const gEnd = document.getElementById('global_create_end').value || '18:00';
+                for (let i = 0; i < 7; i++) {
+                    const sw = document.getElementById('create_sw_' + i);
+                    if (sw && sw.checked) {
+                        const sInp = document.getElementById('create_start_' + i);
+                        const eInp = document.getElementById('create_end_' + i);
+                        if (sInp) sInp.value = gStart;
+                        if (eInp) eInp.value = gEnd;
+                    }
+                }
+            }
+
+            document.addEventListener('DOMContentLoaded', function() {
+                const form = document.querySelector('form');
+                if (form) {
+                    form.addEventListener('submit', function() {
+                        document.querySelectorAll('.create-start-inp, .create-end-inp').forEach(function(inp) {
+                            inp.disabled = false;
+                        });
+                    });
+                }
+            });
+            </script>
+        </div>
+    </div>
+</div>
+{% endblock %}

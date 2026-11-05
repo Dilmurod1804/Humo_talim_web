@@ -1,0 +1,160 @@
+{% extends 'base.html' %}
+{% block title %}O'chirilgan O'quvchilar (Umumiy Arxiv) - HUMO{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center mb-4 gap-3">
+    <div>
+        <h2 class="text-white fw-black mb-0" style="letter-spacing:-0.5px; text-shadow:0 2px 8px rgba(0,0,0,0.15);">
+            <i class="bi bi-archive-fill me-2"></i>O'chirilgan O'quvchilar (Umumiy Arxiv)
+        </h2>
+        <p class="text-white mb-0" style="opacity:0.85;">Barcha guruhlardan chiqarilgan / arxivlangan o'quvchilar ro'yxati</p>
+    </div>
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+        <a href="{% url 'admin_dashboard' %}" class="btn btn-light btn-sm rounded-pill px-3 shadow-sm fw-semibold">
+            <i class="bi bi-arrow-left me-1"></i> Bosh sahifa
+        </a>
+    </div>
+</div>
+
+<!-- Guruhlar bo'yicha filter paneli -->
+{% if groups %}
+<div class="card border-0 shadow-sm mb-4" style="border-radius:16px; background: rgba(255,255,255,0.95); backdrop-filter:blur(8px);">
+    <div class="card-body p-3 d-flex align-items-center justify-content-between flex-wrap gap-2">
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            <span class="fw-bold text-muted small text-uppercase me-2">
+                <i class="bi bi-funnel-fill text-primary me-1"></i>Guruh bo'yicha filtr:
+            </span>
+            <a href="{% url 'admin_deleted_students' %}"
+               class="btn btn-sm d-flex align-items-center gap-1.5 px-3 py-1.5 {% if not selected_group_id %}btn-primary text-white shadow-sm fw-bold{% else %}btn-outline-secondary bg-white text-dark{% endif %}"
+               style="border-radius:12px; font-size:0.86rem;">
+                <i class="bi bi-collection"></i> Barcha guruhlar
+            </a>
+            {% for grp in groups %}
+            <a href="{% url 'admin_deleted_students' %}?group_id={{ grp.id }}"
+               class="btn btn-sm d-flex align-items-center gap-1 px-3 py-1.5 {% if selected_group_id == grp.id %}btn-primary text-white shadow-sm fw-bold{% else %}btn-outline-secondary bg-white text-dark{% endif %}"
+               style="border-radius:12px; font-size:0.86rem;">
+                <i class="bi bi-journal-bookmark"></i> {{ grp.name }}
+            </a>
+            {% endfor %}
+        </div>
+        {% if selected_group %}
+        <div class="d-flex align-items-center gap-2">
+            <span class="badge bg-warning bg-opacity-25 text-dark border border-warning rounded-pill px-3 py-1.5 fw-bold">
+                {{ selected_group.name }} arxivi
+            </span>
+            <a href="{% url 'admin_group_archive' selected_group.id %}" class="btn btn-sm btn-outline-primary rounded-pill px-3 py-1 fw-semibold">
+                Guruh sahifasiga o'tish <i class="bi bi-arrow-right ms-1"></i>
+            </a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+<div class="glass-card" style="overflow:hidden;">
+    <div class="table-responsive">
+        <table class="table table-modern mb-0">
+            <thead>
+                <tr>
+                    <th class="ps-4">F.I.O.</th>
+                    <th>Telefonlar</th>
+                    <th>Qaysi Guruhdan</th>
+                    <th>O'chirish / Arxivlanish Sababi</th>
+                    <th>Arxivlangan Sana</th>
+                    <th class="text-end pe-4">Amallar</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for ds in deleted %}
+                <tr>
+                    <td class="ps-4">
+                        <div class="fw-bold text-dark">{{ ds.student_name }}</div>
+                        {% if ds.age %}<small class="text-muted"><i class="bi bi-calendar-check me-1"></i>{{ ds.age }} yosh</small>{% endif %}
+                    </td>
+                    <td>
+                        <div class="small fw-semibold"><i class="bi bi-telephone-fill text-muted me-1"></i>{{ ds.phones }}</div>
+                    </td>
+                    <td>
+                        {% if ds.group %}
+                        <a href="{% url 'admin_group_archive' ds.group.id %}" class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 rounded-pill px-3 py-1.5 fw-semibold text-decoration-none" title="Ushbu guruh arxivini ochish">
+                            <i class="bi bi-collection-play me-1"></i>{{ ds.group_name }}
+                        </a>
+                        {% else %}
+                        <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 rounded-pill px-3 py-1.5 fw-semibold">
+                            {{ ds.group_name }}
+                        </span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25 rounded-pill px-3 py-1.5 fw-bold small">
+                            <i class="bi bi-exclamation-triangle-fill me-1"></i>{{ ds.reason|default:"Guruhdan chiqarildi" }}
+                        </span>
+                    </td>
+                    <td class="text-muted small">
+                        <i class="bi bi-clock-history me-1"></i>{{ ds.deleted_at|date:"d.m.Y H:i" }}
+                    </td>
+                    <td class="text-end pe-4">
+                        <div class="d-inline-flex gap-2">
+                            <!-- Restore button -->
+                            <button type="button" class="btn btn-sm btn-outline-success rounded-pill px-3 fw-semibold" data-bs-toggle="modal" data-bs-target="#restoreModal{{ ds.id }}" title="Qayta tiklash">
+                                <i class="bi bi-arrow-counterclockwise me-1"></i>Tiklash
+                            </button>
+                            
+                            <!-- Permanent Delete -->
+                            <form action="{% url 'admin_deleted_student_delete_permanent' ds.id %}" method="post" style="display:inline;">
+                                {% csrf_token %}
+                                <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                                <button type="submit" class="btn btn-sm btn-outline-danger rounded-pill px-3" onclick="return confirm('O\'quvchi arxivdan butunlay o\'chirilsinmi?');" title="To'liq o'chirish">
+                                    <i class="bi bi-trash-fill"></i>
+                                </button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="6" class="text-center py-5">
+                        <i class="bi bi-archive text-muted" style="font-size:3rem; opacity:0.4;"></i>
+                        <p class="text-muted mt-3 mb-0 fw-semibold">Arxivlangan o'quvchilar mavjud emas.</p>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- ═══════════════════════ RESTORE MODALS (Jadval tashqarisida) ═══════════════════════ -->
+{% for ds in deleted %}
+<div class="modal fade" id="restoreModal{{ ds.id }}" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0">
+            <form action="{% url 'admin_deleted_student_restore' ds.id %}" method="post">
+                {% csrf_token %}
+                <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="modal-title fw-bold text-success">
+                        <i class="bi bi-arrow-counterclockwise me-2"></i>O'quvchini qayta tiklash
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Yopish"></button>
+                </div>
+                <div class="modal-body text-start">
+                    <p class="mb-3"><b>{{ ds.student_name }}</b> ni qaysi guruhga qayta qo'shmoqchisiz?</p>
+                    <label class="form-label small fw-semibold">Guruh va dars vaqti:</label>
+                    <select name="timeslot_id" class="form-select" required>
+                        <option value="" selected disabled>-- Guruh va Dars Vaqtini tanlang --</option>
+                        {% for ts in timeslots %}
+                        <option value="{{ ts.id }}">{{ ts.group.name }} | {{ ts.days }} ({{ ts.start_time|time:"H:i" }}-{{ ts.end_time|time:"H:i" }})</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="modal-footer border-0 pt-0">
+                    <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Bekor qilish</button>
+                    <button type="submit" class="btn btn-success rounded-pill px-4 fw-bold">Tiklash</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endfor %}
+{% endblock %}

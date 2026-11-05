@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+{% block title %}O'quvchi Qo'shish - HUMO{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8 col-lg-6">
+        <div class="glass-card p-5">
+            <div class="d-flex align-items-center mb-4">
+                <a href="{% url 'teacher_dashboard' %}" class="btn btn-light me-3" style="border-radius:12px;">
+                    <i class="bi bi-arrow-left"></i>
+                </a>
+                <div>
+                    <h3 class="fw-bold mb-1">Yangi O'quvchi</h3>
+                    <p class="text-muted small mb-0">Guruh: <b>{{ timeslot.group.name }}</b> | Dars: <b>{{ timeslot.days }} ({{ timeslot.start_time|time:"H:i" }}-{{ timeslot.end_time|time:"H:i" }})</b></p>
+                </div>
+            </div>
+
+            <form method="post" class="row g-3" enctype="multipart/form-data">
+                {% csrf_token %}
+                <div class="col-12">
+                    <div class="alert alert-info py-2 px-3 small rounded-3 mb-0" style="background:rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.25); color:#065f46;">
+                        <i class="bi bi-info-circle-fill me-1"></i> Iltimos, ma'lumotlarni faqat <b>Lotin alifbosida</b> kiriting (Kirill harflari qabul qilinmaydi).
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label fw-semibold text-muted small">Ism (Lotin) *</label>
+                    <input type="text" name="first_name" class="form-control" placeholder="Masalan: Ali" value="{{ first_name_val|default:'' }}" required>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label fw-semibold text-muted small">Familiya (Lotin) *</label>
+                    <input type="text" name="last_name" class="form-control" placeholder="Masalan: Valiyev" value="{{ last_name_val|default:'' }}" required>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label fw-semibold text-muted small">Yoshi (ixtiyoriy)</label>
+                    <input type="number" name="age" class="form-control" placeholder="15" value="{{ age_val|default:'' }}">
+                </div>
+                <div class="col-md-8">
+                    <label class="form-label fw-semibold text-muted small">Rasm (ixtiyoriy)</label>
+                    <input type="file" name="photo" class="form-control" accept="image/*">
+                </div>
+                
+                <div class="col-md-6">
+                    <label class="form-label fw-semibold text-muted small">Telefon 1 *</label>
+                    <input type="text" name="phone_1" class="form-control" placeholder="+998901234567" value="{{ phone_1_val|default:'' }}" required>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label fw-semibold text-muted small">Telefon 2 (Ixtiyoriy)</label>
+                    <input type="text" name="phone_2" class="form-control" placeholder="+998901234567" value="{{ phone_2_val|default:'' }}">
+                </div>
+
+                <div class="col-12 mt-3">
+                    <div class="form-check form-switch p-3 rounded-3 border bg-light d-flex align-items-center gap-3">
+                        <input class="form-check-input ms-0 mt-0" type="checkbox" name="is_local" value="1" id="isLocalCheckTeacher" style="width:2.5em; height:1.4em; cursor:pointer;">
+                        <label class="form-check-label fw-bold text-dark mb-0" for="isLocalCheckTeacher" style="cursor:pointer;">
+                            <i class="bi bi-geo-alt-fill text-info me-1"></i> Mahalladan keladigan o'quvchi
+                            <small class="text-muted fw-normal d-block">Ushbu o'quvchi mahalla yoshlari yoki maxsus toifaga kiradi</small>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="col-12 mt-4">
+                    <button type="submit" class="btn w-100 py-2 fw-bold text-white shadow-sm" style="background:linear-gradient(135deg, #10b981, #059669); border:none; border-radius:12px;">
+                        <i class="bi bi-person-check-fill me-1"></i> Saqlash va Qo'shish
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
