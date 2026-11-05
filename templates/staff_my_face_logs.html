@@ -40,15 +40,17 @@
             <input type="month" name="month" class="form-control rounded-pill bg-white text-dark fw-bold border-0 shadow-sm" value="{{ current_month }}" onchange="this.form.submit()" style="width: auto;">
         </div>
         <div class="text-white small opacity-85">
-            <i class="bi bi-clock-history me-1 text-warning"></i>Shaxsiy kelish vaqti: <b>{{ staff.work_start_time|time:"H:i" }}</b> | 
-            Kademeli jarima: <b>1–5 daq: 0.1%/daq | 5+ daq: 1.0%/daq</b>
+            <i class="bi bi-clock-history me-1 text-warning"></i>Shaxsiy kelish vaqti: <b>{{ staff.work_start_time|time:"H:i" }}</b>
+            {% if not is_teacher and staff.role_title != "O'qituvchi" %}
+             | Kademeli jarima: <b>1–5 daq: 0.1%/daq | 5+ daq: 1.0%/daq</b>
+            {% endif %}
         </div>
     </form>
 </div>
 
 <!-- KPI Kartalari -->
 <div class="row g-3 mb-4">
-    <div class="col-6 col-lg-2">
+    <div class="{% if is_teacher or staff.role_title == "O'qituvchi" %}col-6 col-md-4 col-lg{% else %}col-6 col-lg-2{% endif %}">
         <div class="glass-card p-3 text-center h-100" style="background:rgba(255,255,255,0.95);">
             <div class="text-muted small fw-semibold mb-1">
                 <i class="bi bi-wallet2 text-primary me-1"></i> Asosiy Oylik
@@ -57,7 +59,7 @@
             <small class="text-muted">so'm</small>
         </div>
     </div>
-    <div class="col-6 col-lg-2">
+    <div class="{% if is_teacher or staff.role_title == "O'qituvchi" %}col-6 col-md-4 col-lg{% else %}col-6 col-lg-2{% endif %}">
         <div class="glass-card p-3 text-center h-100" style="background:rgba(255,255,255,0.95);">
             <div class="text-muted small fw-semibold mb-1">
                 <i class="bi bi-calendar-check text-info me-1"></i> Ish Kunlari
@@ -66,6 +68,7 @@
             <small class="text-muted">kun</small>
         </div>
     </div>
+    {% if not is_teacher and staff.role_title != "O'qituvchi" %}
     <div class="col-6 col-lg-2">
         <div class="glass-card p-3 text-center h-100" style="background:rgba(255,255,255,0.95);">
             <div class="text-danger small fw-semibold mb-1">
@@ -75,7 +78,8 @@
             <small class="text-muted">{{ salary_summary.total_late_count }} marta</small>
         </div>
     </div>
-    <div class="col-6 col-lg-2">
+    {% endif %}
+    <div class="{% if is_teacher or staff.role_title == "O'qituvchi" %}col-6 col-md-4 col-lg{% else %}col-6 col-lg-2{% endif %}">
         <div class="glass-card p-3 text-center h-100" style="background:rgba(255,255,255,0.95); border-top:3px solid #f59e0b;">
             <div class="text-warning small fw-bold mb-1">
                 <i class="bi bi-cash-coin me-1"></i> Avans
@@ -84,7 +88,7 @@
             <small class="text-muted">ushlab qolindi</small>
         </div>
     </div>
-    <div class="col-6 col-lg-2">
+    <div class="{% if is_teacher or staff.role_title == "O'qituvchi" %}col-6 col-md-4 col-lg{% else %}col-6 col-lg-2{% endif %}">
         <div class="glass-card p-3 text-center h-100" style="background:rgba(255,255,255,0.95); border-top:3px solid #6366f1;">
             <div class="text-primary small fw-bold mb-1">
                 <i class="bi bi-award-fill me-1"></i> Bonuslar
@@ -93,7 +97,7 @@
             <small class="text-muted">qo'shildi</small>
         </div>
     </div>
-    <div class="col-6 col-lg-2">
+    <div class="{% if is_teacher or staff.role_title == "O'qituvchi" %}col-6 col-md-4 col-lg{% else %}col-6 col-lg-2{% endif %}">
         <div class="glass-card p-3 text-center h-100" style="background:rgba(255,255,255,0.95); border: 2px solid #10b981;">
             <div class="text-success small fw-bold mb-1">
                 <i class="bi bi-check-circle-fill me-1"></i> Qo'lga Tegadigan
@@ -170,8 +174,10 @@
                     <th>Ketgan Vaqti</th>
                     <th>Holati</th>
                     <th>Kechikish</th>
+                    {% if not is_teacher and staff.role_title != "O'qituvchi" %}
                     <th>Kademeli Jarima</th>
                     <th class="text-end pe-4">Ushlab Qolindi</th>
+                    {% endif %}
                 </tr>
             </thead>
             <tbody>
@@ -212,6 +218,7 @@
                         <span class="text-success small">0 daqiqa</span>
                         {% endif %}
                     </td>
+                    {% if not is_teacher and staff.role_title != "O'qituvchi" %}
                     <td>
                         {% if log.is_late and log.fine_percent_applied %}
                         <span class="badge bg-danger text-white rounded-pill px-2 py-1 fw-bold">-{{ log.fine_percent_applied }}%</span>
@@ -226,10 +233,11 @@
                         <span class="text-muted small">0 so'm</span>
                         {% endif %}
                     </td>
+                    {% endif %}
                 </tr>
                 {% empty %}
                 <tr>
-                    <td colspan="7" class="text-center py-5 text-muted">
+                    <td colspan="{% if is_teacher or staff.role_title == "O'qituvchi" %}5{% else %}7{% endif %}" class="text-center py-5 text-muted">
                         <i class="bi bi-calendar-x fs-1 opacity-50"></i>
                         <h6 class="fw-bold mt-2 mb-1">Ushbu oyda Face ID qaydlari topilmadi</h6>
                         <small>Kamera terminali orqali Face ID davomatdan o'ting.</small>

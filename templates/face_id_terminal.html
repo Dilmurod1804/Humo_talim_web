@@ -1449,17 +1449,53 @@
         statusDot.style.background = "var(--kiosk-cyan)";
         statusText.textContent = "Yuz tahlil qilinmoqda...";
 
-        // 1. face-api.js yordamida kadrdan yuzni aniqlash va 128-o'lchamli descriptor olish
-        let detection = null;
+        // 1. face-api.js yordamida kadrdan barcha yuzlarni aniqlash va tahlil qilish
+        let detections = [];
         try {
-            detection = await faceapi
-                .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.45 }))
+            detections = await faceapi
+                .detectAllFaces(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.45 }))
                 .withFaceLandmarks()
-                .withFaceDescriptor();
+                .withFaceDescriptors();
         } catch (e) {
             console.warn("face-api detect error:", e);
         }
 
+        if (!detections || detections.length === 0) {
+            handleRecognitionNoMatch("Yuz topilmadi");
+            return;
+        }
+
+        const vw = video.videoWidth || 640;
+        const vh = video.videoHeight || 480;
+        const midX = vw / 2;
+        const midY = vh / 2;
+
+        // Har bir yuz uchun kadr markaziga yaqinlik va yuz maydoni bo'yicha og'irlik hisoblash
+        const rankedDetections = detections.map(d => {
+            const box = d.detection.box;
+            const cx = box.x + box.width / 2;
+            const cy = box.y + box.height / 2;
+            const distFromCenter = Math.hypot(cx - midX, cy - midY);
+            const area = box.width * box.height;
+            const weight = area / (distFromCenter + 60);
+            return { d, box, distFromCenter, area, weight };
+        });
+
+        // Eng markaziy va eng katta yuzni birinchi o'ringa qo'yish
+        rankedDetections.sort((a, b) => b.weight - a.weight);
+        const primary = rankedDetections[0];
+
+        // Kadrda bir nechta yuz aniqlanganda adashishning oldini olish:
+        // Agar ikkinchi yuz ham sezilarli darajada katta bo'lsa (ikkita odam bir vaqtda turgan bo'lsa)
+        if (rankedDetections.length > 1) {
+            const secondary = rankedDetections[1];
+            if (secondary.box.width > 65 && secondary.area > primary.area * 0.45) {
+                handleRecognitionNoMatch("Kadrda bir nechta yuz aniqlandi! Iltimos, bitta-bitta yaqinlashing.");
+                return;
+            }
+        }
+
+        const detection = primary.d;
         if (!detection || !detection.descriptor) {
             handleRecognitionNoMatch("Yuz topilmadi");
             return;
@@ -1468,8 +1504,6 @@
         const descriptorArray = Array.from(detection.descriptor);
 
         // Kadrni olish (Optimal o'lcham 480x360 jurnal uchun)
-        const vw = video.videoWidth || 640;
-        const vh = video.videoHeight || 480;
         canvas.width = 480;
         canvas.height = Math.round(480 * (vh / vw));
         const ctx = canvas.getContext('2d');
@@ -1483,6 +1517,10 @@
             is_kiosk: '1',
             latitude: currentLat,
             longitude: currentLon,
+            faces_count: rankedDetections.length,
+            landmarks: (detection.landmarks && detection.landmarks.positions)
+                ? JSON.stringify(detection.landmarks.positions.map(p => ({ x: p.x, y: p.y })))
+                : null,
         };
         if (targetUserId) {
             payload.user_id = targetUserId;
@@ -1644,8 +1682,8 @@
         resultPills.innerHTML = `
             <span class="result-pill"><i class="bi bi-briefcase-fill text-info me-1"></i>${data.role || "Xodim"}</span>
             <span class="result-pill"><i class="bi bi-${isCheckout ? 'door-open' : 'door-closed'} me-1"></i>${timeLabel}: <b>${displayTime}</b></span>
-            ${isExcused ? `<span class="result-pill" style="background:rgba(245,158,11,0.2);border-color:rgba(245,158,11,0.5);color:#fde047;"><i class="bi bi-shield-check me-1"></i>Sabab: ${data.exemption_reason || 'Ruxsat berilgan'} (Jarima: 0 so'm)</span>` : ''}
-            ${!isExcused && isLate && !isCheckout ? `<span class="result-pill" style="background:rgba(245,158,11,0.2);border-color:rgba(245,158,11,0.5);color:#fde047;"><i class="bi bi-percent me-1"></i>Jarima: -${data.fine_percent}% (${Number(data.fine_amount).toLocaleString()} so'm)</span>` : ''}
+            ${isExcused ? `<span class="result-pill" style="background:rgba(245,158,11,0.2);border-color:rgba(245,158,11,0.5);color:#fde047;"><i class="bi bi-shield-check me-1"></i>Sabab: ${data.exemption_reason || 'Ruxsat berilgan'}${data.role === "O'qituvchi" ? '' : ' (Jarima: 0 so\'m)'}</span>` : ''}
+            ${!isExcused && isLate && !isCheckout ? (data.role === "O'qituvchi" ? `<span class="result-pill" style="background:rgba(245,158,11,0.2);border-color:rgba(245,158,11,0.5);color:#fde047;"><i class="bi bi-clock-history me-1"></i>Kechikish: +${data.late_minutes || 0} daqiqa</span>` : `<span class="result-pill" style="background:rgba(245,158,11,0.2);border-color:rgba(245,158,11,0.5);color:#fde047;"><i class="bi bi-percent me-1"></i>Jarima: -${data.fine_percent}% (${Number(data.fine_amount).toLocaleString()} so'm)</span>`) : ''}
             ${!isCheckout && data.check_out_time ? `<span class="result-pill" style="color:#67e8f9;"><i class="bi bi-clock-history me-1"></i>Avvalgi ketish: ${data.check_out_time}</span>` : ''}
             <span class="result-pill"><i class="bi bi-cpu-fill text-success me-1"></i>AI Aniqlik: <b>${data.match_score || 95}%</b></span>
         `;

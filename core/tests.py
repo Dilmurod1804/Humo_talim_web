@@ -1026,3 +1026,234 @@ class TeacherScheduleAndFaceIDTests(TestCase):
 
         tue_sched = TeacherSchedule.objects.get(teacher=self.teacher, weekday=1)
         self.assertFalse(tue_sched.is_working_day)
+
+
+class FacePhotoValidationTests(TestCase):
+    """Face ID uchun rasm formati, tiniqligi (sharpness/blur) va to'g'ri qarash (yaw, pitch, roll) validatsiyasi testlari."""
+
+    def _create_sharp_image_bytes(self, fmt='JPEG', size=(320, 320)):
+        """Tiniq (yuqori kontrastli qirralarga ega) test rasmini yaratadi."""
+        from PIL import Image, ImageDraw
+        import io
+        img = Image.new('RGB', size, color=(140, 140, 140))
+        draw = ImageDraw.Draw(img)
+        # Shaxmat doskasi va yuz silueti chizish (yuqori Laplacian variance hosil qiladi)
+        for y in range(20, size[1] - 20, 16):
+            for x in range(20, size[0] - 20, 16):
+                if ((x // 16) + (y // 16)) % 2 == 0:
+                    draw.rectangle([x, y, x + 15, y + 15], fill=(220, 220, 220))
+                else:
+                    draw.rectangle([x, y, x + 15, y + 15], fill=(50, 50, 50))
+        buf = io.BytesIO()
+        img.save(buf, format=fmt)
+        buf.seek(0)
+        return buf
+
+    def _create_blurry_image_bytes(self, fmt='JPEG', size=(320, 320)):
+        """Xira (bir xil rangli / detalsiz) test rasmini yaratadi."""
+        from PIL import Image
+        import io
+        img = Image.new('RGB', size, color=(128, 128, 128))
+        buf = io.BytesIO()
+        img.save(buf, format=fmt)
+        buf.seek(0)
+        return buf
+
+    def _generate_68_landmarks(self, yaw_shift=0.0, pitch_shift=0.0, roll_deg=0.0):
+        """
+        68-nuqtali standart frontal yuz nuqtalarini yaratadi.
+        yaw_shift: burun uchini chap/o'ngga siljitish (yaw burchagini o'zgartirish)
+        pitch_shift: burun uchini tepa/pastga siljitish (pitch burchagini o'zgartirish)
+        roll_deg: ko'zlarni qiyshaytirish (roll burchagini o'zgartirish)
+        """
+        import math
+        pts = [{'x': 160.0, 'y': 160.0} for _ in range(68)]
+        # Jawline: 0 (chap jag') .. 8 (iyak) .. 16 (o'ng jag')
+        pts[0] = {'x': 100.0, 'y': 160.0}
+        pts[8] = {'x': 160.0, 'y': 230.0}
+        pts[16] = {'x': 220.0, 'y': 160.0}
+
+        # Ko'zlar markazi: chap ko'z (36..41) ~ (130, 140), o'ng ko'z (42..47) ~ (190, 140)
+        rad = math.radians(roll_deg)
+        dy_roll = 30.0 * math.sin(rad)
+        for i in range(36, 42):
+            pts[i] = {'x': 130.0, 'y': 140.0 - dy_roll}
+        for i in range(42, 48):
+            pts[i] = {'x': 190.0, 'y': 140.0 + dy_roll}
+
+        # Burun uchi (30)
+        pts[30] = {'x': 160.0 + yaw_shift, 'y': 170.0 + pitch_shift}
+
+        # Og'iz burchaklari (48..54)
+        for i in range(48, 55):
+            pts[i] = {'x': 160.0, 'y': 200.0}
+        return pts
+
+    def test_invalid_format_rejected(self):
+        """Ruxsat etilmagan formatdagi (.gif, .bmp) rasmlar rad etilishi kerak."""
+        from core.face_service import validate_face_photo
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        gif_buf = self._create_sharp_image_bytes(fmt='GIF')
+        gif_file = SimpleUploadedFile('avatar.gif', gif_buf.read(), content_type='image/gif')
+        res = validate_face_photo(gif_file, filename='avatar.gif')
+        self.assertFalse(res['valid'])
+        self.assertEqual(res['error_type'], 'invalid_format')
+        self.assertIn('.jpg', res['message'])
+
+    def test_blurry_photo_rejected(self):
+        """Xira (sharpness past) rasm rad etilishi va tushunarli xabar qaytarishi kerak."""
+        from core.face_service import validate_face_photo
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        blur_buf = self._create_blurry_image_bytes(fmt='JPEG')
+        blur_file = SimpleUploadedFile('blur.jpg', blur_buf.read(), content_type='image/jpeg')
+        frontal_lm = self._generate_68_landmarks()
+
+        res = validate_face_photo(blur_file, filename='blur.jpg', landmarks=frontal_lm)
+        self.assertFalse(res['valid'])
+        self.assertEqual(res['error_type'], 'blurry_image')
+        self.assertIn('xira', res['message'].lower())
+
+    def test_head_pose_yaw_pitch_roll_validation(self):
+        """Bosh yon tomonga burilgan (yaw), egilgan (pitch) yoki qiyshaygan (roll) bo'lsa rad etilishi kerak."""
+        from core.face_service import validate_face_photo
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        # 1. Bosh o'ngga burilgan (Yaw > 20°)
+        sharp_buf1 = self._create_sharp_image_bytes(fmt='JPEG')
+        file1 = SimpleUploadedFile('yaw.jpg', sharp_buf1.read(), content_type='image/jpeg')
+        yaw_lm = self._generate_68_landmarks(yaw_shift=25.0)
+        res_yaw = validate_face_photo(file1, filename='yaw.jpg', landmarks=yaw_lm)
+        self.assertFalse(res_yaw['valid'])
+        self.assertEqual(res_yaw['error_type'], 'bad_pose_yaw')
+        self.assertIn("kamera obyektiviga", res_yaw['message'])
+
+        # 2. Bosh pastga egilgan (Pitch > 20°)
+        sharp_buf2 = self._create_sharp_image_bytes(fmt='JPEG')
+        file2 = SimpleUploadedFile('pitch.jpg', sharp_buf2.read(), content_type='image/jpeg')
+        pitch_lm = self._generate_68_landmarks(pitch_shift=22.0)
+        res_pitch = validate_face_photo(file2, filename='pitch.jpg', landmarks=pitch_lm)
+        self.assertFalse(res_pitch['valid'])
+        self.assertEqual(res_pitch['error_type'], 'bad_pose_pitch')
+
+        # 3. Bosh yonboshga qiyshaygan (Roll > 18°)
+        sharp_buf3 = self._create_sharp_image_bytes(fmt='JPEG')
+        file3 = SimpleUploadedFile('roll.jpg', sharp_buf3.read(), content_type='image/jpeg')
+        roll_lm = self._generate_68_landmarks(roll_deg=25.0)
+        res_roll = validate_face_photo(file3, filename='roll.jpg', landmarks=roll_lm)
+        self.assertFalse(res_roll['valid'])
+        self.assertEqual(res_roll['error_type'], 'bad_pose_roll')
+
+    def test_valid_sharp_frontal_photo_accepted(self):
+        """Format to'g'ri (.jpg/.png), tiniqligi yuqori va kameraga to'g'ri qaragan rasm muvaffaqiyatli o'tadi."""
+        from core.face_service import validate_face_photo
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        sharp_buf = self._create_sharp_image_bytes(fmt='PNG')
+        valid_file = SimpleUploadedFile('good.png', sharp_buf.read(), content_type='image/png')
+        frontal_lm = self._generate_68_landmarks(yaw_shift=0.0, pitch_shift=0.0, roll_deg=0.0)
+
+        res = validate_face_photo(valid_file, filename='good.png', landmarks=frontal_lm)
+        self.assertTrue(res['valid'])
+        self.assertIsNone(res['error_type'])
+        self.assertGreaterEqual(res['sharpness'], 45.0)
+        self.assertAlmostEqual(res['pose']['yaw'], 0.0, places=1)
+        self.assertAlmostEqual(res['pose']['roll'], 0.0, places=1)
+
+
+class FaceMatchingStrictnessAndMultiFaceTests(TestCase):
+    """
+    Qat'iy threshold (<= 0.45), minimal o'xshashlik foizi (>= 72%),
+    ikkilanuvchanlik himoyasi (ambiguity guard) va ko'p yuzlik holatlarni tekshirish testlari.
+    """
+
+    def setUp(self):
+        self.user1 = CustomUser.objects.create_user(username='t_face_ali', password='Pass12345', role='teacher')
+        self.teacher1 = Teacher.objects.create(
+            user=self.user1, first_name='Ali', last_name='Valiyev',
+            generated_login='t_face_ali', generated_password='Pass12345',
+            # Ali uchun standart 128-o'lchamli descriptor
+            face_embedding='[0.10]' + ', [0.10]' * 127
+        )
+        import json
+        self.teacher1.face_embedding = json.dumps([0.10] * 128)
+        self.teacher1.save()
+
+        self.user2 = CustomUser.objects.create_user(username='t_face_vali', password='Pass12345', role='teacher')
+        self.teacher2 = Teacher.objects.create(
+            user=self.user2, first_name='Vali', last_name='Aliyev',
+            generated_login='t_face_vali', generated_password='Pass12345',
+            face_embedding=json.dumps([0.50] * 128)
+        )
+
+    def test_strict_threshold_rejects_distant_face(self):
+        """Masofa 0.45 dan katta bo'lsa (masalan 0.48 yoki 0.55), boshqa xodimga bog'lanmasligi kerak."""
+        from core.face_service import compare_embeddings, match_staff_by_face
+
+        # Skaner qilingan deskriptor: Ali'dan masofasi ~0.50 bo'lgan yuz
+        # dist = sqrt(128 * (0.04419)^2) = sqrt(128 * 0.00195) ~ 0.50
+        distant_desc = [0.10 + 0.0442] * 128
+        score, is_match, dist = compare_embeddings([0.10] * 128, distant_desc)
+        self.assertFalse(is_match)
+        self.assertGreater(dist, 0.45)
+
+        # match_staff_by_face begona/noaniq yuzni Aliga yoki Valiga bog'lab yubormasligi kerak
+        match = match_staff_by_face(scan_descriptor=distant_desc)
+        self.assertIsNone(match)
+
+    def test_high_confidence_match_accepted(self):
+        """Masofa juda yaqin bo'lganda (masalan dist <= 0.20), yuqori foiz bilan to'g'ri xodim aniqlanadi."""
+        from core.face_service import compare_embeddings, match_staff_by_face
+
+        # Skaner qilingan deskriptor: Ali'ga juda yaqin (masofa ~0.11)
+        close_desc = [0.10 + 0.01] * 128
+        score, is_match, dist = compare_embeddings([0.10] * 128, close_desc)
+        self.assertTrue(is_match)
+        self.assertLess(dist, 0.25)
+        self.assertGreaterEqual(score, 90.0)
+
+        match = match_staff_by_face(scan_descriptor=close_desc)
+        self.assertIsNotNone(match)
+        role, staff, match_score, match_dist = match
+        self.assertEqual(staff.id, self.teacher1.id)
+        self.assertGreaterEqual(match_score, 90.0)
+
+    def test_ambiguity_guard_prevents_misidentification(self):
+        """
+        Agar ikki xodimning deskriptorlari deyarli bir xil masofada mos kelsa (farq juda kichik),
+        tizim adashib xato xodimga yozib yubormaslik uchun rad etadi.
+        """
+        import json
+        from core.face_service import match_staff_by_face
+
+        # Ikki xodimni deyarli bir xil qilib qo'yamiz
+        self.teacher1.face_embedding = json.dumps([0.10] * 128)
+        self.teacher1.save()
+        self.teacher2.face_embedding = json.dumps([0.102] * 128)
+        self.teacher2.save()
+
+        # Skan deskriptori: oraliqda (~0.40 masofada) joylashgan, farq < 0.02
+        scan_desc = [0.10 + 0.035] * 128
+        match = match_staff_by_face(scan_descriptor=scan_desc)
+        # Ambiguity guard noaniq holatda xato xodimga yozmasligi kerak
+        self.assertIsNone(match)
+
+    def test_verify_api_rejects_conflicting_multiple_faces(self):
+        """Kadrda bir nechta yuz aniqlanganda yoki raqobat bo'lganda API xatolik qaytaradi."""
+        import json
+        url = reverse('face_id_verify_api')
+        payload = {
+            'descriptor': [0.10] * 128,
+            'is_kiosk': '1',
+            'faces_count': 2,
+            'face_conflict': True,
+        }
+        resp = self.client.post(url, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertFalse(data['success'])
+        self.assertEqual(data['error_type'], 'multiple_faces')
+        self.assertIn("bir nechta", data['message'].lower())
+
+

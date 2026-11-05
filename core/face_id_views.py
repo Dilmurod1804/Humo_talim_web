@@ -24,12 +24,18 @@ from django.views.decorators.csrf import csrf_exempt
 
 from .auth_views import admin_only_required, admin_required, is_admin_user, is_manager_user
 from .face_service import (
+    FACE_API_EUCLIDEAN_THRESHOLD,
+    MAX_PITCH_ANGLE,
+    MAX_ROLL_ANGLE,
+    MAX_YAW_ANGLE,
+    MIN_MATCH_SIMILARITY_SCORE,
     calculate_euclidean_distance,
     calculate_haversine_distance,
     calculate_staff_salary_summary,
     compare_embeddings,
     compare_two_faces,
     decode_base64_image,
+    estimate_head_pose_from_landmarks,
     extract_face_embedding,
     get_or_create_face_embedding,
     get_user_face_data,
@@ -40,6 +46,7 @@ from .face_service import (
     save_staff_descriptor,
     sync_all_face_embeddings,
     sync_staff_face_embedding,
+    validate_face_photo,
 )
 from .models import (
     AdvanceRequest, AuditLog, CustomUser, FaceIDLog, FaceIDSettings,
@@ -194,6 +201,22 @@ def admin_teacher_create(request):
                 'phone_val': phone,
             })
 
+        if photo_file:
+            val_res = validate_face_photo(
+                photo_file,
+                filename=photo_file.name,
+                landmarks=request.POST.get('landmarks'),
+                pose_angles=request.POST.get('pose_angles'),
+            )
+            if not val_res['valid']:
+                messages.error(request, val_res['message'])
+                return render(request, 'admin_teacher_create.html', {
+                    **default_ctx,
+                    'first_name_val': first_name,
+                    'last_name_val': last_name,
+                    'phone_val': phone,
+                })
+
         login_str, pwd_str = _generate_staff_credentials('t', first_name)
         user = CustomUser.objects.create_user(username=login_str, password=pwd_str, role='teacher')
         opt_photo, _ = optimize_student_photo(photo_file) if photo_file else (None, None)
@@ -264,6 +287,18 @@ def admin_teacher_edit(request, id):
 
         photo_file = request.FILES.get('photo')
         if photo_file:
+            val_res = validate_face_photo(
+                photo_file,
+                filename=getattr(photo_file, 'name', None),
+                landmarks=request.POST.get('landmarks'),
+                pose_angles=request.POST.get('pose_angles'),
+            )
+            if not val_res['valid']:
+                messages.error(request, val_res['message'])
+                return render(request, 'admin_teacher_edit.html', {
+                    'teacher': teacher,
+                    'weekly_schedule': teacher.get_full_weekly_schedule(),
+                })
             opt_photo, _ = optimize_student_photo(photo_file)
             if opt_photo:
                 teacher.photo = opt_photo
@@ -415,9 +450,25 @@ def admin_manager_create(request):
             messages.error(request, "Ism va familiyada faqat lotin alifbosidan foydalaning!")
             return render(request, 'admin_manager_create.html', request.POST)
 
+        opt_photo = None
+        if photo_file:
+            val_res = validate_face_photo(
+                photo_file,
+                filename=getattr(photo_file, 'name', None),
+                landmarks=request.POST.get('landmarks'),
+                pose_angles=request.POST.get('pose_angles'),
+            )
+            if not val_res['valid']:
+                messages.error(request, val_res['message'])
+                return render(request, 'admin_manager_create.html', {
+                    'default_fine_rate': settings_obj.default_late_fine_rate,
+                    'default_start_time': settings_obj.default_work_start_time,
+                    'default_end_time': settings_obj.default_work_end_time,
+                })
+            opt_photo, _ = optimize_student_photo(photo_file)
+
         login_str, pwd_str = _generate_staff_credentials('m', first_name)
         user = CustomUser.objects.create_user(username=login_str, password=pwd_str, role='manager')
-        opt_photo, _ = optimize_student_photo(photo_file) if photo_file else (None, None)
 
         salary_val = _safe_decimal(monthly_salary, '0') if is_admin_user(request) else Decimal('0')
         fine_rate_val = (
@@ -470,6 +521,15 @@ def admin_manager_edit(request, id):
 
         photo_file = request.FILES.get('photo')
         if photo_file:
+            val_res = validate_face_photo(
+                photo_file,
+                filename=getattr(photo_file, 'name', None),
+                landmarks=request.POST.get('landmarks'),
+                pose_angles=request.POST.get('pose_angles'),
+            )
+            if not val_res['valid']:
+                messages.error(request, val_res['message'])
+                return render(request, 'admin_manager_edit.html', {'manager': manager})
             opt_photo, _ = optimize_student_photo(photo_file)
             if opt_photo:
                 manager.photo = opt_photo
@@ -772,6 +832,8 @@ def admin_face_id_upload_photo(request, role, id):
     staff = get_object_or_404(model_map[role], id=id)
 
     descriptor_raw = request.POST.get('descriptor')
+    landmarks_raw = request.POST.get('landmarks')
+    pose_angles_raw = request.POST.get('pose_angles')
     photo_file = request.FILES.get('photo')
     image_base64 = request.POST.get('image_base64')
     if not photo_file and image_base64:
@@ -780,6 +842,24 @@ def admin_face_id_upload_photo(request, role, id):
             return JsonResponse({'success': False, 'message': f"Suratni o'qishda xatolik: {b64_err}"}, status=400)
 
     if photo_file:
+        val_res = validate_face_photo(
+            photo_file,
+            filename=getattr(photo_file, 'name', None),
+            landmarks=landmarks_raw,
+            pose_angles=pose_angles_raw,
+        )
+        if not val_res['valid']:
+            if _is_ajax(request):
+                return JsonResponse({
+                    'success': False,
+                    'error_type': val_res['error_type'],
+                    'message': val_res['message'],
+                    'sharpness': val_res['sharpness'],
+                    'pose': val_res['pose'],
+                }, status=400)
+            messages.error(request, val_res['message'])
+            return redirect('admin_face_id_logs')
+
         opt_photo, err = optimize_student_photo(photo_file)
         if not opt_photo:
             return JsonResponse({'success': False, 'message': f"Rasmni qayta ishlashda xatolik: {err}"}, status=400)
@@ -994,6 +1074,68 @@ def face_id_verify_api(request):
             'message': "Yuz topilmadi yoki xodim ro'yxatda yo'q",
         }, status=200)
 
+    # 1.0. Kadrda bir nechta yuz aniqlanganlik xolatini tekshirish
+    faces_count = payload.get('faces_count') or request.POST.get('faces_count')
+    try:
+        faces_count = int(faces_count) if faces_count is not None else 1
+    except (ValueError, TypeError):
+        faces_count = 1
+
+    if payload.get('multiple_faces_blocked') or request.POST.get('multiple_faces_blocked') or (faces_count > 1 and payload.get('face_conflict')):
+        return JsonResponse({
+            'success': False,
+            'detected': True,
+            'error_type': 'multiple_faces',
+            'message': f"Kadrda bir nechta ({faces_count} ta) yuz aniqlandi! Iltimos, bitta-bitta yaqinlashing.",
+        }, status=200)
+
+    # 1.1. Agar landmarks yoki pose_angles yuborilgan bo'lsa, to'g'ri qarash burchaklarini (yaw, pitch, roll) tekshiramiz
+    landmarks_data = payload.get('landmarks') or request.POST.get('landmarks')
+    pose_angles_data = payload.get('pose_angles') or request.POST.get('pose_angles')
+    if landmarks_data or pose_angles_data:
+        pose_info = None
+        if pose_angles_data:
+            if isinstance(pose_angles_data, str):
+                try:
+                    pose_info = json.loads(pose_angles_data)
+                except Exception:
+                    pose_info = None
+            elif isinstance(pose_angles_data, dict):
+                pose_info = pose_angles_data
+        elif landmarks_data:
+            pose_info = estimate_head_pose_from_landmarks(landmarks_data)
+
+        if pose_info:
+            yaw_v = float(pose_info.get('yaw', 0.0))
+            pitch_v = float(pose_info.get('pitch', 0.0))
+            roll_v = float(pose_info.get('roll', 0.0))
+            if abs(yaw_v) > MAX_YAW_ANGLE:
+                side_str = "chapga" if yaw_v < 0 else "o'ngga"
+                return JsonResponse({
+                    'success': False,
+                    'detected': True,
+                    'error_type': 'bad_pose_yaw',
+                    'pose': pose_info,
+                    'message': f"Boshingiz yon tomonga ({side_str}, {abs(yaw_v):.0f}°) burilgan. Iltimos, to'g'ridan-to'g'ri kamera obyektiviga qarang!",
+                }, status=200)
+            if abs(pitch_v) > MAX_PITCH_ANGLE:
+                dir_str = "pastga" if pitch_v > 0 else "tepa tomonga"
+                return JsonResponse({
+                    'success': False,
+                    'detected': True,
+                    'error_type': 'bad_pose_pitch',
+                    'pose': pose_info,
+                    'message': f"Boshingiz {dir_str} ({abs(pitch_v):.0f}°) egilgan. Iltimos, boshingizni tik tutib to'g'ri kameraga qarang!",
+                }, status=200)
+            if abs(roll_v) > MAX_ROLL_ANGLE:
+                return JsonResponse({
+                    'success': False,
+                    'detected': True,
+                    'error_type': 'bad_pose_roll',
+                    'pose': pose_info,
+                    'message': f"Boshingiz yonboshga ({abs(roll_v):.0f}°) qiyshaygan. Iltimos, boshingizni tekis tutib kameraga to'g'ri qarang!",
+                }, status=200)
+
     # Ixtiyoriy: jurnalga rasm biriktirish uchun snapshot yuborilgan bo'lsa
     scan_file = file_obj
     if not scan_file and img_data:
@@ -1014,17 +1156,18 @@ def face_id_verify_api(request):
             staff_vec = get_or_create_face_embedding(staff_prof) if staff_prof else None
             if staff_vec is not None:
                 score, is_match, _ = compare_embeddings(staff_vec, scan_vec)
-                if is_match:
+                # Qat'iy chegara va minimal ishonch foizi
+                if is_match and score >= MIN_MATCH_SIMILARITY_SCORE:
                     target_user = candidate_user
                     similarity_score = score
 
-    # 3. Agar mos xodim topilmasa
+    # 3. Agar mos xodim topilmasa yoki o'xshashlik foizi yetarli bo'lmasa
     if not target_user:
         return JsonResponse({
             'success': False,
             'detected': True,
             'error_type': 'unknown_face',
-            'message': "Yuz topilmadi yoki xodim ro'yxatda yo'q",
+            'message': "Yuz tanilmadi yoki o'xshashlik darajasi yetarli emas. Iltimos, kameraga to'g'ri qarab qayta urinib ko'ring.",
         }, status=200)
 
     # 4. Davomatni (FaceIDLog) yozish: action='checkin' -> check_in_time, action='checkout' -> check_out_time
@@ -1292,11 +1435,25 @@ def staff_my_face_logs(request):
         return redirect('home')
 
     month_str, year, month = normalize_month_str(request.GET.get('month'))
+    salary_summary = calculate_staff_salary_summary(staff, year, month)
+
+    is_teacher = (request.user.role == 'teacher' or getattr(staff, 'role_title', '') == "O'qituvchi")
+    if is_teacher:
+        # O'qituvchi interfeysida jarimalar foizlari va summalari aks etmaydi hamda chegirilmaydi
+        salary_summary['total_fine_amount'] = Decimal('0.00')
+        salary_summary['total_fine_percent'] = Decimal('0.00')
+        salary_summary['total_late_count'] = 0
+        salary_summary['net_salary'] = max(
+            Decimal('0.00'),
+            salary_summary['base_salary'] - salary_summary['total_advance_amount'] + salary_summary['total_bonus_amount']
+        )
+
     return render(request, 'staff_my_face_logs.html', {
         'staff': staff,
-        'salary_summary': calculate_staff_salary_summary(staff, year, month),
+        'salary_summary': salary_summary,
         'current_month': month_str,
         'my_advances': AdvanceRequest.objects.filter(user=request.user).order_by('-created_at')[:20],
+        'is_teacher': is_teacher,
     })
 
 

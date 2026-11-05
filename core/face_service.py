@@ -9,22 +9,44 @@ import base64
 import io
 import json
 import math
+import os
 import re
 import uuid
 from datetime import date, datetime, time
 from decimal import Decimal
 
-from PIL import Image, ImageOps
+from PIL import Image, ImageFilter, ImageOps, ImageStat
 from django.core.files.base import ContentFile
 from django.utils import timezone
+
+try:
+    import cv2  # type: ignore
+    import numpy as np  # type: ignore
+    HAS_OPENCV = True
+except ImportError:
+    cv2 = None
+    np = None
+    HAS_OPENCV = False
+
+try:
+    import face_recognition  # type: ignore
+    HAS_FACE_RECOGNITION = True
+except ImportError:
+    face_recognition = None
+    HAS_FACE_RECOGNITION = False
 
 from .models import (
     AdvanceRequest, AuditLog, CustomUser, FaceIDLog,
     FaceIDSettings, Manager, StaffAbsenceExemption, StaffBonus, Teacher,
 )
 
-# face-api.js 128-D descriptor uchun standart Evklid masofasi chegarasi (threshold)
-FACE_API_EUCLIDEAN_THRESHOLD = 0.58
+# face-api.js 128-D descriptor uchun qat'iy Evklid masofasi chegarasi (Strict Threshold)
+# 0.58 o'rniga 0.45 qilib belgilandi — begona yoki boshqa xodimlar bilan adashib ketmasligi uchun
+FACE_API_EUCLIDEAN_THRESHOLD = 0.45
+# Minimal talab qilinadigan o'xshashlik foizi (Confidence Score)
+MIN_MATCH_SIMILARITY_SCORE = 72.0
+# Ikki xodim orasidagi minimal masofa farqi (Ambiguity Guard Margin)
+AMBIGUITY_DISTANCE_MARGIN = 0.040
 
 
 # ─────────────────────────────────────────────────────────────
@@ -67,7 +89,7 @@ def calculate_euclidean_distance(desc1: list[float], desc2: list[float]) -> floa
 def compare_embeddings(feat1, feat2, threshold: float = FACE_API_EUCLIDEAN_THRESHOLD) -> tuple[float, bool, float]:
     """
     Ikki 128-o'lchamli deskriptorni Evklid masofasi bo'yicha solishtiradi.
-    face-api.js da distance < 0.58 bo'lsa bir xil shaxs hisoblanadi.
+    Qat'iy chegara: masofa <= 0.45 bo'lsagina bir xil shaxs hisoblanadi.
     Qaytaradi: (similarity_score: 0..100, is_match: bool, euclidean_distance: float)
     """
     d1 = parse_descriptor(feat1) if not isinstance(feat1, list) else feat1
@@ -79,11 +101,13 @@ def compare_embeddings(feat1, feat2, threshold: float = FACE_API_EUCLIDEAN_THRES
     is_match = dist <= threshold
 
     if is_match:
-        # dist = 0.0 -> 99.9%, dist = threshold (0.58) -> 65.0%
-        ratio = max(0.0, min(1.0, 1.0 - (dist / max(threshold, 0.01))))
-        score = round(min(99.9, 65.0 + ratio * 34.9), 1)
+        # dist = 0.0 -> 99.9%, dist = threshold (0.45) -> 72.0%
+        ratio = max(0.0, min(1.0, (threshold - dist) / max(threshold, 0.01)))
+        score = round(min(99.9, 72.0 + (ratio ** 1.1) * 27.9), 1)
     else:
-        score = round(max(0.0, min(58.0, (1.0 - min(dist, 1.0)) * 58.0)), 1)
+        # Chegaradan oshganda foiz keskin tushadi (< 60%)
+        over = dist - threshold
+        score = round(max(0.0, min(65.0, 65.0 - over * 90.0)), 1)
 
     return score, is_match, round(dist, 4)
 
@@ -158,6 +182,633 @@ def decode_base64_image(base64_str: str):
         return content_file, None, None
     except Exception as e:
         return None, None, str(e)
+
+
+# ─────────────────────────────────────────────────────────────
+# 2.5. RASM FORMATI, TINIQLIGI (SHARPNESS/BLUR) VA TO'G'RI QARASH (POSE/ANGLE) VALIDATSIYASI
+# ─────────────────────────────────────────────────────────────
+
+ALLOWED_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png'}
+ALLOWED_PIL_FORMATS = {'JPEG', 'PNG', 'MPO'}
+MIN_IMAGE_WIDTH = 160
+MIN_IMAGE_HEIGHT = 160
+DEFAULT_MIN_SHARPNESS = 45.0   # Minimal tiniqlik (Laplacian variance) chegarasi
+MAX_YAW_ANGLE = 20.0           # Boshning chap/o'ngga burilish chegarasi (gradus)
+MAX_PITCH_ANGLE = 20.0         # Boshning tepaga/pastga egilish chegarasi (gradus)
+MAX_ROLL_ANGLE = 18.0          # Boshning yelkaga qiyshayish chegarasi (gradus)
+
+
+def validate_image_format(image_source, filename: str | None = None) -> tuple[bool, Image.Image | None, str, str | None]:
+    """
+    Rasm formati (.jpg, .jpeg, .png) va minimal o'lchamini tekshiradi.
+    Qaytaradi: (is_valid, pil_rgb_image, format_name, error_message)
+    """
+    if image_source is None:
+        return False, None, '', "Rasm fayli tanlanmagan! Iltimos, .jpg, .jpeg yoki .png formatidagi rasm yuklang."
+
+    fname = filename or getattr(image_source, 'name', '') or ''
+    if fname:
+        ext = os.path.splitext(str(fname))[1].lower()
+        if ext and ext not in ALLOWED_IMAGE_EXTENSIONS:
+            return (
+                False,
+                None,
+                ext,
+                f"Noto'g'ri rasm formati ({ext})! Faqat .jpg, .jpeg yoki .png formatidagi rasmlarni yuklashga ruxsat etiladi.",
+            )
+
+    try:
+        if isinstance(image_source, Image.Image):
+            pil_img = image_source
+            detected_format = (pil_img.format or 'JPEG').upper()
+        else:
+            if hasattr(image_source, 'seek'):
+                image_source.seek(0)
+            raw_data = image_source.read() if hasattr(image_source, 'read') else image_source
+            if hasattr(image_source, 'seek'):
+                image_source.seek(0)
+            if isinstance(raw_data, (bytes, bytearray)):
+                pil_img = Image.open(io.BytesIO(raw_data))
+            else:
+                pil_img = Image.open(image_source)
+            detected_format = (pil_img.format or '').upper()
+
+        if detected_format not in ALLOWED_PIL_FORMATS:
+            return (
+                False,
+                None,
+                detected_format,
+                f"Rasm formati qo'llab-quvvatlanmaydi ({detected_format or 'Nomaʼlum'})! "
+                "Iltimos, faqat .jpg, .jpeg yoki .png formatidagi rasm yuklang.",
+            )
+
+        try:
+            pil_img = ImageOps.exif_transpose(pil_img)
+        except Exception:
+            pass
+
+        w, h = pil_img.size
+        if w < MIN_IMAGE_WIDTH or h < MIN_IMAGE_HEIGHT:
+            return (
+                False,
+                None,
+                detected_format,
+                f"Rasm o'lchami juda kichik ({w}x{h} piksel). "
+                f"Yuzni aniq tanish uchun kamida {MIN_IMAGE_WIDTH}x{MIN_IMAGE_HEIGHT} piksel bo'lgan tiniq rasm yuklang.",
+            )
+
+        pil_rgb = pil_img.convert('RGB')
+        return True, pil_rgb, detected_format, None
+    except Exception:
+        return (
+            False,
+            None,
+            '',
+            "Rasm fayli shikastlangan yoki uni o'qib bo'lmadi! Iltimos, to'g'ri .jpg, .jpeg yoki .png rasm tanlang.",
+        )
+
+
+def calculate_image_sharpness(pil_img: Image.Image, face_box: tuple[int, int, int, int] | None = None) -> float:
+    """
+    Rasmning (yoki yuz sohasi `face_box = (x, y, w, h)` ning) tiniqlik darajasini
+    Laplacian Variance usuli yordamida hisoblaydi.
+    OpenCV mavjud bo'lsa `cv2.Laplacian(gray, cv2.CV_64F).var()` ishlatiladi,
+    aks holda PIL 3x3 Laplacian Kernel orqali hisoblanadi.
+    """
+    if pil_img is None:
+        return 0.0
+
+    w, h = pil_img.size
+    if face_box and len(face_box) == 4:
+        fx, fy, fw, fh = face_box
+        x1 = max(0, int(fx))
+        y1 = max(0, int(fy))
+        x2 = min(w, int(fx + fw))
+        y2 = min(h, int(fy + fh))
+        roi = pil_img.crop((x1, y1, x2, y2)) if (x2 - x1 > 20 and y2 - y1 > 20) else pil_img
+    else:
+        # Markaziy yuz sohasini olish (orqa fon xiraligi / portret rejimi ta'sir qilmasligi uchun)
+        margin_x = int(w * 0.15)
+        margin_y = int(h * 0.12)
+        roi = pil_img.crop((margin_x, margin_y, w - margin_x, h - margin_y))
+
+    gray_roi = roi.convert('L')
+    # Standart o'lchamga keltirish (turli megapikselli kameralarda bir xil mezon bo'lishi uchun)
+    eval_w, eval_h = gray_roi.size
+    if max(eval_w, eval_h) > 320:
+        scale = 320.0 / float(max(eval_w, eval_h))
+        gray_roi = gray_roi.resize(
+            (max(32, int(eval_w * scale)), max(32, int(eval_h * scale))),
+            Image.Resampling.BILINEAR,
+        )
+
+    if HAS_OPENCV and cv2 is not None and np is not None:
+        gray_arr = np.array(gray_roi, dtype=np.uint8)
+        lap_var = float(cv2.Laplacian(gray_arr, cv2.CV_64F).var())
+        return round(lap_var, 2)
+
+    # Pure-Python / PIL 3x3 Laplacian operator: [0, 1, 0, 1, -4, 1, 0, 1, 0]
+    lap_kernel = ImageFilter.Kernel(
+        size=(3, 3),
+        kernel=[0, 1, 0, 1, -4, 1, 0, 1, 0],
+        scale=1,
+        offset=128,
+    )
+    lap_img = gray_roi.filter(lap_kernel)
+    # Chekkadagi 1px ramkani chiqarib tashlash
+    lw, lh = lap_img.size
+    if lw > 4 and lh > 4:
+        lap_img = lap_img.crop((1, 1, lw - 1, lh - 1))
+    stat = ImageStat.Stat(lap_img)
+    # PIL uint8 clipping tufayli dispersiyani OpenCV CV_64F shkalasiga moslashtiramiz
+    pil_var = float(stat.var[0]) * 3.2
+    return round(pil_var, 2)
+
+
+def _mean_pt(points: list[tuple[float, float]]) -> tuple[float, float]:
+    if not points:
+        return (0.0, 0.0)
+    return (
+        sum(p[0] for p in points) / len(points),
+        sum(p[1] for p in points) / len(points),
+    )
+
+
+def estimate_head_pose_from_landmarks(landmarks_data, img_size: tuple[int, int] = (480, 480)) -> dict | None:
+    """
+    68 nuqtali (face-api.js / dlib / face_recognition) yoki 5 nuqtali yuz landmarklaridan
+    boshning burilish burchaklarini (yaw, pitch, roll — gradusda) hisoblaydi.
+    - yaw:   chapga (-) / o'ngga (+) burilish
+    - pitch: tepaga (-) / pastga (+) egilish
+    - roll:  chap/o'ng yelkaga qiyshayish
+    """
+    if not landmarks_data:
+        return None
+
+    try:
+        if isinstance(landmarks_data, str):
+            landmarks_data = json.loads(landmarks_data)
+
+        left_eye = right_eye = nose_tip = left_mouth = right_mouth = chin = left_jaw = right_jaw = None
+
+        # 1-holat: 68 ta nuqtali ro'yxat (face-api.js `det.landmarks.positions`)
+        if isinstance(landmarks_data, list) and len(landmarks_data) >= 68:
+            pts = []
+            for p in landmarks_data[:68]:
+                if isinstance(p, dict):
+                    pts.append((float(p.get('x', p.get('_x', 0.0))), float(p.get('y', p.get('_y', 0.0)))))
+                elif isinstance(p, (list, tuple)) and len(p) >= 2:
+                    pts.append((float(p[0]), float(p[1])))
+            if len(pts) >= 68:
+                left_eye = _mean_pt(pts[36:42])
+                right_eye = _mean_pt(pts[42:48])
+                nose_tip = pts[30]
+                left_mouth = pts[48]
+                right_mouth = pts[54]
+                chin = pts[8]
+                left_jaw = pts[0]
+                right_jaw = pts[16]
+
+        # 2-holat: face_recognition.face_landmarks() lug'ati yoki maxsus kalitli dict
+        elif isinstance(landmarks_data, dict):
+            if 'positions' in landmarks_data and isinstance(landmarks_data['positions'], list):
+                return estimate_head_pose_from_landmarks(landmarks_data['positions'], img_size=img_size)
+
+            def _extract_pt(val):
+                if not val:
+                    return None
+                if isinstance(val, dict):
+                    return (float(val.get('x', 0.0)), float(val.get('y', 0.0)))
+                if isinstance(val, (list, tuple)):
+                    if len(val) >= 2 and isinstance(val[0], (int, float)):
+                        return (float(val[0]), float(val[1]))
+                    pts_list = [
+                        (float(item['x']), float(item['y'])) if isinstance(item, dict) else (float(item[0]), float(item[1]))
+                        for item in val if item is not None
+                    ]
+                    return _mean_pt(pts_list) if pts_list else None
+                return None
+
+            left_eye = _extract_pt(landmarks_data.get('left_eye') or landmarks_data.get('leftEye'))
+            right_eye = _extract_pt(landmarks_data.get('right_eye') or landmarks_data.get('rightEye'))
+            nose_tip = _extract_pt(landmarks_data.get('nose_tip') or landmarks_data.get('nose') or landmarks_data.get('nose_bridge'))
+            left_mouth = _extract_pt(landmarks_data.get('left_mouth') or landmarks_data.get('mouth_left'))
+            right_mouth = _extract_pt(landmarks_data.get('right_mouth') or landmarks_data.get('mouth_right'))
+            if not left_mouth or not right_mouth:
+                top_lip = landmarks_data.get('top_lip') or landmarks_data.get('mouth')
+                if isinstance(top_lip, list) and len(top_lip) >= 2:
+                    pts_lip = [
+                        (float(p['x']), float(p['y'])) if isinstance(p, dict) else (float(p[0]), float(p[1]))
+                        for p in top_lip
+                    ]
+                    pts_lip_sorted = sorted(pts_lip, key=lambda item: item[0])
+                    left_mouth = pts_lip_sorted[0]
+                    right_mouth = pts_lip_sorted[-1]
+            chin_raw = landmarks_data.get('chin') or landmarks_data.get('jaw')
+            if isinstance(chin_raw, list) and len(chin_raw) >= 3:
+                pts_chin = [
+                    (float(p['x']), float(p['y'])) if isinstance(p, dict) else (float(p[0]), float(p[1]))
+                    for p in chin_raw
+                ]
+                left_jaw = pts_chin[0]
+                right_jaw = pts_chin[-1]
+                chin = pts_chin[len(pts_chin) // 2]
+            else:
+                chin = _extract_pt(chin_raw)
+
+        if not (left_eye and right_eye and nose_tip):
+            return None
+
+        # Ko'zlar teskari tushib qolgan bo'lsa tartiblash
+        if left_eye[0] > right_eye[0]:
+            left_eye, right_eye = right_eye, left_eye
+
+        dx_eyes = right_eye[0] - left_eye[0]
+        dy_eyes = right_eye[1] - left_eye[1]
+        eye_dist = math.hypot(dx_eyes, dy_eyes)
+        if eye_dist < 5.0:
+            return None
+
+        # 1. ROLL (boshning yelkaga qiyshayishi)
+        roll_deg = math.degrees(math.atan2(dy_eyes, dx_eyes))
+
+        # 2. YAW (chapga / o'ngga burilish)
+        eye_mid_x = (left_eye[0] + right_eye[0]) / 2.0
+        eye_mid_y = (left_eye[1] + right_eye[1]) / 2.0
+        nose_offset_ratio = (nose_tip[0] - eye_mid_x) / (eye_dist * 0.5)
+        yaw_deg = nose_offset_ratio * 38.0
+
+        if left_jaw and right_jaw:
+            dist_left_jaw = math.hypot(nose_tip[0] - left_jaw[0], nose_tip[1] - left_jaw[1])
+            dist_right_jaw = math.hypot(right_jaw[0] - nose_tip[0], right_jaw[1] - nose_tip[1])
+            jaw_sum = dist_left_jaw + dist_right_jaw
+            if jaw_sum > 10.0:
+                jaw_asym = (dist_left_jaw - dist_right_jaw) / jaw_sum
+                yaw_deg = 0.5 * yaw_deg + 0.5 * (jaw_asym * 70.0)
+
+        # 3. PITCH (tepaga / pastga qarash)
+        if left_mouth and right_mouth:
+            mouth_mid_y = (left_mouth[1] + right_mouth[1]) / 2.0
+            eye_to_mouth = max(mouth_mid_y - eye_mid_y, 5.0)
+            eye_to_nose = nose_tip[1] - eye_mid_y
+            # To'g'ri qaralganda ko'z-burun masofasi ko'z-og'iz masofasining ~0.56 qismini tashkil etadi
+            vertical_ratio = eye_to_nose / eye_to_mouth
+            pitch_deg = (vertical_ratio - 0.56) * 105.0
+        elif chin:
+            eye_to_chin = max(chin[1] - eye_mid_y, 10.0)
+            eye_to_nose = nose_tip[1] - eye_mid_y
+            vertical_ratio = eye_to_nose / eye_to_chin
+            pitch_deg = (vertical_ratio - 0.36) * 110.0
+        else:
+            pitch_deg = ((nose_tip[1] - eye_mid_y) / eye_dist - 0.60) * 75.0
+
+        yaw_deg = max(-90.0, min(90.0, round(yaw_deg, 1)))
+        pitch_deg = max(-90.0, min(90.0, round(pitch_deg, 1)))
+        roll_deg = max(-90.0, min(90.0, round(roll_deg, 1)))
+
+        return {
+            'yaw': yaw_deg,
+            'pitch': pitch_deg,
+            'roll': roll_deg,
+        }
+    except Exception:
+        return None
+
+
+def detect_face_and_pose(pil_img: Image.Image, landmarks=None, pose_angles=None) -> dict:
+    """
+    Rasmda yuz borligini va boshning burchaklarini (yaw, pitch, roll) aniqlaydi.
+    Ustuvorlik tartibi:
+      1. Uzatilgan `pose_angles` yoki 68-nuqtali `landmarks`
+      2. `face_recognition` kutubxonasi (agar o'rnatilgan bo'lsa)
+      3. OpenCV (`cv2`) Haar Cascade frontalface + eye + profileface detektorlari
+      4. Pure-Python / PIL simmetriya tahlili (fallback)
+    """
+    result = {
+        'face_detected': True,
+        'face_count': 1,
+        'face_box': None,
+        'angles': {'yaw': 0.0, 'pitch': 0.0, 'roll': 0.0},
+        'method': 'fallback',
+    }
+
+    # 1. Agar burchaklar bevosita uzatilgan bo'lsa
+    if pose_angles:
+        try:
+            if isinstance(pose_angles, str):
+                pose_angles = json.loads(pose_angles)
+            if isinstance(pose_angles, dict) and any(k in pose_angles for k in ('yaw', 'pitch', 'roll')):
+                result['angles'] = {
+                    'yaw': round(float(pose_angles.get('yaw', 0.0)), 1),
+                    'pitch': round(float(pose_angles.get('pitch', 0.0)), 1),
+                    'roll': round(float(pose_angles.get('roll', 0.0)), 1),
+                }
+                result['method'] = 'explicit_angles'
+                return result
+        except Exception:
+            pass
+
+    # 2. Agar landmarklar uzatilgan bo'lsa (masalan face-api.js dan)
+    if landmarks:
+        est = estimate_head_pose_from_landmarks(landmarks, img_size=pil_img.size if pil_img else (480, 480))
+        if est is not None:
+            result['angles'] = est
+            result['method'] = 'landmarks'
+            return result
+
+    if pil_img is None:
+        result['face_detected'] = False
+        result['face_count'] = 0
+        return result
+
+    # 3. `face_recognition` kutubxonasi mavjud bo'lsa
+    if HAS_FACE_RECOGNITION and face_recognition is not None and np is not None:
+        try:
+            rgb_arr = np.array(pil_img.convert('RGB'))
+            face_locs = face_recognition.face_locations(rgb_arr, model='hog')
+            if len(face_locs) == 0:
+                result['face_detected'] = False
+                result['face_count'] = 0
+                result['method'] = 'face_recognition'
+                return result
+            result['face_count'] = len(face_locs)
+            top, right, bottom, left = face_locs[0]
+            result['face_box'] = (left, top, right - left, bottom - top)
+            lm_list = face_recognition.face_landmarks(rgb_arr, face_locations=[face_locs[0]])
+            if lm_list:
+                est = estimate_head_pose_from_landmarks(lm_list[0], img_size=pil_img.size)
+                if est:
+                    result['angles'] = est
+            result['method'] = 'face_recognition'
+            return result
+        except Exception:
+            pass
+
+    # 4. OpenCV (`cv2`) Haar Cascade mavjud bo'lsa
+    if HAS_OPENCV and cv2 is not None and np is not None:
+        try:
+            gray_arr = np.array(pil_img.convert('L'), dtype=np.uint8)
+            gray_eq = cv2.equalizeHist(gray_arr)
+            haar_dir = getattr(cv2.data, 'haarcascades', '')
+            frontal_cascade = cv2.CascadeClassifier(os.path.join(haar_dir, 'haarcascade_frontalface_default.xml'))
+            eye_cascade = cv2.CascadeClassifier(os.path.join(haar_dir, 'haarcascade_eye.xml'))
+            profile_cascade = cv2.CascadeClassifier(os.path.join(haar_dir, 'haarcascade_profileface.xml'))
+
+            faces = frontal_cascade.detectMultiScale(
+                gray_eq, scaleFactor=1.1, minNeighbors=5, minSize=(60, 60)
+            )
+            if len(faces) == 0:
+                # Yon tomondan (profil) qarab turganini tekshirish
+                profiles_left = profile_cascade.detectMultiScale(
+                    gray_eq, scaleFactor=1.1, minNeighbors=4, minSize=(60, 60)
+                )
+                profiles_right = profile_cascade.detectMultiScale(
+                    cv2.flip(gray_eq, 1), scaleFactor=1.1, minNeighbors=4, minSize=(60, 60)
+                )
+                if len(profiles_left) > 0 or len(profiles_right) > 0:
+                    result['face_detected'] = True
+                    result['face_count'] = 1
+                    result['angles'] = {
+                        'yaw': 42.0 if len(profiles_left) > 0 else -42.0,
+                        'pitch': 0.0,
+                        'roll': 0.0,
+                    }
+                    result['method'] = 'opencv_profile'
+                    return result
+
+                result['face_detected'] = False
+                result['face_count'] = 0
+                result['method'] = 'opencv_haar'
+                return result
+
+            # Eng katta yuzni tanlash
+            faces_sorted = sorted(faces, key=lambda b: b[2] * b[3], reverse=True)
+            fx, fy, fw, fh = [int(v) for v in faces_sorted[0]]
+            result['face_count'] = len(faces_sorted)
+            result['face_box'] = (fx, fy, fw, fh)
+            result['method'] = 'opencv_haar'
+
+            # Yuzning yuqori yarmidan ko'zlarni qidirish
+            upper_face = gray_eq[fy:fy + int(fh * 0.62), fx:fx + fw]
+            eyes = eye_cascade.detectMultiScale(
+                upper_face, scaleFactor=1.1, minNeighbors=4, minSize=(int(fw * 0.12), int(fh * 0.08))
+            )
+
+            yaw_deg = 0.0
+            pitch_deg = 0.0
+            roll_deg = 0.0
+
+            if len(eyes) >= 2:
+                eyes_sorted = sorted(eyes, key=lambda e: e[2] * e[3], reverse=True)[:2]
+                eyes_sorted = sorted(eyes_sorted, key=lambda e: e[0])
+                e1, e2 = eyes_sorted[0], eyes_sorted[1]
+                lx = e1[0] + e1[2] / 2.0
+                ly = e1[1] + e1[3] / 2.0
+                rx = e2[0] + e2[2] / 2.0
+                ry = e2[1] + e2[3] / 2.0
+
+                if rx - lx > fw * 0.15:
+                    roll_deg = math.degrees(math.atan2(ry - ly, rx - lx))
+                    eye_mid_x = (lx + rx) / 2.0
+                    eye_mid_y = (ly + ry) / 2.0
+                    # Yuz markaziga nisbatan ko'zlar simmetriyasi -> Yaw
+                    yaw_deg = ((eye_mid_x - (fw / 2.0)) / (fw * 0.25)) * 25.0
+                    # Ko'zlarning vertikal joylashuvi (me'yor: 0.36 * fh) -> Pitch
+                    pitch_deg = (((eye_mid_y / float(fh)) - 0.36) / 0.15) * 20.0
+            else:
+                # Agar ikkala ko'z aniq ko'rinmasa, chap va o'ng yarim yuz simmetriyasini tekshirish
+                face_crop = gray_arr[fy:fy + fh, fx:fx + fw]
+                half_w = fw // 2
+                if half_w > 10:
+                    left_half = face_crop[:, :half_w].astype(np.float32)
+                    right_half_flipped = np.fliplr(face_crop[:, fw - half_w:]).astype(np.float32)
+                    diff_mean = float(np.mean(np.abs(left_half - right_half_flipped)))
+                    if diff_mean > 42.0:
+                        yaw_deg = min(40.0, (diff_mean - 25.0) * 1.1)
+
+            result['angles'] = {
+                'yaw': round(yaw_deg, 1),
+                'pitch': round(pitch_deg, 1),
+                'roll': round(roll_deg, 1),
+            }
+            return result
+        except Exception:
+            pass
+
+    return result
+
+
+def validate_face_photo(
+    image_source,
+    filename: str | None = None,
+    landmarks=None,
+    pose_angles=None,
+    min_sharpness: float = DEFAULT_MIN_SHARPNESS,
+    max_yaw: float = MAX_YAW_ANGLE,
+    max_pitch: float = MAX_PITCH_ANGLE,
+    max_roll: float = MAX_ROLL_ANGLE,
+    require_face: bool = False,
+) -> dict:
+    """
+    Face ID uchun yuklanayotgan rasmni kompleks tekshiradi:
+      1. Rasm formati (.jpg, .jpeg, .png) va minimal o'lchami;
+      2. Rasm yorug'ligi va tiniqligi (sharpness / blur detection — Laplacian variance);
+      3. Yuzning mavjudligi va kamera obyektiviga to'g'ri qarab turganligi (yaw, pitch, roll burchaklari).
+
+    Qaytaradi:
+      {
+          "valid": bool,
+          "error_type": str | None,
+          "message": str,
+          "sharpness": float,
+          "brightness": float,
+          "angles": {"yaw": float, "pitch": float, "roll": float},
+          "format": str,
+      }
+    """
+    # 1. Format va o'lcham tekshiruvi
+    is_fmt_ok, pil_img, fmt_name, fmt_err = validate_image_format(image_source, filename=filename)
+    if not is_fmt_ok or pil_img is None:
+        return {
+            'valid': False,
+            'error_type': 'invalid_format',
+            'message': fmt_err or "Noto'g'ri rasm formati! Faqat .jpg, .jpeg yoki .png rasm yuklang.",
+            'sharpness': 0.0,
+            'brightness': 0.0,
+            'angles': {'yaw': 0.0, 'pitch': 0.0, 'roll': 0.0},
+            'format': fmt_name,
+        }
+
+    # 2. Yuz va bosh burchaklarini (Pose / Angle) aniqlash
+    pose_info = detect_face_and_pose(pil_img, landmarks=landmarks, pose_angles=pose_angles)
+    face_box = pose_info.get('face_box')
+    angles = pose_info.get('angles', {'yaw': 0.0, 'pitch': 0.0, 'roll': 0.0})
+
+    # 3. Yorug'lik (Brightness) va Tiniqlik (Sharpness / Blur) tekshiruvi
+    gray_full = pil_img.convert('L')
+    brightness = round(float(ImageStat.Stat(gray_full).mean[0]), 1)
+    sharpness = calculate_image_sharpness(pil_img, face_box=face_box)
+
+    if brightness < 22.0:
+        return {
+            'valid': False,
+            'error_type': 'too_dark',
+            'message': "Rasm juda qorong'i! Iltimos, yorug'roq joyda yuzingiz aniq ko'rinadigan qilib suratga tushing.",
+            'sharpness': sharpness,
+            'brightness': brightness,
+            'angles': angles,
+            'format': fmt_name,
+        }
+
+    if brightness > 250.0:
+        return {
+            'valid': False,
+            'error_type': 'overexposed',
+            'message': "Rasm haddan tashqari yorug' (oqarib qolgan)! Iltimos, yorug'likni me'yorlashtirib qayta suratga oling.",
+            'sharpness': sharpness,
+            'brightness': brightness,
+            'angles': angles,
+            'format': fmt_name,
+        }
+
+    if sharpness < min_sharpness:
+        return {
+            'valid': False,
+            'error_type': 'blurry_image',
+            'message': (
+                f"Rasm xira yoki yetarlicha tiniq emas (aniqlik darajasi: {sharpness:.1f}, "
+                f"minimal talab: {min_sharpness:.0f}). Iltimos, kamerani qimirlatmasdan tiniq rasm yuklang!"
+            ),
+            'sharpness': sharpness,
+            'brightness': brightness,
+            'angles': angles,
+            'format': fmt_name,
+        }
+
+    # 4. Yuz mavjudligini tekshirish
+    if (require_face or HAS_OPENCV or HAS_FACE_RECOGNITION) and not pose_info.get('face_detected', True):
+        return {
+            'valid': False,
+            'error_type': 'no_face',
+            'message': "Rasmda yuz aniqlanmadi! Iltimos, kamera obyektiviga to'g'ri qarab tushgan, yuz to'liq ko'ringan rasm yuklang.",
+            'sharpness': sharpness,
+            'brightness': brightness,
+            'angles': angles,
+            'format': fmt_name,
+        }
+
+    if pose_info.get('face_count', 1) > 1:
+        return {
+            'valid': False,
+            'error_type': 'multiple_faces',
+            'message': f"Rasmda {pose_info['face_count']} ta yuz aniqlandi! Face ID uchun rasmda faqat bitta shaxs bo'lishi shart.",
+            'sharpness': sharpness,
+            'brightness': brightness,
+            'angles': angles,
+            'format': fmt_name,
+        }
+
+    # 5. To'g'ri qarash (Yaw, Pitch, Roll burchaklari) tekshiruvi
+    yaw = float(angles.get('yaw', 0.0))
+    pitch = float(angles.get('pitch', 0.0))
+    roll = float(angles.get('roll', 0.0))
+
+    if abs(yaw) > max_yaw:
+        side_str = "o'ngga" if yaw > 0 else "chapga"
+        return {
+            'valid': False,
+            'error_type': 'bad_pose_yaw',
+            'message': (
+                f"Rasmga tushgan shaxs boshi yon tomonga ({side_str}) burilgan "
+                f"(Yaw burchagi: {abs(yaw):.1f}°, ruxsat etilgan: ±{max_yaw:.0f}°). "
+                "Iltimos, to'g'ridan-to'g'ri kamera obyektiviga qarab turing!"
+            ),
+            'sharpness': sharpness,
+            'brightness': brightness,
+            'angles': angles,
+            'format': fmt_name,
+        }
+
+    if abs(pitch) > max_pitch:
+        vert_str = "pastga" if pitch > 0 else "tepaga"
+        return {
+            'valid': False,
+            'error_type': 'bad_pose_pitch',
+            'message': (
+                f"Rasmga tushgan shaxs boshi {vert_str} egilgan "
+                f"(Pitch burchagi: {abs(pitch):.1f}°, ruxsat etilgan: ±{max_pitch:.0f}°). "
+                "Iltimos, boshingizni tik tutib, to'g'ri kameraga qarang!"
+            ),
+            'sharpness': sharpness,
+            'brightness': brightness,
+            'angles': angles,
+            'format': fmt_name,
+        }
+
+    if abs(roll) > max_roll:
+        return {
+            'valid': False,
+            'error_type': 'bad_pose_roll',
+            'message': (
+                f"Rasmga tushgan shaxs boshi yonboshga qiyshaygan "
+                f"(Roll burchagi: {abs(roll):.1f}°, ruxsat etilgan: ±{max_roll:.0f}°). "
+                "Iltimos, boshingizni tekis tutib suratga tushing!"
+            ),
+            'sharpness': sharpness,
+            'brightness': brightness,
+            'angles': angles,
+            'format': fmt_name,
+        }
+
+    return {
+        'valid': True,
+        'error_type': None,
+        'message': "Rasm barcha Face ID talablariga javob beradi (formati, tiniqligi va qarash burchagi to'g'ri) ✅",
+        'sharpness': sharpness,
+        'brightness': brightness,
+        'angles': angles,
+        'format': fmt_name,
+    }
 
 
 # ─────────────────────────────────────────────────────────────
@@ -277,13 +928,25 @@ def sync_all_face_embeddings(force: bool = False) -> dict:
     }
 
 
-def match_staff_by_face(scan_source=None, scan_descriptor=None, threshold: float = FACE_API_EUCLIDEAN_THRESHOLD):
+def match_staff_by_face(
+    scan_source=None,
+    scan_descriptor=None,
+    threshold: float = FACE_API_EUCLIDEAN_THRESHOLD,
+    min_score: float = MIN_MATCH_SIMILARITY_SCORE,
+):
     """
     Frontend (face-api.js) dan kelgan 128-o'lchamli `scan_descriptor` massivini
     bazadagi barcha faol xodimlarning (`Teacher` va `Manager`) saqlangan `face_embedding`
-    descriptorlari bilan Evklid masofasi (Euclidean distance) bo'yicha solishtiradi.
+    descriptorlari bilan qat'iy Evklid masofasi (Euclidean distance) bo'yicha solishtiradi.
 
-    Eng yaqin (masofasi eng kichik va threshold dan past) xodimni qaytaradi:
+    Qat'iy xavfsizlik qoidalari:
+      1. Masofa qat'iy threshold (<= 0.45) bo'lishi shart.
+      2. O'xshashlik foizi kamida min_score (>= 72.0%) bo'lishi shart.
+      3. Ambiguity Guard (Ikkilanuvchanlik himoyasi): agar 1-o'rindagi va 2-o'rindagi
+         xodimlar orasidagi masofa farqi juda kichik (< 0.040) bo'lsa va 1-masofa
+         yetarlicha yaqin (< 0.36) bo'lmasa, boshqa xodim bilan adashmaslik uchun rad etiladi.
+
+    Eng ishonchli xodimni qaytaradi:
         (role, staff_obj, similarity_score, euclidean_distance) yoki None
     """
     target_vec = parse_descriptor(scan_descriptor if scan_descriptor is not None else scan_source)
@@ -298,8 +961,7 @@ def match_staff_by_face(scan_source=None, scan_descriptor=None, threshold: float
         if m.face_embedding:
             candidates.append(('manager', m))
 
-    best_match = None
-    min_distance = threshold
+    matched_list = []
 
     for role, staff in candidates:
         staff_vec = parse_descriptor(staff.face_embedding)
@@ -307,11 +969,32 @@ def match_staff_by_face(scan_source=None, scan_descriptor=None, threshold: float
             continue
 
         score, is_match, dist = compare_embeddings(staff_vec, target_vec, threshold=threshold)
-        if is_match and dist <= min_distance:
-            min_distance = dist
-            best_match = (role, staff, score, dist)
+        if is_match and dist <= threshold and score >= min_score:
+            matched_list.append({
+                'role': role,
+                'staff': staff,
+                'score': score,
+                'dist': dist,
+            })
 
-    return best_match
+    if not matched_list:
+        return None
+
+    # Masofa bo'yicha eng kichikdan kattasiga tartiblash
+    matched_list.sort(key=lambda item: item['dist'])
+    best = matched_list[0]
+
+    # Ambiguity Guard: ikkita turli xodim deyarli bir xil masofada mos kelib qolsa
+    if len(matched_list) > 1:
+        second = matched_list[1]
+        # Agar 1-xodim va 2-xodim ID lari har xil bo'lsa
+        if getattr(best['staff'], 'id', None) != getattr(second['staff'], 'id', None):
+            gap = second['dist'] - best['dist']
+            if gap < AMBIGUITY_DISTANCE_MARGIN and best['dist'] > 0.36:
+                # Masofa farqi juda kam va 1-masofa mutlaq yaqin emas -> adashish xavfi yuqori
+                return None
+
+    return (best['role'], best['staff'], best['score'], best['dist'])
 
 
 # ─────────────────────────────────────────────────────────────
@@ -697,8 +1380,12 @@ def process_face_check_in(
         if not is_sched_working:
             status_msg = f"{employee_name} keldi deb belgilandi (Dam olish kuni) ✅"
         elif log.is_late:
-            extra_mins = max(0, log.late_minutes - 30)
-            status_msg = f"{employee_name} keldi ({log.late_minutes} daqiqa kechikdi: 30 daqiqadan oshgan {extra_mins} daqiqa uchun {log.fine_percent_applied}% jarima) ⚠️"
+            is_teacher_emp = (getattr(user, 'role', '') == 'teacher' or role_title == "O'qituvchi")
+            if is_teacher_emp:
+                status_msg = f"{employee_name} keldi ({log.late_minutes} daqiqa kechikdi) ⚠️"
+            else:
+                extra_mins = max(0, log.late_minutes - 30)
+                status_msg = f"{employee_name} keldi ({log.late_minutes} daqiqa kechikdi: 30 daqiqadan oshgan {extra_mins} daqiqa uchun {log.fine_percent_applied}% jarima) ⚠️"
         elif log.late_minutes > 0:
             status_msg = f"{employee_name} keldi ({log.late_minutes} daqiqa — 30 daqiqalik imtiyoz doirasida, jarimasiz) ✅"
         else:

@@ -417,18 +417,18 @@ async function startCheckInProcess(isAuto = false) {
         mobCheckInBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span> Yuz tahlil qilinmoqda...';
     }
 
-    // 1-QADAM: face-api.js yordamida kadrdan yuzni aniqlash va 128 o'lchamli descriptor olish
-    let detection = null;
+    // 1-QADAM: face-api.js yordamida kadrdan barcha yuzlarni aniqlash va markaziy yuzni ajratish
+    let detections = [];
     try {
-        detection = await faceapi
-            .detectSingleFace(mobVideo, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.45 }))
+        detections = await faceapi
+            .detectAllFaces(mobVideo, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.45 }))
             .withFaceLandmarks()
-            .withFaceDescriptor();
+            .withFaceDescriptors();
     } catch (e) {
         console.warn("face-api detect error:", e);
     }
 
-    if (!detection || !detection.descriptor) {
+    if (!detections || detections.length === 0) {
         isScanning = false;
         mobCheckInBtn.disabled = false;
         mobCheckInBtn.innerHTML = '<i class="bi bi-camera-fill me-2"></i> Davomatni Qayd Etish';
@@ -441,6 +441,52 @@ async function startCheckInProcess(isAuto = false) {
             'danger',
             `<div class="fw-black text-center fs-6" style="color:#dc2626;"><i class="bi bi-exclamation-octagon-fill me-1"></i>Yuz topilmadi</div>`
         );
+        return;
+    }
+
+    const vw = mobVideo.videoWidth || 640;
+    const vh = mobVideo.videoHeight || 480;
+    const midX = vw / 2;
+    const midY = vh / 2;
+
+    const rankedDetections = detections.map(d => {
+        const box = d.detection.box;
+        const cx = box.x + box.width / 2;
+        const cy = box.y + box.height / 2;
+        const distFromCenter = Math.hypot(cx - midX, cy - midY);
+        const area = box.width * box.height;
+        const weight = area / (distFromCenter + 60);
+        return { d, box, distFromCenter, area, weight };
+    });
+
+    rankedDetections.sort((a, b) => b.weight - a.weight);
+    const primary = rankedDetections[0];
+
+    // Agar kadrda ikkita odam birga turgan bo'lsa
+    if (rankedDetections.length > 1) {
+        const secondary = rankedDetections[1];
+        if (secondary.box.width > 65 && secondary.area > primary.area * 0.45) {
+            isScanning = false;
+            mobCheckInBtn.disabled = false;
+            mobCheckInBtn.innerHTML = '<i class="bi bi-camera-fill me-2"></i> Davomatni Qayd Etish';
+            if (mobCamFrame) mobCamFrame.style.borderColor = '#dc2626';
+            if (mobFaceOval) mobFaceOval.style.borderColor = 'rgba(220, 38, 38, 0.9)';
+            if (liveScanBadge) {
+                liveScanBadge.innerHTML = '<span style="color:#ff4d4f; font-weight:800;"><i class="bi bi-people-fill me-1"></i>Bir nechta yuz</span>';
+            }
+            showAlert(
+                'danger',
+                `<div class="fw-black text-center fs-6" style="color:#dc2626;"><i class="bi bi-people-fill me-1"></i>Kadrda bir nechta yuz aniqlandi! Iltimos, bitta-bitta yaqinlashing.</div>`
+            );
+            return;
+        }
+    }
+
+    const detection = primary.d;
+    if (!detection || !detection.descriptor) {
+        isScanning = false;
+        mobCheckInBtn.disabled = false;
+        mobCheckInBtn.innerHTML = '<i class="bi bi-camera-fill me-2"></i> Davomatni Qayd Etish';
         return;
     }
 
@@ -481,6 +527,10 @@ async function startCheckInProcess(isAuto = false) {
         longitude: lon,
         bypass_geo: bypassGeo ? '1' : '0',
         is_kiosk: '0',
+        faces_count: rankedDetections.length,
+        landmarks: (detection.landmarks && detection.landmarks.positions)
+            ? JSON.stringify(detection.landmarks.positions.map(p => ({ x: p.x, y: p.y })))
+            : null,
     };
     {% if user.is_authenticated %}
     payload.user_id = '{{ user.id }}';
@@ -531,8 +581,8 @@ async function startCheckInProcess(isAuto = false) {
                 `<b>Xodim:</b> ${res.employee_name || res.staff_name || ''} (${res.role || 'Xodim'})<br>` +
                 `<b>Amal:</b> ${actionLabel}<br>` +
                 `<b>Vaqt:</b> ${shownTime}<br>` +
-                `${res.is_excused ? `<span class="text-warning fw-bold"><i class="bi bi-shield-check me-1"></i>Sabab: ${res.exemption_reason || 'Ruxsat berilgan'} (Jarima: 0 so'm)</span><br>` : ''}` +
-                `${!res.is_excused && res.is_late && res.action_type === 'kelish' ? `<span class="text-danger fw-bold">⚠ Kechikish: +${res.late_minutes} daqiqa (Jarima: -${res.fine_percent}% | ${Number(res.fine_amount).toLocaleString()} so'm)</span><br>` : ''}` +
+                `${res.is_excused ? `<span class="text-warning fw-bold"><i class="bi bi-shield-check me-1"></i>Sabab: ${res.exemption_reason || 'Ruxsat berilgan'}${res.role === "O'qituvchi" ? '' : ' (Jarima: 0 so\'m)'}</span><br>` : ''}` +
+                `${!res.is_excused && res.is_late && res.action_type === 'kelish' ? (res.role === "O'qituvchi" ? `<span class="text-warning fw-bold"><i class="bi bi-clock-history me-1"></i>Kechikish: +${res.late_minutes} daqiqa</span><br>` : `<span class="text-danger fw-bold">⚠ Kechikish: +${res.late_minutes} daqiqa (Jarima: -${res.fine_percent}% | ${Number(res.fine_amount).toLocaleString()} so'm)</span><br>`) : ''}` +
                 `<small class="text-muted">Aniqlik: ${res.match_score || 95}% ${res.distance ? '· Masofa: ' + Math.round(res.distance) + 'm' : ''}</small>` +
                 panelLink
             );
