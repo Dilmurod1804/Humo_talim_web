@@ -537,15 +537,12 @@
                             </div>
 
                             <div class="d-flex gap-1">
-<<<<<<< HEAD
                                 <!-- Tezkor kunlik/haftalik grafik modal tugmasi -->
                                 <button type="button" class="btn btn-sm btn-outline-info btn-icon-circle"
                                     onclick="openTeacherScheduleModal('{{ teacher.id }}', '{{ teacher.first_name }} {{ teacher.last_name }}')"
                                     title="Haftalik ish grafigini sozlash">
                                     <i class="bi bi-calendar-week"></i>
                                 </button>
-=======
->>>>>>> 56305f9c4e0c4f5b4eb7a4c2f7fecab93d586176
                                 {% if teacher.user %}
                                 <button type="button" class="btn btn-sm btn-outline-warning btn-icon-circle"
                                     onclick="openExemptionModal('{{ teacher.user.id }}')"
@@ -553,19 +550,12 @@
                                     <i class="bi bi-calendar2-check"></i>
                                 </button>
                                 {% endif %}
-<<<<<<< HEAD
-=======
-                                {% if is_admin %}
->>>>>>> 56305f9c4e0c4f5b4eb7a4c2f7fecab93d586176
                                 <a href="{% url 'admin_teacher_edit' teacher.id %}"
                                     class="btn btn-sm btn-outline-primary btn-icon-circle"
                                     title="Tahrirlash va Yuz rasmini yuklash">
                                     <i class="bi bi-pencil-fill"></i>
                                 </a>
-<<<<<<< HEAD
                                 {% if is_admin %}
-=======
->>>>>>> 56305f9c4e0c4f5b4eb7a4c2f7fecab93d586176
                                 <button type="button" class="btn btn-sm btn-outline-danger btn-icon-circle"
                                     data-bs-toggle="modal" data-bs-target="#deleteTeacherModal{{ teacher.id }}"
                                     title="O'chirish">
@@ -596,7 +586,6 @@
                                 <i class="bi bi-cash-stack text-success me-1"></i>Oylik: <b class="text-dark">{{ teacher.monthly_salary|floatformat:0 }} so'm</b>
                             </div>
                             {% endif %}
-<<<<<<< HEAD
                             <div title="Bugungi Face ID ish vaqti grafigi">
                                 <i class="bi bi-calendar2-day-fill text-primary me-1"></i>Bugun:
                                 {% if teacher.today_schedule.is_working_day %}
@@ -607,10 +596,6 @@
                             </div>
                             <div title="Standart umumiy vaqt">
                                 <i class="bi bi-clock-history text-secondary me-1"></i>Standart: <b class="text-muted">{{ teacher.work_start_time|time:"H:i" }}–{{ teacher.work_end_time|time:"H:i" }}</b>
-=======
-                            <div>
-                                <i class="bi bi-clock-history text-primary me-1"></i>Dars: <b class="text-dark">{{ teacher.work_start_time|time:"H:i" }}–{{ teacher.work_end_time|time:"H:i" }}</b>
->>>>>>> 56305f9c4e0c4f5b4eb7a4c2f7fecab93d586176
                             </div>
                             {% if is_admin %}
                             <div>
@@ -799,7 +784,6 @@
 
 {% include '_absence_exemption_modal.html' %}
 
-<<<<<<< HEAD
 <!-- ══════ 5. O'QITUVCHI HAFTALIK ISH GRAFIGI TEZKOR MODALI ══════ -->
 <div class="modal fade" id="teacherScheduleModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered modal-lg">
@@ -1095,6 +1079,4 @@ async function saveTeacherScheduleModal(e) {
 }
 </script>
 
-=======
->>>>>>> 56305f9c4e0c4f5b4eb7a4c2f7fecab93d586176
 {% endblock %}

@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 from datetime import date, time
-=======
-from datetime import date
->>>>>>> 56305f9c4e0c4f5b4eb7a4c2f7fecab93d586176
 from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
@@ -124,7 +120,6 @@ class Teacher(models.Model):
     def role_title(self):
         return "O'qituvchi"
 
-<<<<<<< HEAD
     def get_schedule_for_weekday(self, weekday: int):
         """Hafta kuni (0=Du, ..., 6=Yak) bo'yicha jadval yozuvini oladi."""
         return self.schedules.filter(weekday=weekday).first()
@@ -226,11 +221,6 @@ class TeacherSchedule(models.Model):
         status = f"{self.work_start_time.strftime('%H:%M')} - {self.work_end_time.strftime('%H:%M')}" if self.is_working_day else "Dam olish kuni"
         return f"{self.teacher.first_name} {self.teacher.last_name} | {self.get_weekday_display()}: {status}"
 
-=======
-    def __str__(self):
-        return f"{self.first_name} {self.last_name}"
-
->>>>>>> 56305f9c4e0c4f5b4eb7a4c2f7fecab93d586176
 class Manager(models.Model):
     user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name='manager_profile')
     first_name = models.CharField(max_length=100, validators=[validate_latin_only])
