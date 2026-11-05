@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 from datetime import date, datetime, time, timedelta
 from django.test import TestCase
 from django.urls import reverse
@@ -7,6 +8,15 @@ from django.utils import timezone
 from .models import (
     AdvanceRequest, CustomUser, DeletedStudent, FaceIDLog, Group, Manager, MonthlyPayment,
     StaffAbsenceExemption, Student, Teacher, TeacherSchedule, TimeSlot,
+=======
+from datetime import date, timedelta
+from django.test import TestCase
+from django.urls import reverse
+
+from .models import (
+    AdvanceRequest, CustomUser, DeletedStudent, FaceIDLog, Group, Manager, MonthlyPayment,
+    StaffAbsenceExemption, Student, Teacher, TimeSlot,
+>>>>>>> 56305f9c4e0c4f5b4eb7a4c2f7fecab93d586176
 )
 from core.face_service import process_face_check_in
 
@@ -777,6 +787,7 @@ class GroupArchiveAndStudentIsolationTests(TestCase):
         self.assertEqual(resp_g1.status_code, 200)
         self.assertContains(resp_g1, self.student1.first_name)
         self.assertNotContains(resp_g1, self.student2.first_name)
+<<<<<<< HEAD
 
 
 class TeacherScheduleAndFaceIDTests(TestCase):
@@ -1026,3 +1037,5 @@ class TeacherScheduleAndFaceIDTests(TestCase):
 
         tue_sched = TeacherSchedule.objects.get(teacher=self.teacher, weekday=1)
         self.assertFalse(tue_sched.is_working_day)
+=======
+>>>>>>> 56305f9c4e0c4f5b4eb7a4c2f7fecab93d586176

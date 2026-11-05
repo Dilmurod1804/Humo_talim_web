@@ -57,6 +57,7 @@
                 <div class="row mb-3">
                     <div class="col-6">
                         <label class="form-label fw-semibold small text-dark">
+<<<<<<< HEAD
                             <i class="bi bi-box-arrow-in-right text-success me-1"></i>Standart Kelish vaqti
                         </label>
                         <input type="time" id="global_create_start" name="work_start_time" class="form-control" value="{{ default_start_time|time:'H:i'|default:'09:00' }}" required>
@@ -137,6 +138,19 @@
                                 </div>
                             </div>
                         </div>
+=======
+                            <i class="bi bi-box-arrow-in-right text-success me-1"></i>Kelish vaqti
+                        </label>
+                        <input type="time" name="work_start_time" class="form-control" value="{{ default_start_time|time:'H:i'|default:'09:00' }}" required>
+                        <div class="form-text" style="font-size:0.72rem;">Dars/ish boshlanish soati</div>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label fw-semibold small text-dark">
+                            <i class="bi bi-box-arrow-right text-info me-1"></i>Ketish vaqti
+                        </label>
+                        <input type="time" name="work_end_time" class="form-control" value="{{ default_end_time|time:'H:i'|default:'18:00' }}" required>
+                        <div class="form-text" style="font-size:0.72rem;">Dars/ish tugash soati</div>
+>>>>>>> 56305f9c4e0c4f5b4eb7a4c2f7fecab93d586176
                     </div>
                 </div>
 
@@ -171,6 +185,7 @@
                     reader.readAsDataURL(file);
                 }
             }
+<<<<<<< HEAD
 
             function toggleCreateDayRow(wIdx) {
                 const sw = document.getElementById('create_sw_' + wIdx);
@@ -234,6 +249,8 @@
                     });
                 }
             });
+=======
+>>>>>>> 56305f9c4e0c4f5b4eb7a4c2f7fecab93d586176
             </script>
         </div>
     </div>

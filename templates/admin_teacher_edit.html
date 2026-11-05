@@ -43,6 +43,7 @@
                                    style="border:1.5px solid #e2e8f0;border-left:none;border-radius:0 10px 10px 0;">
                         </div>
                     </div>
+<<<<<<< HEAD
                 </div>
 
                 <!-- ══════ STANDART UMUMIY ISH VAQTI (FALLBACK) ══════ -->
@@ -158,6 +159,20 @@
                                 </tbody>
                             </table>
                         </div>
+=======
+                <div class="row mb-3">
+                    <div class="col-12 col-md-6 mb-3 mb-md-0">
+                        <label class="form-label fw-semibold small text-dark">
+                            <i class="bi bi-box-arrow-in-right text-success me-1"></i>Dars/ish boshlanishi (Kelish)
+                        </label>
+                        <input type="time" name="work_start_time" class="form-control" value="{{ teacher.work_start_time|time:'H:i'|default:'09:00' }}" required>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label fw-semibold small text-dark">
+                            <i class="bi bi-box-arrow-right text-info me-1"></i>Dars/ish tugashi (Ketish)
+                        </label>
+                        <input type="time" name="work_end_time" class="form-control" value="{{ teacher.work_end_time|time:'H:i'|default:'18:00' }}" required>
+>>>>>>> 56305f9c4e0c4f5b4eb7a4c2f7fecab93d586176
                     </div>
                 </div>
 
@@ -297,6 +312,7 @@ function previewPhoto(event) {
     }
 }
 
+<<<<<<< HEAD
 function toggleDayRow(wIdx) {
     const sw = document.getElementById('sched_active_' + wIdx);
     const sInp = document.getElementById('sched_start_' + wIdx);
@@ -350,15 +366,21 @@ function copyGlobalTimeToActiveDays() {
 }
 
 // Forma yuborishdan oldin inputlarni tekshirish va tozalash
+=======
+// Forma yuborishdan oldin barcha raqamli inputlarni tozalash
+>>>>>>> 56305f9c4e0c4f5b4eb7a4c2f7fecab93d586176
 document.addEventListener('DOMContentLoaded', function() {
     const form = document.querySelector('form');
     if (form) {
         form.addEventListener('submit', function() {
+<<<<<<< HEAD
             // Disabled inputlarni submit oldidan vaqtincha enable qilish, toki backend qiymatlarini o'qiy olsin
             document.querySelectorAll('.day-start-input, .day-end-input').forEach(function(inp) {
                 inp.disabled = false;
             });
 
+=======
+>>>>>>> 56305f9c4e0c4f5b4eb7a4c2f7fecab93d586176
             ['monthly_salary', 'late_fine_rate'].forEach(function(name) {
                 const inp = form.querySelector('[name="' + name + '"]');
                 if (inp) {

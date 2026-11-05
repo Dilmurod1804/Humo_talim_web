@@ -5,7 +5,11 @@ from django.contrib import messages
 import os
 
 from .models import (
+<<<<<<< HEAD
     CustomUser, Teacher, TeacherSchedule, Manager, Group, TimeSlot,
+=======
+    CustomUser, Teacher, Manager, Group, TimeSlot,
+>>>>>>> 56305f9c4e0c4f5b4eb7a4c2f7fecab93d586176
     Student, Attendance, DeletedStudent, MonthlyPayment,
     FaceIDSettings, FaceIDLog
 )
@@ -119,6 +123,7 @@ def sync_teachers_face_id(modeladmin, request, queryset):
     messages.success(request, f"{updated} ta o'qituvchi Face ID tizimiga muvaffaqiyatli sinxronlandi.")
 
 
+<<<<<<< HEAD
 class TeacherScheduleInline(admin.TabularInline):
     model = TeacherSchedule
     extra = 0
@@ -126,13 +131,18 @@ class TeacherScheduleInline(admin.TabularInline):
     ordering = ('weekday',)
 
 
+=======
+>>>>>>> 56305f9c4e0c4f5b4eb7a4c2f7fecab93d586176
 @admin.register(Teacher)
 class TeacherAdmin(admin.ModelAdmin):
     list_display = ('photo_preview', 'first_name', 'last_name', 'phone', 'work_start_time', 'monthly_salary', 'face_id_biometric_badge', 'is_active')
     list_filter = ('is_active', 'can_edit_students')
     search_fields = ('first_name', 'last_name', 'phone', 'user__username')
     actions = [sync_teachers_face_id]
+<<<<<<< HEAD
     inlines = [TeacherScheduleInline]
+=======
+>>>>>>> 56305f9c4e0c4f5b4eb7a4c2f7fecab93d586176
 
     def photo_preview(self, obj):
         if obj.photo:
@@ -160,6 +170,7 @@ class TeacherAdmin(admin.ModelAdmin):
     face_id_biometric_badge.short_description = "Face ID Holati"
 
 
+<<<<<<< HEAD
 @admin.register(TeacherSchedule)
 class TeacherScheduleAdmin(admin.ModelAdmin):
     list_display = ('teacher', 'get_weekday_display', 'is_working_day', 'work_start_time', 'work_end_time', 'note')
@@ -168,6 +179,8 @@ class TeacherScheduleAdmin(admin.ModelAdmin):
     ordering = ('teacher', 'weekday')
 
 
+=======
+>>>>>>> 56305f9c4e0c4f5b4eb7a4c2f7fecab93d586176
 # ─────────────────────────────────────────────────────────────
 # 3. MANAGER ADMIN
 # ─────────────────────────────────────────────────────────────

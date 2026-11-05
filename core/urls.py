@@ -44,8 +44,11 @@ urlpatterns = [
     # ── Xodimlar, Face ID, Oylik, Bonus, Avans va Audit (face_id_views) ──────
     path('admin/teacher/create/', face_id_views.admin_teacher_create, name='admin_teacher_create'),
     path('admin/teacher/<int:id>/edit/', face_id_views.admin_teacher_edit, name='admin_teacher_edit'),
+<<<<<<< HEAD
     path('admin/teacher/<int:id>/schedule/', face_id_views.admin_teacher_schedule_save, name='admin_teacher_schedule_save'),
     path('admin/teacher/<int:id>/schedule/api/', face_id_views.admin_teacher_schedule_api, name='admin_teacher_schedule_api'),
+=======
+>>>>>>> 56305f9c4e0c4f5b4eb7a4c2f7fecab93d586176
     path('admin/teacher/<int:id>/delete/', face_id_views.admin_teacher_delete, name='admin_teacher_delete'),
     path('admin/teacher/<int:id>/toggle-edit/', face_id_views.admin_teacher_toggle_edit, name='admin_teacher_toggle_edit'),
     path('admin/teachers/toggle-all-edit/', face_id_views.admin_teacher_toggle_all_edit, name='admin_teacher_toggle_all_edit'),

@@ -43,7 +43,11 @@ from .face_service import (
 )
 from .models import (
     AdvanceRequest, AuditLog, CustomUser, FaceIDLog, FaceIDSettings,
+<<<<<<< HEAD
     Group, Manager, StaffAbsenceExemption, StaffBonus, Teacher, TeacherSchedule,
+=======
+    Group, Manager, StaffAbsenceExemption, StaffBonus, Teacher,
+>>>>>>> 56305f9c4e0c4f5b4eb7a4c2f7fecab93d586176
 )
 from .payment_views import _is_ajax, normalize_month_str
 from .services import optimize_student_photo
@@ -124,6 +128,7 @@ def _serialize_staff_face_status(staff_qs, role: str, role_title: str, has_cv: b
 # 2. O'QITUVCHILAR VA MENAJERLAR BOSHQARUVI (CRUD)
 # ─────────────────────────────────────────────────────────────
 
+<<<<<<< HEAD
 def _save_teacher_weekly_schedule(teacher, post_data):
     """
     POST ma'lumotlaridan o'qituvchining 7 kunlik (0=Dushanba .. 6=Yakshanba)
@@ -169,11 +174,19 @@ def admin_teacher_create(request):
         {'weekday': 5, 'weekday_name': 'Shanba', 'is_working_day': True, 'work_start_time': settings_obj.default_work_start_time, 'work_end_time': settings_obj.default_work_end_time, 'note': ''},
         {'weekday': 6, 'weekday_name': 'Yakshanba', 'is_working_day': False, 'work_start_time': settings_obj.default_work_start_time, 'work_end_time': settings_obj.default_work_end_time, 'note': 'Dam olish kuni'},
     ]
+=======
+@admin_only_required
+def admin_teacher_create(request):
+    settings_obj = FaceIDSettings.get_settings()
+>>>>>>> 56305f9c4e0c4f5b4eb7a4c2f7fecab93d586176
     default_ctx = {
         'default_fine_rate': settings_obj.default_late_fine_rate,
         'default_start_time': settings_obj.default_work_start_time,
         'default_end_time': settings_obj.default_work_end_time,
+<<<<<<< HEAD
         'default_weekly': default_weekly,
+=======
+>>>>>>> 56305f9c4e0c4f5b4eb7a4c2f7fecab93d586176
     }
     if request.method == 'POST':
         first_name = request.POST.get('first_name', '').strip()
@@ -216,6 +229,7 @@ def admin_teacher_create(request):
             work_end_time=work_end_time or '18:00',
             photo=opt_photo,
         )
+<<<<<<< HEAD
 
         if any(f'schedule_day_{i}_start' in request.POST for i in range(7)):
             _save_teacher_weekly_schedule(teacher, request.POST)
@@ -235,11 +249,20 @@ def admin_teacher_create(request):
         if teacher.photo:
             sync_staff_face_embedding(teacher)
         messages.success(request, f"O'qituvchi '{first_name} {last_name}' va uning ish grafigi muvaffaqiyatli saqlandi.")
+=======
+        if teacher.photo:
+            sync_staff_face_embedding(teacher)
+        messages.success(request, f"O'qituvchi '{first_name} {last_name}' muvaffaqiyatli yaratildi (Face ID fotosi biriktirildi).")
+>>>>>>> 56305f9c4e0c4f5b4eb7a4c2f7fecab93d586176
         return redirect('admin_dashboard')
     return render(request, 'admin_teacher_create.html', default_ctx)
 
 
+<<<<<<< HEAD
 @admin_required
+=======
+@admin_only_required
+>>>>>>> 56305f9c4e0c4f5b4eb7a4c2f7fecab93d586176
 def admin_teacher_edit(request, id):
     teacher = get_object_or_404(Teacher, id=id)
     if request.method == 'POST':
@@ -247,10 +270,14 @@ def admin_teacher_edit(request, id):
         last_name = request.POST.get('last_name', '').strip()
         if contains_cyrillic(first_name) or contains_cyrillic(last_name):
             messages.error(request, "Ism va familiyada faqat lotin alifbosidan foydalaning!")
+<<<<<<< HEAD
             return render(request, 'admin_teacher_edit.html', {
                 'teacher': teacher,
                 'weekly_schedule': teacher.get_full_weekly_schedule(),
             })
+=======
+            return render(request, 'admin_teacher_edit.html', {'teacher': teacher})
+>>>>>>> 56305f9c4e0c4f5b4eb7a4c2f7fecab93d586176
 
         teacher.first_name = first_name
         teacher.last_name = last_name
@@ -275,6 +302,7 @@ def admin_teacher_edit(request, id):
             teacher.generated_password = new_password
 
         teacher.save()
+<<<<<<< HEAD
 
         # Haftalik jadvalni saqlash
         if any(f'schedule_day_{i}_start' in request.POST or f'schedule_day_{i}_active' in request.POST for i in range(7)):
@@ -362,6 +390,14 @@ def admin_teacher_schedule_save(request, id):
 
     messages.success(request, f"{teacher.first_name} {teacher.last_name} ish grafigi muvaffaqiyatli saqlandi.")
     return redirect('admin_dashboard')
+=======
+        if photo_file or (teacher.photo and not teacher.has_face_embedding):
+            sync_staff_face_embedding(teacher)
+        messages.success(request, f"O'qituvchi '{teacher.first_name} {teacher.last_name}' ma'lumotlari muvaffaqiyatli saqlandi.")
+        return redirect('admin_dashboard')
+
+    return render(request, 'admin_teacher_edit.html', {'teacher': teacher})
+>>>>>>> 56305f9c4e0c4f5b4eb7a4c2f7fecab93d586176
 
 
 @admin_only_required
@@ -1268,7 +1304,10 @@ def manager_dashboard(request):
         'current_month': f"{today.year}-{today.month:02d}",
         'my_advances': AdvanceRequest.objects.filter(user=request.user).order_by('-created_at')[:10],
         'all_staff_users': CustomUser.objects.filter(role__in=('manager', 'teacher'), is_active=True).order_by('first_name', 'last_name'),
+<<<<<<< HEAD
         'teachers': Teacher.objects.filter(is_active=True).prefetch_related('schedules').order_by('first_name', 'last_name'),
+=======
+>>>>>>> 56305f9c4e0c4f5b4eb7a4c2f7fecab93d586176
         'today': today,
     })
 

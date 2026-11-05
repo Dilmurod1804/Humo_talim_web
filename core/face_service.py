@@ -11,7 +11,11 @@ import json
 import math
 import re
 import uuid
+<<<<<<< HEAD
 from datetime import date, datetime, time
+=======
+from datetime import datetime, time
+>>>>>>> 56305f9c4e0c4f5b4eb7a4c2f7fecab93d586176
 from decimal import Decimal
 
 from PIL import Image, ImageOps
@@ -319,6 +323,7 @@ def match_staff_by_face(scan_source=None, scan_descriptor=None, threshold: float
 # ─────────────────────────────────────────────────────────────
 
 def calculate_late_fine_percent(late_minutes: int) -> Decimal:
+<<<<<<< HEAD
     """
     Kechikish jarima foizini hisoblaydi:
     - 30 daqiqagacha bo'lgan kechikish (Grace Period) uchun: 0% jarima (hech qanday jarima hisoblanmaydi).
@@ -344,6 +349,15 @@ def calculate_teacher_penalty(salary: Decimal | float | int, late_minutes: int) 
         fine_amount = round((salary_dec * fine_percent) / Decimal('100.0'), 2)
         return fine_percent, fine_amount, True
     return Decimal('0.00'), Decimal('0.00'), False
+=======
+    """Kechikish jarima foizini hisoblaydi."""
+    if late_minutes <= 0:
+        return Decimal('0.00')
+    if late_minutes <= 5:
+        return round(Decimal(str(late_minutes)) * Decimal('0.10'), 2)
+    extra_minutes = late_minutes - 5
+    return round(Decimal('0.50') + (Decimal(str(extra_minutes)) * Decimal('1.00')), 2)
+>>>>>>> 56305f9c4e0c4f5b4eb7a4c2f7fecab93d586176
 
 
 CHECKIN_ACTIONS = {'checkin', 'check_in', 'check-in', 'kelish', 'in'}
@@ -376,6 +390,7 @@ def _coerce_time(value, default: time) -> time:
     return default
 
 
+<<<<<<< HEAD
 def get_staff_schedule_for_date(staff, target_date):
     """
     Xodimning berilgan sana uchun shaxsiy ish grafigini (kelish va ketish vaqti) qaytaradi.
@@ -414,6 +429,14 @@ def _apply_late_check_in(log: FaceIDLog, staff, now, today):
             log.notes = "Dam olish kuni (rejadan tashqari keldi)"
         return
 
+=======
+def _apply_late_check_in(log: FaceIDLog, staff, now, today):
+    """Kelish vaqtini yozadi va ish boshlanish vaqtiga nisbatan kechikish/jarimani hisoblaydi."""
+    expected_time = _coerce_time(getattr(staff, 'work_start_time', None), time(8, 0))
+    work_end_time = _coerce_time(getattr(staff, 'work_end_time', None), time(18, 0))
+
+    log.check_in_time = now
+>>>>>>> 56305f9c4e0c4f5b4eb7a4c2f7fecab93d586176
     expected_dt = datetime.combine(today, expected_time)
     expected_dt = timezone.make_aware(expected_dt) if timezone.is_aware(now) else expected_dt
     end_dt = datetime.combine(today, work_end_time)
@@ -424,6 +447,7 @@ def _apply_late_check_in(log: FaceIDLog, staff, now, today):
 
     if diff_seconds > 0 and now <= end_dt:
         late_mins = int(diff_seconds // 60) + (1 if (diff_seconds % 60) > 0 else 0)
+<<<<<<< HEAD
         log.late_minutes = late_mins
 
         if late_mins <= 30:
@@ -450,6 +474,14 @@ def _apply_late_check_in(log: FaceIDLog, staff, now, today):
                 log.notes = penalty_note
             elif 'Kechikish:' not in log.notes:
                 log.notes = f"{log.notes}; {penalty_note}"
+=======
+        log.is_late = True
+        log.late_minutes = late_mins
+        fine_percent = calculate_late_fine_percent(late_mins)
+        log.fine_percent_applied = fine_percent
+        log.fine_amount_deducted = round((salary * fine_percent) / Decimal('100.0'), 2)
+        log.status = 'late'
+>>>>>>> 56305f9c4e0c4f5b4eb7a4c2f7fecab93d586176
     else:
         log.is_late = False
         log.late_minutes = 0
@@ -481,6 +513,7 @@ def process_face_check_in(
     now = timezone.localtime()
     today = now.date()
 
+<<<<<<< HEAD
     # Moslashuvchan parametrlar (Testlar yoki maxsus chaqiruvlarda sana/vaqt to'g'ridan-to'g'ri uzatilganda)
     if isinstance(scan_file, (date, datetime)):
         today = scan_file.date() if isinstance(scan_file, datetime) else scan_file
@@ -493,6 +526,8 @@ def process_face_check_in(
         scan_file = None
         lat = None
 
+=======
+>>>>>>> 56305f9c4e0c4f5b4eb7a4c2f7fecab93d586176
     if isinstance(user, (Teacher, Manager)):
         staff = user
         user = staff.user
@@ -636,6 +671,7 @@ def process_face_check_in(
         action_type = 'ketish'
         log.check_out_time = now
 
+<<<<<<< HEAD
     # ── Shaxsiy kunlik jadvalni hisobga olish ──
     sched_info = get_staff_schedule_for_date(staff, today)
     sched_start_time = _coerce_time(sched_info.get('work_start_time'), time(8, 0))
@@ -658,6 +694,8 @@ def process_face_check_in(
             elif 'Erta ketish' not in log.notes:
                 log.notes = f"{log.notes}; {note_part}"
 
+=======
+>>>>>>> 56305f9c4e0c4f5b4eb7a4c2f7fecab93d586176
     if lat_val is not None:
         log.latitude = lat_val
     if lon_val is not None:
@@ -693,6 +731,7 @@ def process_face_check_in(
     if exemption or (log and log.status == 'excused'):
         ex_reason = exemption.reason if exemption else (log.notes.replace('Sababli:', '').strip() if log and log.notes else 'Ruxsat berilgan')
         status_msg = f"Sababli qayd etildi ({ex_reason}) ✅"
+<<<<<<< HEAD
     elif action_type == 'kelish':
         if not is_sched_working:
             status_msg = f"{employee_name} keldi deb belgilandi (Dam olish kuni) ✅"
@@ -708,6 +747,10 @@ def process_face_check_in(
             status_msg = f"{employee_name} ketdi deb belgilandi ({early_leave_minutes} daqiqa erta ketdi, grafik: {sched_end_time.strftime('%H:%M')} gacha) ⚠️"
         else:
             status_msg = f"{employee_name} ketdi deb belgilandi (Grafik: {sched_end_time.strftime('%H:%M')}) 👋"
+=======
+    else:
+        status_msg = "Xodim keldi deb belgilandi" if action_type == 'kelish' else "Xodim ketdi deb belgilandi"
+>>>>>>> 56305f9c4e0c4f5b4eb7a4c2f7fecab93d586176
 
     return {
         'success': True,
@@ -726,11 +769,14 @@ def process_face_check_in(
         'late_minutes': log.late_minutes,
         'fine_percent': float(log.fine_percent_applied),
         'fine_amount': float(log.fine_amount_deducted),
+<<<<<<< HEAD
         'work_start_time': sched_start_time.strftime('%H:%M'),
         'work_end_time': sched_end_time.strftime('%H:%M'),
         'is_working_day': is_sched_working,
         'is_early_checkout': is_early_checkout,
         'early_minutes': early_leave_minutes,
+=======
+>>>>>>> 56305f9c4e0c4f5b4eb7a4c2f7fecab93d586176
         'distance': distance,
         'match_score': match_score,
     }
