@@ -52,6 +52,7 @@ from .models import (
     AdvanceRequest, AuditLog, CustomUser, FaceIDLog, FaceIDSettings,
     Group, Manager, StaffAbsenceExemption, StaffBonus, Teacher, TeacherSchedule,
 )
+from .forms import TeacherProfileForm, TeacherForm
 from .payment_views import _is_ajax, normalize_month_str
 from .services import optimize_student_photo
 from .validators import contains_cyrillic
@@ -264,64 +265,92 @@ def admin_teacher_create(request):
 
 @admin_required
 def admin_teacher_edit(request, id):
+    """
+    O'qituvchi ma'lumotlarini tahrirlash (update) view'si.
+    Yangi yozuv (dublikat) yaratilib ketmasligi uchun ModelForm doimo `instance=teacher`
+    bilan chaqiriladi va form.save() orqali mavjud o'qituvchi yozuvi yangilanadi.
+    """
     teacher = get_object_or_404(Teacher, id=id)
     if request.method == 'POST':
-        first_name = request.POST.get('first_name', '').strip()
-        last_name = request.POST.get('last_name', '').strip()
-        if contains_cyrillic(first_name) or contains_cyrillic(last_name):
-            messages.error(request, "Ism va familiyada faqat lotin alifbosidan foydalaning!")
+        # MUST pass instance=teacher so Django updates the existing model instead of creating a duplicate!
+        form = TeacherProfileForm(request.POST, request.FILES, instance=teacher)
+        if form.is_valid():
+            teacher = form.save(commit=False)
+            if not is_admin_user(request):
+                orig = Teacher.objects.get(id=teacher.id)
+                teacher.monthly_salary = orig.monthly_salary
+                teacher.late_fine_rate = orig.late_fine_rate
+
+            teacher.save()
+
+            # Haftalik jadvalni saqlash
+            if any(f'schedule_day_{i}_start' in request.POST or f'schedule_day_{i}_active' in request.POST for i in range(7)):
+                _save_teacher_weekly_schedule(teacher, request.POST)
+
+            if request.FILES.get('photo') or (teacher.photo and not teacher.has_face_embedding):
+                sync_staff_face_embedding(teacher)
+
+            messages.success(request, f"O'qituvchi '{teacher.first_name} {teacher.last_name}' ma'lumotlari va ish grafigi muvaffaqiyatli saqlandi.")
+            return redirect('admin_dashboard')
+        else:
+            for field, errors in form.errors.items():
+                for error in errors:
+                    messages.error(request, f"{error}")
             return render(request, 'admin_teacher_edit.html', {
                 'teacher': teacher,
+                'form': form,
                 'weekly_schedule': teacher.get_full_weekly_schedule(),
             })
 
-        teacher.first_name = first_name
-        teacher.last_name = last_name
-        teacher.phone = request.POST.get('phone', '').strip()
-        if is_admin_user(request):
-            teacher.monthly_salary = _safe_decimal(request.POST.get('monthly_salary', '0'), str(teacher.monthly_salary))
-            teacher.late_fine_rate = _safe_decimal(request.POST.get('late_fine_rate', '2.0'), str(teacher.late_fine_rate))
-        teacher.work_start_time = request.POST.get('work_start_time', '09:00').strip() or '09:00'
-        teacher.work_end_time = request.POST.get('work_end_time', '18:00').strip() or '18:00'
-        teacher.can_edit_students = request.POST.get('can_edit_students') == '1'
+    # GET so'rovi: mavjud teacher obyektini instance sifatida berib formani yuklaymiz
+    form = TeacherProfileForm(instance=teacher)
+    return render(request, 'admin_teacher_edit.html', {
+        'teacher': teacher,
+        'form': form,
+        'weekly_schedule': teacher.get_full_weekly_schedule(),
+    })
 
-        photo_file = request.FILES.get('photo')
-        if photo_file:
-            val_res = validate_face_photo(
-                photo_file,
-                filename=getattr(photo_file, 'name', None),
-                landmarks=request.POST.get('landmarks'),
-                pose_angles=request.POST.get('pose_angles'),
-            )
-            if not val_res['valid']:
-                messages.error(request, val_res['message'])
-                return render(request, 'admin_teacher_edit.html', {
-                    'teacher': teacher,
-                    'weekly_schedule': teacher.get_full_weekly_schedule(),
-                })
-            opt_photo, _ = optimize_student_photo(photo_file)
-            if opt_photo:
-                teacher.photo = opt_photo
 
-        new_password = request.POST.get('new_password', '').strip()
-        if new_password:
-            teacher.user.set_password(new_password)
-            teacher.user.save()
-            teacher.generated_password = new_password
+# update_teacher aliasi
+update_teacher = admin_teacher_edit
 
-        teacher.save()
 
-        # Haftalik jadvalni saqlash
-        if any(f'schedule_day_{i}_start' in request.POST or f'schedule_day_{i}_active' in request.POST for i in range(7)):
-            _save_teacher_weekly_schedule(teacher, request.POST)
+@login_required(login_url='/teacher/login/')
+def teacher_profile_update(request):
+    """
+    O'qituvchi o'z kabinetidan o'z profilini va fotosuratini tahrirlashi (frontend).
+    Doimo `instance=teacher` uzatiladi, bu orqali dublikat yaratilishi 100% oldi olinadi.
+    """
+    teacher = getattr(request.user, 'teacher_profile', None)
+    if not teacher:
+        messages.error(request, "O'qituvchi profili topilmadi.")
+        return redirect('teacher_dashboard')
 
-        if photo_file or (teacher.photo and not teacher.has_face_embedding):
-            sync_staff_face_embedding(teacher)
-        messages.success(request, f"O'qituvchi '{teacher.first_name} {teacher.last_name}' ma'lumotlari va ish grafigi muvaffaqiyatli saqlandi.")
-        return redirect('admin_dashboard')
+    if request.method == 'POST':
+        form = TeacherProfileForm(request.POST, request.FILES, instance=teacher)
+        if form.is_valid():
+            teacher = form.save(commit=False)
+            orig = Teacher.objects.get(id=teacher.id)
+            teacher.monthly_salary = orig.monthly_salary
+            teacher.late_fine_rate = orig.late_fine_rate
+            teacher.can_edit_students = orig.can_edit_students
+            teacher.save()
+
+            if request.FILES.get('photo') or (teacher.photo and not teacher.has_face_embedding):
+                sync_staff_face_embedding(teacher)
+
+            messages.success(request, "Profilingiz muvaffaqiyatli yangilandi.")
+            return redirect('teacher_dashboard')
+        else:
+            for field, errors in form.errors.items():
+                for error in errors:
+                    messages.error(request, f"{error}")
+    else:
+        form = TeacherProfileForm(instance=teacher)
 
     return render(request, 'admin_teacher_edit.html', {
         'teacher': teacher,
+        'form': form,
         'weekly_schedule': teacher.get_full_weekly_schedule(),
     })
 

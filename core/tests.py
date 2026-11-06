@@ -1319,13 +1319,13 @@ class StudentPhotoPreviewAndMediaSettingsTests(TestCase):
 
     def test_media_context_processor_in_templates(self):
         """django.template.context_processors.media sababli MEDIA_URL shablonda mavjud bo'ladi."""
-        from django.template import Template, Context
+        from django.template import Template, RequestContext
         from django.test import RequestFactory
 
         rf = RequestFactory()
         request = rf.get('/')
         t = Template("MEDIA:{{ MEDIA_URL }}")
-        c = Context({'request': request})
+        c = RequestContext(request)
         rendered = t.render(c)
         self.assertIn('/media/', rendered)
 
@@ -1430,6 +1430,172 @@ class ChangeGroupTeacherTests(TestCase):
         self.assertContains(resp, f'id="groupTeacherName{self.group.id}"')
         self.assertContains(resp, 'openChangeTeacherModal')
         self.assertContains(resp, 'id="changeGroupTeacherModal"')
+
+
+class TeacherProfileUpdateNoDuplicateTests(TestCase):
+    """
+    O'qituvchi profili va fotosuratini yangilashda yangi yozuv (dublikat)
+    yaratilib ketmasligini (instance=teacher to'g'ri ishlashini) tekshirish.
+    """
+    def setUp(self):
+        self.admin_user = CustomUser.objects.create_superuser(
+            username='admin_profile_test', password='AdminPassword123', role='admin'
+        )
+        self.teacher_user = CustomUser.objects.create_user(
+            username='teacher_profile_test', password='TeacherPassword123', role='teacher'
+        )
+        self.teacher = Teacher.objects.create(
+            user=self.teacher_user,
+            first_name='Dilshod',
+            last_name='Karimov',
+            phone='+998901112233',
+            generated_login='teacher_profile_test',
+            generated_password='TeacherPassword123',
+            work_start_time='09:00',
+            work_end_time='18:00',
+            monthly_salary=Decimal('5000000'),
+            late_fine_rate=Decimal('2.0'),
+        )
+        self.group = Group.objects.create(
+            name='Fizika 1-guruh', subject='Fizika', teacher=self.teacher
+        )
+        self.edit_url = reverse('admin_teacher_edit', args=[self.teacher.id])
+        self.update_url = reverse('update_teacher', args=[self.teacher.id])
+        self.frontend_update_url = reverse('teacher_profile_update')
+
+    def test_teacher_profile_form_with_instance_updates_existing_record(self):
+        """TeacherProfileForm instance=teacher bilan chaqirilganda dublikat yaratmaydi va yangilaydi."""
+        initial_count = Teacher.objects.count()
+        data = {
+            'first_name': 'Dilshodbek',
+            'last_name': 'Karimov',
+            'phone': '+998909998877',
+            'work_start_time': '08:30',
+            'work_end_time': '17:30',
+            'monthly_salary': '6000000',
+            'late_fine_rate': '1.5',
+            'can_edit_students': True,
+        }
+        from core.forms import TeacherProfileForm
+        form = TeacherProfileForm(data=data, instance=self.teacher)
+        self.assertTrue(form.is_valid(), form.errors)
+        saved_teacher = form.save()
+
+        self.assertEqual(Teacher.objects.count(), initial_count)
+        self.assertEqual(saved_teacher.id, self.teacher.id)
+        self.teacher.refresh_from_db()
+        self.assertEqual(self.teacher.first_name, 'Dilshodbek')
+        self.assertEqual(self.teacher.phone, '+998909998877')
+        self.assertEqual(self.teacher.work_start_time.strftime('%H:%M'), '08:30')
+        self.assertTrue(self.teacher.can_edit_students)
+
+    def test_admin_teacher_edit_view_updates_existing_teacher_without_duplication(self):
+        """admin_teacher_edit view'si POST qilinganda dublikat yaratmasdan mavjud yozuvni yangilaydi."""
+        self.client.force_login(self.admin_user)
+        initial_count = Teacher.objects.count()
+        payload = {
+            'first_name': 'Alisher',
+            'last_name': 'Navoiy',
+            'phone': '+998905554433',
+            'work_start_time': '10:00',
+            'work_end_time': '19:00',
+            'monthly_salary': '7000000',
+            'late_fine_rate': '1.0',
+            'can_edit_students': '1',
+        }
+        response = self.client.post(self.edit_url, payload)
+        self.assertRedirects(response, reverse('admin_dashboard'))
+
+        # Dublikat yaratilmaganini va soni o'zgarmaganini tekshiramiz
+        self.assertEqual(Teacher.objects.count(), initial_count)
+        self.teacher.refresh_from_db()
+        self.assertEqual(self.teacher.first_name, 'Alisher')
+        self.assertEqual(self.teacher.last_name, 'Navoiy')
+        self.assertEqual(self.teacher.phone, '+998905554433')
+
+    def test_update_teacher_url_alias_updates_without_duplication(self):
+        """update_teacher URL marshruti ham admin_teacher_edit bilan bir xil ishlaydi va dublikat yaratmaydi."""
+        self.client.force_login(self.admin_user)
+        initial_count = Teacher.objects.count()
+        payload = {
+            'first_name': 'Javlon',
+            'last_name': 'Sobirov',
+            'phone': '+998931234567',
+            'work_start_time': '09:00',
+            'work_end_time': '18:00',
+            'monthly_salary': '5500000',
+            'late_fine_rate': '2.0',
+        }
+        response = self.client.post(self.update_url, payload)
+        self.assertRedirects(response, reverse('admin_dashboard'))
+
+        self.assertEqual(Teacher.objects.count(), initial_count)
+        self.teacher.refresh_from_db()
+        self.assertEqual(self.teacher.first_name, 'Javlon')
+        self.assertEqual(self.teacher.last_name, 'Sobirov')
+
+    def _create_sharp_photo(self):
+        from PIL import Image, ImageDraw
+        import io
+        img = Image.new('RGB', (320, 320), color=(140, 140, 140))
+        draw = ImageDraw.Draw(img)
+        for y in range(20, 300, 16):
+            for x in range(20, 300, 16):
+                if ((x // 16) + (y // 16)) % 2 == 0:
+                    draw.rectangle([x, y, x + 15, y + 15], fill=(220, 220, 220))
+                else:
+                    draw.rectangle([x, y, x + 15, y + 15], fill=(50, 50, 50))
+        buf = io.BytesIO()
+        img.save(buf, format='JPEG')
+        buf.seek(0)
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        return SimpleUploadedFile("test_teacher.jpg", buf.read(), content_type="image/jpeg")
+
+    def test_teacher_photo_upload_updates_photo_without_duplication(self):
+        """Yangi fotosurat yuklanganda ham dublikat profil yaratilmaydi, mavjud rasm yangilanadi."""
+        self.client.force_login(self.admin_user)
+        initial_count = Teacher.objects.count()
+        photo = self._create_sharp_photo()
+        import json
+        pts = [{'x': 160.0, 'y': 160.0} for _ in range(68)]
+
+        payload = {
+            'first_name': self.teacher.first_name,
+            'last_name': self.teacher.last_name,
+            'phone': self.teacher.phone,
+            'work_start_time': '09:00',
+            'work_end_time': '18:00',
+            'monthly_salary': '5000000',
+            'late_fine_rate': '2.0',
+            'photo': photo,
+            'landmarks': json.dumps(pts),
+        }
+        response = self.client.post(self.edit_url, payload)
+        self.assertRedirects(response, reverse('admin_dashboard'))
+
+        self.assertEqual(Teacher.objects.count(), initial_count)
+        self.teacher.refresh_from_db()
+        self.assertTrue(bool(self.teacher.photo))
+
+    def test_teacher_profile_update_frontend_view_updates_without_duplication(self):
+        """O'qituvchi o'z kabinetidan (frontend) profil yangilaganda dublikat yaratilmaydi."""
+        self.client.force_login(self.teacher_user)
+        initial_count = Teacher.objects.count()
+        payload = {
+            'first_name': 'Dilshodbek',
+            'last_name': 'Karimov',
+            'phone': '+998971110022',
+            'work_start_time': '09:00',
+            'work_end_time': '18:00',
+        }
+        response = self.client.post(self.frontend_update_url, payload)
+        self.assertRedirects(response, reverse('teacher_dashboard'))
+
+        self.assertEqual(Teacher.objects.count(), initial_count)
+        self.teacher.refresh_from_db()
+        self.assertEqual(self.teacher.first_name, 'Dilshodbek')
+        self.assertEqual(self.teacher.phone, '+998971110022')
+
 
 
 

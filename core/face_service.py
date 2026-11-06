@@ -697,6 +697,7 @@ def validate_face_photo(
             'sharpness': sharpness,
             'brightness': brightness,
             'angles': angles,
+            'pose': angles,
             'format': fmt_name,
         }
 
@@ -708,6 +709,7 @@ def validate_face_photo(
             'sharpness': sharpness,
             'brightness': brightness,
             'angles': angles,
+            'pose': angles,
             'format': fmt_name,
         }
 
@@ -722,6 +724,7 @@ def validate_face_photo(
             'sharpness': sharpness,
             'brightness': brightness,
             'angles': angles,
+            'pose': angles,
             'format': fmt_name,
         }
 
@@ -734,6 +737,7 @@ def validate_face_photo(
             'sharpness': sharpness,
             'brightness': brightness,
             'angles': angles,
+            'pose': angles,
             'format': fmt_name,
         }
 
@@ -745,6 +749,7 @@ def validate_face_photo(
             'sharpness': sharpness,
             'brightness': brightness,
             'angles': angles,
+            'pose': angles,
             'format': fmt_name,
         }
 
@@ -766,6 +771,7 @@ def validate_face_photo(
             'sharpness': sharpness,
             'brightness': brightness,
             'angles': angles,
+            'pose': angles,
             'format': fmt_name,
         }
 
@@ -782,6 +788,7 @@ def validate_face_photo(
             'sharpness': sharpness,
             'brightness': brightness,
             'angles': angles,
+            'pose': angles,
             'format': fmt_name,
         }
 
@@ -797,6 +804,7 @@ def validate_face_photo(
             'sharpness': sharpness,
             'brightness': brightness,
             'angles': angles,
+            'pose': angles,
             'format': fmt_name,
         }
 
@@ -807,6 +815,7 @@ def validate_face_photo(
         'sharpness': sharpness,
         'brightness': brightness,
         'angles': angles,
+        'pose': angles,
         'format': fmt_name,
     }
 

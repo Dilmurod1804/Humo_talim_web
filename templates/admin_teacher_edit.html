@@ -19,7 +19,7 @@
                 <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill px-3 py-1 fw-bold">O'qituvchi Profili</span>
             </div>
 
-            <form method="post" enctype="multipart/form-data">
+            <form method="post" action="{% url 'admin_teacher_edit' teacher.id %}" enctype="multipart/form-data">
                 {% csrf_token %}
                 <div class="row mb-3">
                     <div class="col-sm-6 mb-3 mb-sm-0">
