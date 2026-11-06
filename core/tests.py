@@ -1330,4 +1330,107 @@ class StudentPhotoPreviewAndMediaSettingsTests(TestCase):
         self.assertIn('/media/', rendered)
 
 
+class ChangeGroupTeacherTests(TestCase):
+    """Guruh o'qituvchisini to'g'ridan-to'g'ri kartochkadan o'zgartirish funksiyasi testlari."""
+
+    def setUp(self):
+        self.manager_user = CustomUser.objects.create_user(
+            username='mgr_grp_tch', password='Password123', role='manager'
+        )
+        self.manager = Manager.objects.create(
+            user=self.manager_user, first_name='Aziz', last_name='Menejerov',
+            generated_login='mgr_grp_tch', generated_password='Password123'
+        )
+        self.teacher_user1 = CustomUser.objects.create_user(
+            username='tch_zamira', password='Password123', role='teacher'
+        )
+        self.teacher1 = Teacher.objects.create(
+            user=self.teacher_user1, first_name='Zamira', last_name='Zakirova',
+            generated_login='tch_zamira', generated_password='Password123'
+        )
+        self.teacher_user2 = CustomUser.objects.create_user(
+            username='tch_bobur', password='Password123', role='teacher'
+        )
+        self.teacher2 = Teacher.objects.create(
+            user=self.teacher_user2, first_name='Bobur', last_name='Rahimov',
+            generated_login='tch_bobur', generated_password='Password123'
+        )
+        self.group = Group.objects.create(
+            name='Ingliz tili B2', subject='Ingliz tili', teacher=self.teacher1
+        )
+        self.url = reverse('admin_group_change_teacher', args=[self.group.id])
+
+    def test_manager_can_change_teacher_via_standard_post(self):
+        """Menejer standart POST so'rovi orqali o'qituvchini o'zgartira oladi."""
+        self.client.force_login(self.manager_user)
+        response = self.client.post(self.url, {'teacher_id': str(self.teacher2.id)})
+        self.assertEqual(response.status_code, 302)
+        self.group.refresh_from_db()
+        self.assertEqual(self.group.teacher, self.teacher2)
+
+    def test_manager_can_change_teacher_via_ajax(self):
+        """AJAX orqali so'rov yuborilganda JSON javob qaytadi va baza yangilanadi."""
+        self.client.force_login(self.manager_user)
+        response = self.client.post(
+            self.url,
+            {'teacher_id': str(self.teacher2.id), 'is_ajax': '1'},
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data['status'], 'success')
+        self.assertEqual(data['teacher_name'], f"{self.teacher2.first_name} {self.teacher2.last_name}")
+        self.assertEqual(data['teacher_id'], self.teacher2.id)
+
+        self.group.refresh_from_db()
+        self.assertEqual(self.group.teacher, self.teacher2)
+
+    def test_unassign_teacher_to_none(self):
+        """Bo'sh teacher_id yuborilganda o'qituvchi None (O'qituvchisiz) bo'ladi."""
+        self.client.force_login(self.manager_user)
+        response = self.client.post(
+            self.url,
+            {'teacher_id': '', 'is_ajax': '1'},
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data['status'], 'success')
+        self.assertIsNone(data['teacher_id'])
+        self.assertEqual(data['teacher_name'], "O'qituvchisiz")
+
+        self.group.refresh_from_db()
+        self.assertIsNone(self.group.teacher)
+
+    def test_teacher_user_cannot_change_group_teacher(self):
+        """Oddiy o'qituvchi guruh o'qituvchisini o'zgartira olmaydi (huquq cheklangan)."""
+        self.client.force_login(self.teacher_user1)
+        response = self.client.post(self.url, {'teacher_id': str(self.teacher2.id)})
+        # @admin_required redirects teacher to teacher_dashboard
+        self.assertRedirects(response, reverse('teacher_dashboard'))
+        self.group.refresh_from_db()
+        self.assertEqual(self.group.teacher, self.teacher1)
+
+    def test_get_request_returns_active_teachers_list(self):
+        """GET so'rovi guruh ma'lumotlari va faol o'qituvchilar ro'yxatini qaytaradi."""
+        self.client.force_login(self.manager_user)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data['status'], 'success')
+        self.assertEqual(data['group_name'], self.group.name)
+        self.assertEqual(data['current_teacher_id'], self.teacher1.id)
+        self.assertGreaterEqual(len(data['teachers']), 2)
+
+    def test_admin_dashboard_renders_change_teacher_button_and_modal(self):
+        """admin_dashboard sahifasida guruh kartochkasida o'qituvchini o'zgartirish tugmasi va modali mavjud."""
+        self.client.force_login(self.manager_user)
+        resp = self.client.get(reverse('admin_dashboard'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, f'id="groupTeacherName{self.group.id}"')
+        self.assertContains(resp, 'openChangeTeacherModal')
+        self.assertContains(resp, 'id="changeGroupTeacherModal"')
+
+
+
 

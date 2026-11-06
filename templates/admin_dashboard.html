@@ -262,7 +262,20 @@
                         </div>
                         <div>
                             <div class="fw-bold text-dark fs-6">{{ group.name }}</div>
-                            <small class="text-muted"><i class="bi bi-person-badge me-1"></i>{{ group.teacher|default:"O'qituvchisiz" }}</small>
+                            <div class="d-flex align-items-center gap-1.5 flex-wrap mt-0.5">
+                                <small class="text-muted d-inline-flex align-items-center gap-1">
+                                    <i class="bi bi-person-badge text-info"></i>
+                                    <span class="group-teacher-label" id="groupTeacherName{{ group.id }}">{{ group.teacher|default:"O'qituvchisiz" }}</span>
+                                </small>
+                                <button type="button" 
+                                    class="btn btn-xs rounded-pill px-2 py-0.5 d-inline-flex align-items-center gap-1 border-0 shadow-none text-primary fw-semibold"
+                                    onclick="openChangeTeacherModal(event, {{ group.id }}, '{{ group.name|escapejs }}', '{{ group.teacher.id|default:'' }}');"
+                                    title="O'qituvchini o'zgartirish"
+                                    style="font-size:0.75rem; background:rgba(99,102,241,0.08); transition:all 0.2s;">
+                                    <i class="bi bi-pencil-square"></i>
+                                    <span>O'zgartirish</span>
+                                </button>
+                            </div>
                         </div>
                     </a>
 
@@ -1078,5 +1091,7 @@ async function saveTeacherScheduleModal(e) {
     }
 }
 </script>
+
+{% include '_change_group_teacher_modal.html' %}
 
 {% endblock %}

@@ -1,0 +1,188 @@
+<!-- ══════ GURUH O'QITUVCHISINI O'ZGARTIRISH MODALI (CHANGE GROUP TEACHER MODAL) ══════ -->
+<div class="modal fade" id="changeGroupTeacherModal" tabindex="-1" aria-labelledby="changeGroupTeacherModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered" style="max-width: 440px;">
+        <div class="modal-content border-0 rounded-4 shadow-lg overflow-hidden">
+            <form id="changeGroupTeacherForm" method="post" onsubmit="submitChangeTeacherForm(event)">
+                {% csrf_token %}
+                <div class="modal-header border-0 py-3 px-4" style="background: linear-gradient(135deg, #667eea, #764ba2);">
+                    <div class="d-flex align-items-center gap-2 text-white">
+                        <div style="width:38px; height:38px; border-radius:12px; background:rgba(255,255,255,0.2); display:flex; align-items:center; justify-content:center; box-shadow:0 4px 12px rgba(0,0,0,0.15);">
+                            <i class="bi bi-person-badge-fill fs-5"></i>
+                        </div>
+                        <div>
+                            <h6 class="modal-title fw-bold text-white mb-0" id="changeGroupTeacherModalLabel">O'qituvchini Biriktirish</h6>
+                            <small class="text-white" style="opacity:0.85;" id="changeTeacherGroupName">Guruh nomi</small>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Yopish"></button>
+                </div>
+
+                <div class="modal-body p-4">
+                    <input type="hidden" name="group_id" id="modalChangeTeacherGroupId" value="">
+
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-secondary text-uppercase tracking-wider d-flex align-items-center gap-1 mb-2">
+                            <i class="bi bi-person-check text-primary fs-6"></i> Yangi O'qituvchini Tanlang:
+                        </label>
+                        <select name="teacher_id" id="modalTeacherSelect" class="form-select rounded-3 py-2 fw-semibold" style="border:1.5px solid #cbd5e1;">
+                            <option value="">-- O'qituvchisiz (Biriktirilmagan) --</option>
+                            {% for t in teachers %}
+                            <option value="{{ t.id }}">{{ t.first_name }} {{ t.last_name }}{% if t.phone %} ({{ t.phone }}){% endif %}</option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text small text-muted mt-2">
+                            <i class="bi bi-info-circle me-1 text-primary"></i>Tanlangan o'qituvchi ushbu guruh dars jurnali va davomatiga to'liq biriktiriladi.
+                        </div>
+                    </div>
+
+                    <div id="changeTeacherFeedback" class="alert alert-danger py-2 small rounded-3" style="display:none;"></div>
+                </div>
+
+                <div class="modal-footer border-0 pt-0 px-4 pb-4 gap-2">
+                    <button type="button" class="btn btn-light rounded-pill px-4 fw-semibold" data-bs-dismiss="modal">Bekor qilish</button>
+                    <button type="submit" class="btn btn-primary rounded-pill px-4 fw-bold shadow-sm d-flex align-items-center gap-1.5" id="btnSubmitChangeTeacher" style="background: linear-gradient(135deg, #667eea, #764ba2); border:none;">
+                        <i class="bi bi-check-circle-fill"></i>
+                        <span>Saqlash</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentChangeGroupId = null;
+
+function openChangeTeacherModal(event, groupId, groupName, currentTeacherId) {
+    if (event) {
+        if (typeof event.preventDefault === 'function') event.preventDefault();
+        if (typeof event.stopPropagation === 'function') event.stopPropagation();
+    }
+    currentChangeGroupId = groupId;
+    
+    const gidInput = document.getElementById('modalChangeTeacherGroupId');
+    const gnameEl = document.getElementById('changeTeacherGroupName');
+    const form = document.getElementById('changeGroupTeacherForm');
+    const select = document.getElementById('modalTeacherSelect');
+    const fb = document.getElementById('changeTeacherFeedback');
+
+    if (gidInput) gidInput.value = groupId;
+    if (gnameEl) gnameEl.textContent = groupName || "Guruh";
+    if (form) form.action = `/admin/group/${groupId}/change-teacher/`;
+    if (fb) fb.style.display = 'none';
+
+    // Agar select'da faqat 1 ta option bo'lsa (ya'ni kontekstda teachers berilmagan bo'lsa), AJAX orqali yuklaymiz
+    if (select && select.options.length <= 1) {
+        fetch(`/admin/group/${groupId}/change-teacher/`, {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.teachers && Array.isArray(data.teachers)) {
+                select.innerHTML = '<option value="">-- O\'qituvchisiz (Biriktirilmagan) --</option>';
+                data.teachers.forEach(t => {
+                    const opt = document.createElement('option');
+                    opt.value = t.id;
+                    opt.textContent = t.name + (t.phone ? ` (${t.phone})` : '');
+                    select.appendChild(opt);
+                });
+                select.value = currentTeacherId || data.current_teacher_id || '';
+            }
+        })
+        .catch(err => console.warn("Failed to dynamically fetch teachers:", err));
+    } else if (select) {
+        select.value = currentTeacherId || '';
+    }
+
+    const modalEl = document.getElementById('changeGroupTeacherModal');
+    if (modalEl && typeof bootstrap !== 'undefined') {
+        const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+        modal.show();
+    }
+}
+
+async function submitChangeTeacherForm(event) {
+    event.preventDefault();
+    const form = event.target;
+    const submitBtn = document.getElementById('btnSubmitChangeTeacher');
+    const fb = document.getElementById('changeTeacherFeedback');
+    const groupId = document.getElementById('modalChangeTeacherGroupId').value;
+    const url = form.action || `/admin/group/${groupId}/change-teacher/`;
+
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Saqlanmoqda...';
+    }
+    if (fb) fb.style.display = 'none';
+
+    try {
+        const formData = new FormData(form);
+        formData.append('is_ajax', '1');
+
+        const response = await fetch(url, {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        });
+
+        const data = await response.json();
+        
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="bi bi-check-circle-fill me-1"></i> Saqlash';
+        }
+
+        if (data.status === 'success') {
+            // Update labels in admin_dashboard, manager_dashboard, admin_group_detail
+            const labelAdmin = document.getElementById(`groupTeacherName${groupId}`);
+            if (labelAdmin) {
+                labelAdmin.textContent = data.teacher_name;
+                labelAdmin.classList.add('text-success', 'fw-bold');
+                setTimeout(() => labelAdmin.classList.remove('text-success', 'fw-bold'), 2500);
+            }
+
+            const labelMgr = document.getElementById(`groupTeacherNameMgr${groupId}`);
+            if (labelMgr) {
+                labelMgr.textContent = data.teacher_name;
+                labelMgr.classList.add('text-success', 'fw-bold');
+                setTimeout(() => labelMgr.classList.remove('text-success', 'fw-bold'), 2500);
+            }
+
+            const labelDetail = document.getElementById('groupDetailTeacherName');
+            if (labelDetail) {
+                labelDetail.textContent = data.teacher_name;
+            }
+
+            // Close modal
+            const modalEl = document.getElementById('changeGroupTeacherModal');
+            if (modalEl && typeof bootstrap !== 'undefined') {
+                const modal = bootstrap.Modal.getInstance(modalEl);
+                if (modal) modal.hide();
+            }
+
+            // Toast bildirishnomasi (agar mavjud bo'lsa)
+            if (typeof showToast === 'function') {
+                showToast(data.message, 'success');
+            }
+        } else {
+            if (fb) {
+                fb.textContent = data.message || "Xatolik yuz berdi.";
+                fb.style.display = 'block';
+            } else {
+                alert(data.message || "Xatolik yuz berdi.");
+            }
+        }
+    } catch (err) {
+        console.error("Change teacher submit error:", err);
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="bi bi-check-circle-fill me-1"></i> Saqlash';
+        }
+        // Fallback to regular form submission if network fetch fails
+        form.submit();
+    }
+}
+</script>
+

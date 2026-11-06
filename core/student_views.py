@@ -15,7 +15,7 @@ from django.utils import timezone
 from .auth_views import _admin_only, admin_required, is_admin_or_manager
 from .forms import TemporaryStudentForm
 from .models import (
-    Attendance, CustomUser, DeletedStudent, FaceIDLog, Group,
+    Attendance, AuditLog, CustomUser, DeletedStudent, FaceIDLog, Group,
     Manager, Message, Student, Teacher, TemporaryStudent, TimeSlot,
 )
 from .payment_views import (
@@ -157,6 +157,80 @@ def admin_group_delete(request, id):
 
 
 @admin_required
+def admin_group_change_teacher(request, id):
+    """
+    Guruhga biriktirilgan o'qituvchini o'zgartirish (Admin va Menejer uchun).
+    GET: Guruh va barcha faol o'qituvchilar ro'yxatini JSON ko'rinishida qaytaradi.
+    POST: Yangi o'qituvchini biriktiradi (AJAX va standart POST qo'llab-quvvatlanadi).
+    """
+    if not is_admin_or_manager(request):
+        if _is_ajax(request):
+            return JsonResponse({'status': 'error', 'message': "Ruxsat berilmagan."}, status=403)
+        return redirect('home')
+
+    group = get_object_or_404(Group, id=id)
+
+    if request.method == 'GET':
+        teachers_data = [
+            {
+                'id': t.id,
+                'name': f"{t.first_name} {t.last_name}".strip(),
+                'phone': t.phone or '',
+            }
+            for t in Teacher.objects.filter(is_active=True).order_by('first_name', 'last_name')
+        ]
+        return JsonResponse({
+            'status': 'success',
+            'group_id': group.id,
+            'group_name': group.name,
+            'current_teacher_id': group.teacher_id,
+            'current_teacher_name': str(group.teacher) if group.teacher else "O'qituvchisiz",
+            'teachers': teachers_data,
+        })
+
+    if request.method == 'POST':
+        teacher_id = request.POST.get('teacher_id', '').strip()
+        new_teacher = None
+        if teacher_id and teacher_id not in ('', '0', 'none', 'None'):
+            new_teacher = get_object_or_404(Teacher, id=teacher_id)
+
+        old_teacher_name = str(group.teacher) if group.teacher else "O'qituvchisiz"
+        group.teacher = new_teacher
+        group.save(update_fields=['teacher'])
+
+        new_teacher_name = str(new_teacher) if new_teacher else "O'qituvchisiz"
+        msg = f"'{group.name}' guruhi o'qituvchisi '{new_teacher_name}' etib muvaffaqiyatli belgilandi."
+
+        try:
+            actor_user = request.user if getattr(request, 'user', None) and request.user.is_authenticated else None
+            actor_name = str(actor_user.staff_full_name if actor_user and hasattr(actor_user, 'staff_full_name') else (actor_user.username if actor_user else 'Admin'))
+            AuditLog.objects.create(
+                action_type='system',
+                actor=actor_user,
+                actor_name=actor_name,
+                title=f"Guruh o'qituvchisi o'zgartirildi: {group.name}",
+                details=f"Guruh: '{group.name}'. Eski o'qituvchi: '{old_teacher_name}'. Yangi o'qituvchi: '{new_teacher_name}'."
+            )
+        except Exception:
+            pass
+
+        if _is_ajax(request):
+            return JsonResponse({
+                'status': 'success',
+                'message': msg,
+                'group_id': group.id,
+                'group_name': group.name,
+                'teacher_id': new_teacher.id if new_teacher else None,
+                'teacher_name': new_teacher_name,
+            })
+
+        messages.success(request, msg)
+        return redirect(request.META.get('HTTP_REFERER') or 'admin_dashboard')
+
+    return JsonResponse({'status': 'error', 'message': "Faqat GET yoki POST so'rovi qabul qilinadi."}, status=405)
+
+
+@admin_required
 def admin_timeslot_delete(request, id):
     if not is_admin_or_manager(request):
         return redirect('home')
@@ -252,6 +326,7 @@ def admin_group_detail(request, id):
         'days_data': days_data,
         'archived_students': archived_students,
         'archived_count': len(archived_students),
+        'teachers': Teacher.objects.filter(is_active=True).order_by('first_name', 'last_name'),
     })
 
 

@@ -15,6 +15,7 @@ urlpatterns = [
     path('admin/group/<int:id>/', student_views.admin_group_detail, name='admin_group_detail'),
     path('admin/group/<int:id>/archive/', student_views.admin_group_archive, name='admin_group_archive'),
     path('admin/group/<int:id>/delete/', student_views.admin_group_delete, name='admin_group_delete'),
+    path('admin/group/<int:id>/change-teacher/', student_views.admin_group_change_teacher, name='admin_group_change_teacher'),
     path('admin/timeslot/<int:timeslot_id>/student/create/', student_views.admin_student_create, name='admin_student_create'),
     path('admin/timeslot/<int:id>/delete/', student_views.admin_timeslot_delete, name='admin_timeslot_delete'),
     path('admin/student/<int:id>/delete/', student_views.admin_student_delete, name='admin_student_delete'),
