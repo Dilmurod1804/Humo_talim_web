@@ -54,8 +54,7 @@ def is_admin_user(request):
             return True
         if getattr(user, 'role', '') in ('manager', 'teacher'):
             return False
-    session = getattr(request, 'session', None)
-    return bool(session.get('admin_authenticated')) if session else False
+    return bool(request.session.get('admin_authenticated'))
 
 
 def is_manager_user(request):
