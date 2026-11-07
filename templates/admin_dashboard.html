@@ -162,7 +162,19 @@
                                 <div class="text-muted mb-1"><i
                                         class="bi bi-telephone-fill text-success me-1"></i><b>Aloqa:</b></div>
                                 <div class="fw-semibold text-dark ps-3">
-                                    {{ st.phone_1 }}{% if st.phone_2 %}, {{ st.phone_2 }}{% endif %}
+                                    {% if st.phone_1 %}
+                                    <a href="tel:{{ st.phone_1_tel|default:st.phone_1 }}" class="badge bg-light text-dark border rounded-pill px-2 py-1 text-decoration-none fw-semibold" title="Qo'ng'iroq qilish: {{ st.phone_1 }}">
+                                        <i class="bi bi-telephone-fill text-success me-1"></i>{{ st.phone_1 }}
+                                    </a>
+                                    {% endif %}
+                                    {% if st.phone_2 %}
+                                    <a href="tel:{{ st.phone_2_tel|default:st.phone_2 }}" class="badge bg-light text-secondary border rounded-pill px-2 py-1 text-decoration-none fw-semibold ms-1" title="Qo'ng'iroq qilish: {{ st.phone_2 }}">
+                                        <i class="bi bi-telephone me-1"></i>{{ st.phone_2 }}
+                                    </a>
+                                    {% endif %}
+                                    {% if not st.phone_1 and not st.phone_2 %}
+                                    <span class="text-muted">—</span>
+                                    {% endif %}
                                 </div>
                             </div>
 
@@ -409,7 +421,11 @@
                                         <span
                                             class="badge bg-warning bg-opacity-20 text-warning border border-warning border-opacity-30 rounded-pill px-2 py-0 small fw-bold">Menejer</span>
                                     </div>
-                                    <small class="text-muted"><i class="bi bi-telephone-fill me-1 text-success"></i>{{ manager.phone|default:"Telefon kiritilmagan" }}</small>
+                                    {% if manager.phone %}
+                                    <small><a href="tel:{{ manager.phone_tel|default:manager.phone }}" class="text-decoration-none text-muted" title="Qo'ng'iroq qilish"><i class="bi bi-telephone-fill me-1 text-success"></i>{{ manager.phone }}</a></small>
+                                    {% else %}
+                                    <small class="text-muted"><i class="bi bi-telephone-fill me-1 text-muted"></i>Telefon kiritilmagan</small>
+                                    {% endif %}
                                 </div>
                             </div>
 
@@ -545,7 +561,11 @@
                                         <span
                                             class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill px-2 py-0 small fw-bold">O'qituvchi</span>
                                     </div>
-                                    <small class="text-muted"><i class="bi bi-telephone-fill me-1 text-success"></i>{{ teacher.phone|default:"Telefon kiritilmagan" }}</small>
+                                    {% if teacher.phone %}
+                                    <small><a href="tel:{{ teacher.phone_tel|default:teacher.phone }}" class="text-decoration-none text-muted" title="Qo'ng'iroq qilish"><i class="bi bi-telephone-fill me-1 text-success"></i>{{ teacher.phone }}</a></small>
+                                    {% else %}
+                                    <small class="text-muted"><i class="bi bi-telephone-fill me-1 text-muted"></i>Telefon kiritilmagan</small>
+                                    {% endif %}
                                 </div>
                             </div>
 

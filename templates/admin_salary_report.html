@@ -135,7 +135,11 @@
                             <div>
                                 <div class="fw-bold text-dark fs-6">{{ r.staff.first_name }} {{ r.staff.last_name }}
                                 </div>
-                                <small class="text-muted"><i class="bi bi-telephone-fill me-1 text-success"></i>{{ r.staff.phone|default:"Telefon yo'q" }}</small>
+                                {% if r.staff.phone %}
+                                <small><a href="tel:{{ r.staff.phone_tel|default:r.staff.phone }}" class="text-decoration-none text-muted" title="Qo'ng'iroq qilish"><i class="bi bi-telephone-fill me-1 text-success"></i>{{ r.staff.phone }}</a></small>
+                                {% else %}
+                                <small class="text-muted"><i class="bi bi-telephone-x me-1 text-muted"></i>Telefon yo'q</small>
+                                {% endif %}
                             </div>
                         </div>
                     </td>

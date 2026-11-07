@@ -88,6 +88,26 @@ class CustomUser(AbstractUser):
     def __str__(self):
         return f"{self.username} ({self.get_role_display()})"
 
+
+def format_phone_tel(phone_str: str | None) -> str:
+    """
+    Telefon raqamini tel: havolasi uchun tozalaydi va to'g'ri xalqaro formatga (+998...) keltiradi.
+    Keraksiz bo'shliqlar, qavslar va defislarni olib tashlaydi.
+    """
+    if not phone_str:
+        return ''
+    cleaned = ''.join(c for c in str(phone_str).strip() if c.isdigit() or c == '+')
+    if not cleaned:
+        return ''
+    if cleaned.startswith('+'):
+        return cleaned
+    if len(cleaned) == 9:
+        return '+998' + cleaned
+    if len(cleaned) == 12 and cleaned.startswith('998'):
+        return '+' + cleaned
+    return cleaned
+
+
 class Teacher(models.Model):
     user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name='teacher_profile')
     first_name = models.CharField(max_length=100, validators=[validate_latin_only])
@@ -103,6 +123,11 @@ class Teacher(models.Model):
     work_start_time = models.TimeField(default="08:00", help_text="Ish/Dars boshlanish vaqti")
     work_end_time = models.TimeField(default="18:00", help_text="Ish/Dars tugash vaqti")
     is_active = models.BooleanField(default=True)
+
+    @property
+    def phone_tel(self):
+        """tel: protokoli uchun tozalangan telefon raqami."""
+        return format_phone_tel(self.phone)
 
     @property
     def has_face_embedding(self):
@@ -238,6 +263,11 @@ class Manager(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     @property
+    def phone_tel(self):
+        """tel: protokoli uchun tozalangan telefon raqami."""
+        return format_phone_tel(self.phone)
+
+    @property
     def has_face_embedding(self):
         return bool(self.face_embedding and len(self.face_embedding) > 10)
 
@@ -358,6 +388,16 @@ class Student(models.Model):
     photo = models.ImageField(upload_to='students/photos/', blank=True, null=True, help_text="O'quvchi rasmi (ixtiyoriy)")
 
     @property
+    def phone_1_tel(self):
+        """tel: protokoli uchun tozalangan 1-telefon raqami."""
+        return format_phone_tel(self.phone_1)
+
+    @property
+    def phone_2_tel(self):
+        """tel: protokoli uchun tozalangan 2-telefon raqami."""
+        return format_phone_tel(self.phone_2)
+
+    @property
     def photo_url(self):
         """Xavfsiz photo URL olish (agar rasm yo'q bo'lsa xatolik bermasdan bo'sh satr qaytaradi)."""
         if self.photo:
@@ -432,6 +472,16 @@ class DeletedStudent(models.Model):
     time_slot_id = models.IntegerField(blank=True, null=True)
     student_id = models.IntegerField(blank=True, null=True, help_text="Asosiy Student ID si")
 
+    @property
+    def phone_1_tel(self):
+        """tel: havolasi uchun tozalangan 1-telefon raqami."""
+        return format_phone_tel(self.phone_1 or self.phones)
+
+    @property
+    def phone_2_tel(self):
+        """tel: havolasi uchun tozalangan 2-telefon raqami."""
+        return format_phone_tel(self.phone_2)
+
     def __str__(self):
         return self.student_name
 
@@ -446,6 +496,16 @@ class TemporaryStudent(models.Model):
     preferred_time = models.CharField(max_length=100, blank=True, default='', help_text="Qaysi soatga kelgan", validators=[validate_latin_only])
     notes = models.TextField(blank=True, default='', validators=[validate_latin_only])
     created_at = models.DateTimeField(auto_now_add=True)
+
+    @property
+    def phone_1_tel(self):
+        """tel: havolasi uchun tozalangan 1-telefon raqami."""
+        return format_phone_tel(self.phone_1)
+
+    @property
+    def phone_2_tel(self):
+        """tel: havolasi uchun tozalangan 2-telefon raqami."""
+        return format_phone_tel(self.phone_2)
 
     class Meta:
         ordering = ['-created_at']

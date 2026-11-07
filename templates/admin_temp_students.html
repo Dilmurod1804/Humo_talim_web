@@ -100,8 +100,18 @@
                         {% if temp.notes %}<small class="text-muted"><i class="bi bi-chat-left-text me-1"></i>{{ temp.notes }}</small>{% endif %}
                     </td>
                     <td>
-                        <div class="small fw-semibold"><i class="bi bi-telephone-fill text-muted me-1"></i>{{ temp.phone_1 }}</div>
-                        {% if temp.phone_2 %}<div class="small text-muted"><i class="bi bi-telephone text-muted me-1"></i>{{ temp.phone_2 }}</div>{% endif %}
+                        <div class="small fw-semibold">
+                            <a href="tel:{{ temp.phone_1_tel|default:temp.phone_1 }}" class="badge bg-light text-dark border rounded-pill px-2 py-1 text-decoration-none fw-semibold" title="Qo'ng'iroq qilish: {{ temp.phone_1 }}">
+                                <i class="bi bi-telephone-fill text-success me-1"></i>{{ temp.phone_1 }}
+                            </a>
+                        </div>
+                        {% if temp.phone_2 %}
+                        <div class="small text-muted mt-1">
+                            <a href="tel:{{ temp.phone_2_tel|default:temp.phone_2 }}" class="badge bg-light text-secondary border rounded-pill px-2 py-1 text-decoration-none fw-semibold" title="Qo'ng'iroq qilish: {{ temp.phone_2 }}">
+                                <i class="bi bi-telephone text-muted me-1"></i>{{ temp.phone_2 }}
+                            </a>
+                        </div>
+                        {% endif %}
                     </td>
                     <td>
                         <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 rounded-pill px-3 fw-semibold">

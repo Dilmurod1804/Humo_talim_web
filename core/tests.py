@@ -1432,5 +1432,92 @@ class ChangeGroupTeacherTests(TestCase):
         self.assertContains(resp, 'id="changeGroupTeacherModal"')
 
 
+class ClickablePhoneLinkTests(TestCase):
+    """
+    O'quvchi va o'qituvchilarning telefon raqamlari tel: havolalari (clickable anchor tags)
+    sifatida to'g'ri shakllanishi va shablonlarda aks etishini tekshirish.
+    """
+    def setUp(self):
+        self.admin_user = CustomUser.objects.create_superuser(
+            username='admin_phone_test', password='AdminPassword123', role='admin'
+        )
+        self.teacher_user = CustomUser.objects.create_user(
+            username='teacher_phone_test', password='TeacherPassword123', role='teacher'
+        )
+        self.teacher = Teacher.objects.create(
+            user=self.teacher_user,
+            first_name='Zafar',
+            last_name='Aliyev',
+            phone='+998 90 123 45 67',
+            generated_login='teacher_phone_test',
+            generated_password='TeacherPassword123',
+        )
+        self.manager_user = CustomUser.objects.create_user(
+            username='manager_phone_test', password='ManagerPassword123', role='manager'
+        )
+        self.manager = Manager.objects.create(
+            user=self.manager_user,
+            first_name='Anvar',
+            last_name='Hakimov',
+            phone='90 987 65 43',
+            generated_login='manager_phone_test',
+            generated_password='ManagerPassword123',
+        )
+        self.group = Group.objects.create(
+            name='Matematika 1', subject='Matematika', teacher=self.teacher
+        )
+        self.timeslot = TimeSlot.objects.create(
+            group=self.group, start_time='09:00', end_time='10:30', days='Dushanba, Chorshanba, Juma'
+        )
+        self.student = Student.objects.create(
+            first_name='Jasur',
+            last_name='Nematov',
+            phone_1='+998 (91) 555-44-33',
+            phone_2='93 111 22 33',
+            time_slot=self.timeslot,
+        )
+
+    def test_format_phone_tel_helper(self):
+        """format_phone_tel funksiyasi turli ko'rinishdagi telefonlarni xalqaro +998... formatga keltiradi."""
+        from core.models import format_phone_tel
+        self.assertEqual(format_phone_tel('+998901234567'), '+998901234567')
+        self.assertEqual(format_phone_tel('+998 90 123 45 67'), '+998901234567')
+        self.assertEqual(format_phone_tel('90 123 45 67'), '+998901234567')
+        self.assertEqual(format_phone_tel('998901234567'), '+998901234567')
+        self.assertEqual(format_phone_tel(''), '')
+        self.assertEqual(format_phone_tel(None), '')
+
+    def test_model_phone_properties(self):
+        """Student, Teacher va Manager modellaridagi phone_tel propertylari to'g'ri tel: formatini qaytaradi."""
+        self.assertEqual(self.student.phone_1_tel, '+998915554433')
+        self.assertEqual(self.student.phone_2_tel, '+998931112233')
+        self.assertEqual(self.teacher.phone_tel, '+998901234567')
+        self.assertEqual(self.manager.phone_tel, '+998909876543')
+
+    def test_phone_filters_templatetags(self):
+        """phone_filters template teglari to'g'ri ishlaydi."""
+        from core.templatetags.phone_filters import format_tel, phone_display
+        self.assertEqual(format_tel('90 123 45 67'), '+998901234567')
+        self.assertEqual(phone_display('901234567'), '+998 90 123 45 67')
+
+    def test_admin_dashboard_renders_clickable_tel_links(self):
+        """admin_dashboard sahifasida o'qituvchi va menejer telefonlari tel: havolasi bilan chiqadi."""
+        self.client.force_login(self.admin_user)
+        resp = self.client.get(reverse('admin_dashboard'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, f'href="tel:{self.teacher.phone_tel}"')
+        self.assertContains(resp, f'href="tel:{self.manager.phone_tel}"')
+
+    def test_admin_group_detail_renders_student_tel_link_and_quick_edit_call(self):
+        """admin_group_detail sahifasida o'quvchi kartochkasida tel: havolasi va tez tahrirlashda qo'ng'iroq tugmasi bor."""
+        self.client.force_login(self.admin_user)
+        resp = self.client.get(reverse('admin_group_detail', args=[self.group.id]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, f'href="tel:{self.student.phone_1_tel}"')
+        self.assertContains(resp, 'id="ie_call_phone1"')
+        self.assertContains(resp, 'id="ie_call_phone2"')
+
+
+
 
 

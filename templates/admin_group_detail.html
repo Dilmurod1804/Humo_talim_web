@@ -104,7 +104,20 @@
                             {% if ds.age %}<small class="text-muted"><i class="bi bi-calendar-check me-1"></i>{{ ds.age }} yosh</small>{% endif %}
                         </td>
                         <td>
-                            <div class="small fw-semibold"><i class="bi bi-telephone-fill text-muted me-1"></i>{{ ds.phones }}</div>
+                            {% if ds.phone_1_tel %}
+                            <div class="small fw-semibold">
+                                <a href="tel:{{ ds.phone_1_tel }}" class="badge bg-light text-dark border rounded-pill px-2 py-0.5 text-decoration-none fw-semibold" title="Qo'ng'iroq qilish: {{ ds.phone_1|default:ds.phones }}">
+                                    <i class="bi bi-telephone-fill text-success me-1"></i>{{ ds.phone_1|default:ds.phones }}
+                                </a>
+                                {% if ds.phone_2 %}
+                                <a href="tel:{{ ds.phone_2_tel }}" class="badge bg-light text-secondary border rounded-pill px-2 py-0.5 text-decoration-none fw-semibold ms-1" title="Qo'ng'iroq qilish: {{ ds.phone_2 }}">
+                                    <i class="bi bi-telephone text-muted me-1"></i>{{ ds.phone_2 }}
+                                </a>
+                                {% endif %}
+                            </div>
+                            {% else %}
+                            <div class="small fw-semibold"><i class="bi bi-telephone-fill text-muted me-1"></i>{{ ds.phones|default:"—" }}</div>
+                            {% endif %}
                         </td>
                         <td>
                             <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 rounded-pill px-3 py-1 fw-semibold">
@@ -259,6 +272,18 @@
                                     <div class="student-rate">
                                         {{ student.payment_rate }} so'm
                                     </div>
+                                    {% if student.phone_1 %}
+                                    <div class="student-phone-badge mt-1" onclick="event.stopPropagation();">
+                                        <a href="tel:{{ student.phone_1_tel|default:student.phone_1 }}" class="badge bg-light text-dark border rounded-pill px-2 py-0.5 text-decoration-none fw-semibold" style="font-size:0.75rem;" title="Qo'ng'iroq qilish: {{ student.phone_1 }}">
+                                            <i class="bi bi-telephone-fill text-success me-1"></i>{{ student.phone_1 }}
+                                        </a>
+                                        {% if student.phone_2 %}
+                                        <a href="tel:{{ student.phone_2_tel|default:student.phone_2 }}" class="badge bg-light text-secondary border rounded-pill px-1.5 py-0.5 text-decoration-none fw-semibold ms-0.5" style="font-size:0.72rem;" title="Qo'ng'iroq qilish: {{ student.phone_2 }}">
+                                            <i class="bi bi-telephone text-muted"></i>
+                                        </a>
+                                        {% endif %}
+                                    </div>
+                                    {% endif %}
                                 </div>
                             </div>
                             <div class="dropdown flex-shrink-0">
@@ -470,12 +495,22 @@
               <input type="number" name="age" id="ie_age" class="form-control" placeholder="—">
             </div>
             <div class="col-8">
-              <label class="form-label small fw-semibold text-muted">Telefon 1 *</label>
-              <input type="text" name="phone_1" id="ie_phone1" class="form-control" required>
+              <div class="d-flex justify-content-between align-items-center mb-1">
+                <label class="form-label small fw-semibold text-muted mb-0">Telefon 1 *</label>
+                <a id="ie_call_phone1" href="#" class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill px-2 py-0.5 text-decoration-none fw-semibold" style="display:none;" title="Qo'ng'iroq qilish">
+                  <i class="bi bi-telephone-outbound-fill me-1"></i>Qo'ng'iroq
+                </a>
+              </div>
+              <input type="text" name="phone_1" id="ie_phone1" class="form-control" required oninput="updateCallBtn('ie_phone1','ie_call_phone1')">
             </div>
             <div class="col-12">
-              <label class="form-label small fw-semibold text-muted">Telefon 2</label>
-              <input type="text" name="phone_2" id="ie_phone2" class="form-control">
+              <div class="d-flex justify-content-between align-items-center mb-1">
+                <label class="form-label small fw-semibold text-muted mb-0">Telefon 2</label>
+                <a id="ie_call_phone2" href="#" class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill px-2 py-0.5 text-decoration-none fw-semibold" style="display:none;" title="Qo'ng'iroq qilish">
+                  <i class="bi bi-telephone-outbound-fill me-1"></i>Qo'ng'iroq
+                </a>
+              </div>
+              <input type="text" name="phone_2" id="ie_phone2" class="form-control" oninput="updateCallBtn('ie_phone2','ie_call_phone2')">
             </div>
             <div class="col-12">
               <label class="form-label small fw-semibold text-muted">
@@ -561,6 +596,22 @@
     }
 
     // ── INLINE QUICK-EDIT ──────────────────────────────────
+    function updateCallBtn(inputId, linkId) {
+        const input = document.getElementById(inputId);
+        const link = document.getElementById(linkId);
+        if (!input || !link) return;
+        const val = input.value.trim();
+        if (val) {
+            let digits = val.replace(/[^\d+]/g, '');
+            if (!digits.startsWith('+') && digits.length === 9) digits = '+998' + digits;
+            else if (!digits.startsWith('+') && digits.startsWith('998') && digits.length === 12) digits = '+' + digits;
+            link.href = 'tel:' + digits;
+            link.style.display = 'inline-flex';
+        } else {
+            link.style.display = 'none';
+        }
+    }
+
     function openInlineEdit(id, fn, ln, age, ph1, ph2, jd) {
         const form = document.getElementById('inlineEditForm');
         form.action = '/admin/student/' + id + '/edit/';
@@ -569,6 +620,8 @@
         document.getElementById('ie_age').value        = age;
         document.getElementById('ie_phone1').value     = ph1;
         document.getElementById('ie_phone2').value     = ph2 || '';
+        updateCallBtn('ie_phone1', 'ie_call_phone1');
+        updateCallBtn('ie_phone2', 'ie_call_phone2');
         if (document.getElementById('ie_joined_date')) {
             document.getElementById('ie_joined_date').value = jd || '';
         }

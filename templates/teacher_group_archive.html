@@ -58,7 +58,20 @@
                         {% if ds.age %}<small class="text-muted"><i class="bi bi-calendar-check me-1"></i>{{ ds.age }} yosh</small>{% endif %}
                     </td>
                     <td>
-                        <div class="small fw-semibold"><i class="bi bi-telephone-fill text-muted me-1"></i>{{ ds.phones }}</div>
+                        {% if ds.phone_1_tel %}
+                        <div class="small fw-semibold">
+                            <a href="tel:{{ ds.phone_1_tel }}" class="badge bg-light text-dark border rounded-pill px-2 py-0.5 text-decoration-none fw-semibold" title="Qo'ng'iroq qilish: {{ ds.phone_1|default:ds.phones }}">
+                                <i class="bi bi-telephone-fill text-success me-1"></i>{{ ds.phone_1|default:ds.phones }}
+                            </a>
+                            {% if ds.phone_2 %}
+                            <a href="tel:{{ ds.phone_2_tel }}" class="badge bg-light text-secondary border rounded-pill px-2 py-0.5 text-decoration-none fw-semibold ms-1" title="Qo'ng'iroq qilish: {{ ds.phone_2 }}">
+                                <i class="bi bi-telephone text-muted me-1"></i>{{ ds.phone_2 }}
+                            </a>
+                            {% endif %}
+                        </div>
+                        {% else %}
+                        <div class="small fw-semibold"><i class="bi bi-telephone-fill text-muted me-1"></i>{{ ds.phones|default:"—" }}</div>
+                        {% endif %}
                     </td>
                     <td>
                         <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 rounded-pill px-3 fw-semibold">

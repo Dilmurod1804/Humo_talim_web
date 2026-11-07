@@ -20,7 +20,11 @@
                 <span class="badge bg-warning text-dark rounded-pill px-3 py-1 fw-bold">Menejer</span>
             </div>
             <p class="text-white opacity-75 mb-0 small">
-                <i class="bi bi-telephone me-1"></i>{{ manager.phone|default:"Telefon kiritilmagan" }} •
+                {% if manager.phone %}
+                <a href="tel:{{ manager.phone_tel|default:manager.phone }}" class="text-white text-decoration-none" title="Qo'ng'iroq qilish"><i class="bi bi-telephone me-1"></i>{{ manager.phone }}</a> •
+                {% else %}
+                <i class="bi bi-telephone me-1"></i>Telefon kiritilmagan •
+                {% endif %}
                 Login: <b class="font-monospace text-warning">{{ manager.generated_login }}</b> •
                 Ish vaqti: <b class="text-white">{{ manager.work_start_time|time:"H:i" }}–{{ manager.work_end_time|time:"H:i" }}</b>
             </p>
@@ -286,7 +290,11 @@
                             {% endif %}
                             <div>
                                 <div class="fw-bold text-dark" style="font-size:0.92rem;">{{ teacher.first_name }} {{ teacher.last_name }}</div>
-                                <small class="text-muted" style="font-size:0.75rem;">{{ teacher.phone|default:"Telefon yo'q" }}</small>
+                                {% if teacher.phone %}
+                                <small><a href="tel:{{ teacher.phone_tel|default:teacher.phone }}" class="text-decoration-none text-muted" style="font-size:0.75rem;" title="Qo'ng'iroq qilish"><i class="bi bi-telephone-fill text-success me-1"></i>{{ teacher.phone }}</a></small>
+                                {% else %}
+                                <small class="text-muted" style="font-size:0.75rem;">Telefon yo'q</small>
+                                {% endif %}
                             </div>
                         </div>
                         <a href="{% url 'admin_teacher_edit' teacher.id %}" class="btn btn-sm btn-outline-secondary btn-icon-circle" title="Tahrirlash">

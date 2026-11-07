@@ -397,7 +397,15 @@
                                 {% endif %}
                             </td>
 
-                            <td>{{ st.phone }}</td>
+                            <td>
+                                {% if st.phone %}
+                                <a href="tel:{{ st.phone }}" class="badge bg-light text-dark border rounded-pill px-2 py-1 text-decoration-none fw-medium" title="Qo'ng'iroq qilish: {{ st.phone }}">
+                                    <i class="bi bi-telephone-fill text-success me-1"></i>{{ st.phone }}
+                                </a>
+                                {% else %}
+                                <span class="text-muted small">—</span>
+                                {% endif %}
+                            </td>
 
                             <td>
                                 <span class="badge bg-light text-dark border rounded-pill px-2 py-1 small">
