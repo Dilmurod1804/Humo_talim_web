@@ -660,3 +660,30 @@ class StaffAbsenceExemption(models.Model):
         staff_name = self.user.staff_full_name if hasattr(self.user, 'staff_full_name') else self.user.username
         return f"{staff_name} - {self.date} ({self.reason[:30]})"
 
+
+class SMSLog(models.Model):
+    """
+    Ota-onalarga va o'quvchilarga yuborilgan SMS bildirishnomalar va to'lov eslatmalari jurnali.
+    """
+    STATUS_CHOICES = (
+        ('sent', 'Yuborildi'),
+        ('failed', 'Xatolik'),
+        ('mock', 'Test (Simulyatsiya)'),
+    )
+    student = models.ForeignKey(Student, on_delete=models.SET_NULL, null=True, blank=True, related_name='sms_logs')
+    phone = models.CharField(max_length=20)
+    message = models.TextField()
+    month = models.CharField(max_length=7, blank=True, default='', help_text="To'lov oyi (YYYY-MM)")
+    provider = models.CharField(max_length=50, default='eskiz')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='sent')
+    response_data = models.TextField(blank=True, default='')
+    sent_by = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"SMS to {self.phone} [{self.status}] on {self.created_at.strftime('%Y-%m-%d %H:%M')}"
+
+

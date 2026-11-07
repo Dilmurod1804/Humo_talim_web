@@ -166,3 +166,15 @@ else:
 # Redirect URI to register: http://127.0.0.1:8000/admin-login/callback/
 GOOGLE_OAUTH_CLIENT_ID = os.getenv('GOOGLE_OAUTH_CLIENT_ID', '')
 GOOGLE_OAUTH_CLIENT_SECRET = os.getenv('GOOGLE_OAUTH_CLIENT_SECRET', '')
+
+# ── SMS Gateway Sozlamalari (Eskiz.uz / Generic) ──────────────────────────────
+SMS_ENABLED = os.getenv('SMS_ENABLED', 'False').lower() in ('true', '1', 't')
+SMS_PROVIDER = os.getenv('SMS_PROVIDER', 'eskiz')  # 'eskiz', 'generic', yoki 'console'
+# Tayyor Bearer token (.env faylida saqlanadi, kodga yozilmaydi!).
+# Agar token muddati tugasa va ESKIZ_EMAIL/ESKIZ_PASSWORD berilgan bo'lsa — avtomatik yangilanadi.
+ESKIZ_API_TOKEN = os.getenv('ESKIZ_API_TOKEN', '').strip()
+ESKIZ_EMAIL = os.getenv('ESKIZ_EMAIL', '')
+ESKIZ_PASSWORD = os.getenv('ESKIZ_PASSWORD', '')
+ESKIZ_FROM = os.getenv('ESKIZ_FROM', '4546')  # Eskiz tasdiqlangan sender nomi
+CENTER_NAME = os.getenv('CENTER_NAME', "Humo Ta'lim o'quv markazi")
+CENTER_PHONE = os.getenv('CENTER_PHONE', '+998901234567')

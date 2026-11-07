@@ -42,6 +42,15 @@
                 </div>
             </form>
 
+            <!-- SMS Eslatma Tugmasi -->
+            <button type="button" class="btn btn-warning fw-bold px-3 py-2 d-flex align-items-center gap-2 shadow-sm text-dark"
+                    data-bs-toggle="modal" data-bs-target="#sendSmsReminderModal"
+                    style="background:linear-gradient(135deg, #fbbf24, #f59e0b); border:none; border-radius:12px;"
+                    title="Qarzdor o'quvchilar ota-onalariga SMS eslatma yuborish">
+                <i class="bi bi-chat-dots-fill fs-5"></i>
+                <span>SMS Eslatma</span>
+            </button>
+
             <!-- Excel Export Dropdown -->
             <div class="btn-group shadow-sm" role="group">
                 <button type="button" class="btn btn-success fw-bold px-3 py-2 d-flex align-items-center gap-2 dropdown-toggle"
@@ -606,4 +615,6 @@
         </div>
     </div>
 </div>
+
+{% include '_sms_reminder_modal.html' %}
 {% endblock %}

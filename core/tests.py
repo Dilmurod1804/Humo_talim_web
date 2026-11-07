@@ -1,5 +1,5 @@
 from datetime import date, datetime, time, timedelta
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from decimal import Decimal
 from django.utils import timezone
@@ -1516,6 +1516,214 @@ class ClickablePhoneLinkTests(TestCase):
         self.assertContains(resp, f'href="tel:{self.student.phone_1_tel}"')
         self.assertContains(resp, 'id="ie_call_phone1"')
         self.assertContains(resp, 'id="ie_call_phone2"')
+
+
+@override_settings(SMS_ENABLED=False, ESKIZ_API_TOKEN='', CENTER_NAME="Humo Ta'lim")
+class SMSTuitionReminderTests(TestCase):
+    """Oylik to'lov eslatmalari SMS xizmati, boshqaruv buyrug'i va admin view testlari.
+    Testlarda haqiqiy SMS yuborilmasligi uchun SMS_ENABLED=False majburiy o'rnatiladi."""
+
+    def setUp(self):
+        from core.models import CustomUser, Teacher, Group, TimeSlot, Student, MonthlyPayment, SMSLog
+        self.admin_user = CustomUser.objects.create_superuser(
+            username='sms_admin', password='Password123'
+        )
+        self.teacher_user = CustomUser.objects.create_user(
+            username='sms_teacher', password='Password123', role='teacher'
+        )
+        self.teacher = Teacher.objects.create(
+            user=self.teacher_user, first_name='Nargiza', last_name='Alimova',
+            generated_login='sms_teacher', generated_password='Password123'
+        )
+        self.group = Group.objects.create(
+            name='Matematika A1', subject='Matematika', teacher=self.teacher
+        )
+        self.timeslot = TimeSlot.objects.create(
+            group=self.group, start_time='14:00', end_time='15:30', days='Seshanba, Payshanba, Shanba'
+        )
+        # 1-o'quvchi: To'lov qilmagan (Qarzdor)
+        self.student_unpaid = Student.objects.create(
+            first_name='Anvar',
+            last_name='Qodirov',
+            phone_1='+998 (90) 111-22-33',
+            time_slot=self.timeslot,
+            payment_rate=400000,
+        )
+        # 2-o'quvchi: To'lov qilgan
+        self.student_paid = Student.objects.create(
+            first_name='Dilnoza',
+            last_name='Karimova',
+            phone_1='998909998877',
+            time_slot=self.timeslot,
+            payment_rate=400000,
+        )
+        self.current_month = timezone.now().strftime('%Y-%m')
+        MonthlyPayment.objects.create(
+            student=self.student_paid,
+            month=self.current_month,
+            amount_paid='400000',
+            status='paid',
+        )
+
+    def test_clean_phone_number(self):
+        """Telefon raqamini 12 xonali xalqaro (998XXXXXXXXX) formatga keltirish tekshiruvi."""
+        from core.sms_service import clean_phone_number
+        self.assertEqual(clean_phone_number('+998 (90) 123-45-67'), '998901234567')
+        self.assertEqual(clean_phone_number('90 123 45 67'), '998901234567')
+        self.assertEqual(clean_phone_number('998901234567'), '998901234567')
+        self.assertEqual(clean_phone_number(''), '')
+        self.assertEqual(clean_phone_number(None), '')
+
+    def test_build_tuition_reminder_text(self):
+        """O'zbekcha (lotin) professional to'lov eslatmasi matni to'g'ri shakllanadi."""
+        from core.sms_service import build_tuition_reminder_text
+        text = build_tuition_reminder_text(self.student_unpaid, month_str=self.current_month)
+        self.assertIn("Hurmatli ota-ona!", text)
+        self.assertIn("Anvar Qodirov", text)
+        self.assertIn("Matematika", text)
+        self.assertIn("400 000", text)
+        self.assertIn("Humo Ta'lim", text)
+
+    def test_send_sms_mock_simulation(self):
+        """SMS_ENABLED=False bo'lganda SMS simulyatsiya (mock) rejimida muvaffaqiyatli ishlaydi."""
+        from core.sms_service import send_sms
+        res = send_sms('998901112233', 'Sinov xabari')
+        self.assertTrue(res['success'])
+        self.assertEqual(res['status'], 'mock')
+        self.assertTrue(res['message_id'].startswith('mock_'))
+
+    def test_send_tuition_reminder_creates_log_and_prevents_duplicate(self):
+        """To'lov eslatmasi SMSLog ga yoziladi va bitta oyda qayta takror yuborilishi oldi olinadi."""
+        from core.sms_service import send_tuition_reminder
+        from core.models import SMSLog
+
+        # 1-marta yuborish
+        res1 = send_tuition_reminder(self.student_unpaid, month_str=self.current_month, sent_by=self.admin_user)
+        self.assertTrue(res1['success'])
+        self.assertEqual(res1['status'], 'mock')
+        self.assertEqual(SMSLog.objects.filter(student=self.student_unpaid, month=self.current_month).count(), 1)
+
+        # 2-marta yuborish (force=False) -> o'tkazib yuborilishi kerak
+        res2 = send_tuition_reminder(self.student_unpaid, month_str=self.current_month, sent_by=self.admin_user, force=False)
+        self.assertTrue(res2['success'])
+        self.assertEqual(res2['status'], 'skipped')
+        # Yangi log yaratilmasligi kerak
+        self.assertEqual(SMSLog.objects.filter(student=self.student_unpaid, month=self.current_month).count(), 1)
+
+        # 3-marta yuborish (force=True) -> qayta yuboriladi
+        res3 = send_tuition_reminder(self.student_unpaid, month_str=self.current_month, sent_by=self.admin_user, force=True)
+        self.assertTrue(res3['success'])
+        self.assertEqual(SMSLog.objects.filter(student=self.student_unpaid, month=self.current_month).count(), 2)
+
+    def test_send_tuition_reminders_batch_filters_unpaid_only(self):
+        """Ommaviy eslatma faqat to'lov qilmagan (qarzdor) o'quvchilarga yuboriladi."""
+        from core.sms_service import send_tuition_reminders_batch
+        from core.models import SMSLog
+
+        summary = send_tuition_reminders_batch(month_str=self.current_month, sent_by=self.admin_user)
+        # self.student_paid to'lagan, faqat self.student_unpaid ga yuboriladi
+        self.assertGreaterEqual(summary['total_unpaid'], 1)
+        self.assertEqual(summary['sent'], 1)
+        self.assertTrue(SMSLog.objects.filter(student=self.student_unpaid, month=self.current_month).exists())
+        self.assertFalse(SMSLog.objects.filter(student=self.student_paid, month=self.current_month).exists())
+
+    def test_management_command_send_tuition_reminders(self):
+        """python manage.py send_tuition_reminders komandasi parametrlar bilan ishlaydi."""
+        from django.core.management import call_command
+        from io import StringIO
+
+        out = StringIO()
+        call_command(
+            'send_tuition_reminders',
+            month=self.current_month,
+            group=str(self.group.id),
+            dry_run=True,
+            stdout=out
+        )
+        output = out.getvalue()
+        self.assertIn("DRY-RUN", output)
+        self.assertIn("Matematika", output)
+
+    def test_admin_send_payment_reminders_view_standard_post(self):
+        """Admin view orqali standart POST so'rovda eslatmalar yuboriladi va sahifaga yo'naltiriladi."""
+        self.client.force_login(self.admin_user)
+        url = reverse('admin_send_payment_reminders')
+        resp = self.client.post(url, {
+            'month': self.current_month,
+            'group_id': str(self.group.id),
+        })
+        self.assertEqual(resp.status_code, 302)
+
+    def test_admin_send_payment_reminders_view_ajax(self):
+        """Admin view AJAX so'rovida JSON formatda summary qaytaradi."""
+        self.client.force_login(self.admin_user)
+        url = reverse('admin_send_payment_reminders')
+        resp = self.client.post(
+            url,
+            {'month': self.current_month, 'group_id': str(self.group.id)},
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data['success'])
+        self.assertIn('summary', data)
+        self.assertIn('sent', data['summary'])
+
+    def _fake_response(self, status_code, payload):
+        from unittest.mock import MagicMock
+        resp = MagicMock()
+        resp.status_code = status_code
+        resp.json.return_value = payload
+        resp.text = str(payload)
+        return resp
+
+    def test_send_sms_eskiz_uses_bearer_token_from_settings(self):
+        """SMS_ENABLED=True bo'lganda settings.ESKIZ_API_TOKEN bilan Eskiz API ga to'g'ri POST yuboriladi."""
+        from unittest.mock import patch
+        from django.core.cache import cache
+        from core import sms_service
+        cache.delete(sms_service.ESKIZ_CACHE_KEY)
+
+        with override_settings(SMS_ENABLED=True, SMS_PROVIDER='eskiz', ESKIZ_API_TOKEN='TEST_TOKEN', ESKIZ_FROM='4546'):
+            with patch.object(sms_service.requests, 'post') as mock_post:
+                mock_post.return_value = self._fake_response(200, {'id': 'abc-123', 'status': 'waiting', 'message': 'Waiting for SMS provider'})
+                res = sms_service.send_sms('+998 90 111 22 33', 'Salom')
+
+        self.assertTrue(res['success'])
+        self.assertEqual(res['status'], 'sent')
+        self.assertEqual(res['message_id'], 'abc-123')
+        args, kwargs = mock_post.call_args
+        self.assertEqual(args[0], 'https://notify.eskiz.uz/api/message/sms/send')
+        self.assertEqual(kwargs['headers']['Authorization'], 'Bearer TEST_TOKEN')
+        self.assertEqual(kwargs['data'], {'mobile_phone': '998901112233', 'message': 'Salom', 'from': '4546'})
+
+    def test_send_sms_eskiz_401_without_credentials_returns_clear_error(self):
+        """Token yaroqsiz (401) bo'lsa va login ma'lumotlari bo'lmasa, tushunarli xato qaytadi."""
+        from unittest.mock import patch
+        from django.core.cache import cache
+        from core import sms_service
+        cache.delete(sms_service.ESKIZ_CACHE_KEY)
+
+        with override_settings(SMS_ENABLED=True, SMS_PROVIDER='eskiz', ESKIZ_API_TOKEN='EXPIRED', ESKIZ_EMAIL='', ESKIZ_PASSWORD=''):
+            with patch.object(sms_service.requests, 'post') as mock_post:
+                mock_post.return_value = self._fake_response(401, {'message': 'Expired'})
+                res = sms_service.send_sms('901112233', 'Salom')
+
+        self.assertFalse(res['success'])
+        self.assertEqual(res['status'], 'failed')
+        self.assertIn('401', res['error'])
+        self.assertEqual(mock_post.call_count, 1)
+
+    def test_get_token_expiry_decodes_jwt(self):
+        """JWT tokendagi exp maydoni to'g'ri o'qiladi."""
+        import base64, json as _json
+        from core.sms_service import get_token_expiry
+        payload = base64.urlsafe_b64encode(_json.dumps({'exp': 1796630005}).encode()).decode().rstrip('=')
+        expiry = get_token_expiry(f"xxx.{payload}.yyy")
+        self.assertIsNotNone(expiry)
+        self.assertEqual(int(expiry.timestamp()), 1796630005)
+        self.assertIsNone(get_token_expiry('not-a-jwt'))
+
 
 
 

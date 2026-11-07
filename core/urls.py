@@ -35,6 +35,7 @@ urlpatterns = [
     # ── To'lovlar va Excel Eksport (payment_views) ───────────────────────────
     path('admin/payments/', payment_views.admin_payments_all, name='admin_payments_all'),
     path('admin/group/<int:group_id>/payments/', payment_views.admin_group_payments, name='admin_group_payments'),
+    path('admin/payments/send-reminders/', payment_views.admin_send_payment_reminders, name='admin_send_payment_reminders'),
     path('admin/payment/save/', payment_views.admin_payment_save, name='admin_payment_save'),
     path('admin/payment/', payment_views.payment_mark, name='payment_mark'),
     path('admin/payment/<int:id>/delete/', payment_views.admin_payment_delete, name='admin_payment_delete'),

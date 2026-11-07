@@ -978,3 +978,56 @@ def admin_group_export_excel(request, group_id):
     wb.save(response)
     return response
 
+
+@admin_required
+def admin_send_payment_reminders(request):
+    """
+    Admin yoki Menejer paneli orqali qarzdor o'quvchilarning ota-onalariga
+    to'lov eslatmasi SMS xabarlarini yuborish.
+    """
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': "Faqat POST so'rovi qabul qilinadi."}, status=405)
+
+    month_str = request.POST.get('month', '').strip()
+    group_id = request.POST.get('group_id', '').strip()
+    force = request.POST.get('force') in ('1', 'true', 'True')
+    dry_run = request.POST.get('dry_run') in ('1', 'true', 'True')
+
+    if not month_str:
+        month_str = date.today().strftime('%Y-%m')
+
+    from .sms_service import send_tuition_reminders_batch
+    summary = send_tuition_reminders_batch(
+        month_str=month_str,
+        group_id=int(group_id) if group_id.isdigit() else None,
+        sent_by=request.user,
+        force=force,
+        dry_run=dry_run,
+    )
+
+    total = summary['total_unpaid']
+    sent = summary['sent']
+    skipped = summary['skipped']
+    failed = summary['failed']
+
+    msg = (
+        f"{summary['month']} oyi uchun jami {total} ta qarzdor aniqlandi. "
+        f"{sent} ta ota-onaga SMS eslatma yuborildi."
+    )
+    if skipped > 0:
+        msg += f" {skipped} ta o'quvchiga avval yuborilganligi uchun o'tkazib yuborildi."
+    if failed > 0:
+        msg += f" {failed} ta raqamga yuborishda xatolik yuz berdi."
+
+    if _is_ajax(request):
+        return JsonResponse({
+            'success': True,
+            'message': msg,
+            'summary': summary,
+        })
+
+    messages.success(request, msg)
+    next_url = request.POST.get('next') or request.META.get('HTTP_REFERER') or '/admin/payments/'
+    return redirect(next_url)
+
+

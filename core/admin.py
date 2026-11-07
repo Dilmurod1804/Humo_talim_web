@@ -7,7 +7,7 @@ import os
 from .models import (
     CustomUser, Teacher, TeacherSchedule, Manager, Group, TimeSlot,
     Student, Attendance, DeletedStudent, MonthlyPayment,
-    FaceIDSettings, FaceIDLog
+    FaceIDSettings, FaceIDLog, SMSLog
 )
 try:
     import core.face_service as fs
@@ -285,3 +285,11 @@ class MonthlyPaymentAdmin(admin.ModelAdmin):
     list_display = ('student', 'month', 'amount_paid', 'payment_type', 'status', 'payment_date')
     list_filter = ('month', 'payment_type', 'status')
     search_fields = ('student__first_name', 'student__last_name', 'notes')
+
+
+@admin.register(SMSLog)
+class SMSLogAdmin(admin.ModelAdmin):
+    list_display = ('student', 'phone', 'month', 'status', 'provider', 'created_at')
+    list_filter = ('status', 'month', 'provider', 'created_at')
+    search_fields = ('phone', 'message', 'student__first_name', 'student__last_name')
+    readonly_fields = ('created_at',)

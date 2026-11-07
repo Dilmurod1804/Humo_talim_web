@@ -1,0 +1,107 @@
+<!-- SMS Eslatma Yuborish Modali -->
+<div class="modal fade" id="sendSmsReminderModal" tabindex="-1" aria-labelledby="sendSmsReminderModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+            <div class="modal-header border-0 text-white p-4" style="background: linear-gradient(135deg, #f59e0b, #d97706);">
+                <div class="d-flex align-items-center gap-3">
+                    <div style="width:48px;height:48px;background:rgba(255,255,255,0.2);border-radius:12px;display:flex;align-items:center;justify-content:center;">
+                        <i class="bi bi-chat-dots-fill fs-4 text-white"></i>
+                    </div>
+                    <div>
+                        <h5 class="modal-title fw-bold mb-0" id="sendSmsReminderModalLabel">Oylik To'lov Eslatmasi (SMS)</h5>
+                        <small class="text-white-50">Ota-onalarga avtomatik SMS eslatma yuborish</small>
+                    </div>
+                </div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+
+            <form id="smsReminderForm" method="post" action="{% url 'admin_send_payment_reminders' %}">
+                {% csrf_token %}
+                <input type="hidden" name="month" value="{{ current_month }}">
+                {% if group %}
+                    <input type="hidden" name="group_id" value="{{ group.id }}">
+                {% elif selected_group_id %}
+                    <input type="hidden" name="group_id" value="{{ selected_group_id }}">
+                {% endif %}
+                <input type="hidden" name="next" value="{{ request.get_full_path }}">
+
+                <div class="modal-body p-4">
+                    <!-- Ma'lumot kartasi -->
+                    <div class="p-3 rounded-3 mb-3" style="background:#fffbeb;border:1px solid #fde68a;">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="text-muted small fw-semibold">Davr (oy):</span>
+                            <span class="badge bg-warning text-dark fw-bold px-3 py-1">{{ current_month }}</span>
+                        </div>
+                        {% if group %}
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="text-muted small fw-semibold">Guruh:</span>
+                            <span class="fw-bold text-dark">{{ group.name }}</span>
+                        </div>
+                        {% endif %}
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span class="text-muted small fw-semibold">Qarzdor o'quvchilar soni:</span>
+                            <span class="badge bg-danger px-3 py-1 fs-6 fw-bold">{{ stats.unpaid_count|default:"0" }} ta</span>
+                        </div>
+                    </div>
+
+                    <!-- SMS Xabar namunasi -->
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-muted small text-uppercase" style="letter-spacing:0.5px;">
+                            <i class="bi bi-eye-fill me-1 text-primary"></i> SMS matni namunasi:
+                        </label>
+                        <div class="p-3 rounded-3 bg-light border text-secondary" style="font-size:0.88rem; line-height:1.5;">
+                            "Hurmatli ota-ona! Farzandingiz <strong>Ali Valiyev</strong> ning <strong>Matematika</strong> kursi <strong>{{ current_month }}</strong> oyi uchun to'lov muddati keldi. Oylik to'lov summasi: <strong>350 000</strong> so'm. HUMO o'quv markazi. Murojaat uchun: +998..."
+                        </div>
+                        <small class="text-muted mt-1 d-block" style="font-size:0.75rem;">
+                            <i class="bi bi-info-circle me-1"></i> Har bir o'quvchi uchun ism, guruh va oylik stavka summasi mos ravishda avtomatik to'ldiriladi.
+                        </small>
+                    </div>
+
+                    <!-- Parametrlar -->
+                    <div class="form-check form-switch p-3 rounded-3 bg-white border">
+                        <input class="form-check-input ms-0 me-2" type="checkbox" id="smsForceCheck" name="force" value="1">
+                        <label class="form-check-label fw-semibold text-dark" for="smsForceCheck">
+                            Avval eslatma olganlarga ham qayta yuborilsin
+                        </label>
+                        <small class="text-muted d-block mt-1" style="font-size:0.75rem;">
+                            Belgilanmasa, shu oyda SMS yuborilgan o'quvchilar takroran bezovta qilinmaydi.
+                        </small>
+                    </div>
+
+                    <!-- Alert / Status -->
+                    <div id="smsAlertBox" class="alert d-none mt-3 mb-0 py-2 px-3 small" role="alert"></div>
+                </div>
+
+                <div class="modal-footer border-0 p-4 pt-0 d-flex justify-content-between">
+                    <button type="button" class="btn btn-light rounded-3 px-4 fw-semibold" data-bs-dismiss="modal">Bekor qilish</button>
+                    <button type="submit" id="btnSubmitSmsReminder" class="btn btn-warning fw-bold px-4 rounded-3 d-flex align-items-center gap-2 text-dark shadow-sm"
+                            style="background:linear-gradient(135deg, #fbbf24, #f59e0b); border:none;">
+                        <i class="bi bi-send-fill"></i>
+                        <span id="btnSubmitText">Yuborishni boshlash</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const smsForm = document.getElementById('smsReminderForm');
+    if (!smsForm) return;
+
+    smsForm.addEventListener('submit', function(e) {
+        const btn = document.getElementById('btnSubmitSmsReminder');
+        const btnText = document.getElementById('btnSubmitText');
+        const alertBox = document.getElementById('smsAlertBox');
+
+        if (btn) {
+            btn.disabled = true;
+            if (btnText) {
+                btnText.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span> Yuborilmoqda...';
+            }
+        }
+    });
+});
+</script>
+
