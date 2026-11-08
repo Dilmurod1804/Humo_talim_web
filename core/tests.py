@@ -5,7 +5,7 @@ from decimal import Decimal
 from django.utils import timezone
 
 from .models import (
-    AdvanceRequest, CustomUser, DeletedStudent, FaceIDLog, Group, Manager, MonthlyPayment,
+    AdvanceRequest, Attendance, CustomUser, DeletedStudent, FaceIDLog, Group, Manager, MonthlyPayment,
     StaffAbsenceExemption, Student, Teacher, TeacherSchedule, TimeSlot,
 )
 from core.face_service import process_face_check_in
@@ -1723,6 +1723,218 @@ class SMSTuitionReminderTests(TestCase):
         self.assertIsNotNone(expiry)
         self.assertEqual(int(expiry.timestamp()), 1796630005)
         self.assertIsNone(get_token_expiry('not-a-jwt'))
+
+
+class MonthlyAttendanceCalculationTests(TestCase):
+    """O'quvchi, Guruh va O'qituvchi oylik davomat foizlari hamda maosh integratsiyasi testlari."""
+
+    def setUp(self):
+        self.admin_user = CustomUser.objects.create_superuser(
+            username='admin_att_test', password='Password123'
+        )
+        self.teacher_user = CustomUser.objects.create_user(
+            username='teacher_att_test', password='Password123', role='teacher'
+        )
+        self.teacher = Teacher.objects.create(
+            user=self.teacher_user,
+            first_name='Malika',
+            last_name='Nazarova',
+            generated_login='teacher_att_test',
+            generated_password='Password123',
+            monthly_salary=Decimal('4000000.00'),
+        )
+        # Guruh 1
+        self.group1 = Group.objects.create(
+            name='Matematika 1',
+            subject='Matematika',
+            teacher=self.teacher,
+        )
+        self.ts1 = TimeSlot.objects.create(
+            group=self.group1,
+            days='Dushanba, Chorshanba, Juma',
+            start_time='09:00',
+            end_time='10:30',
+        )
+        # Guruh 2
+        self.group2 = Group.objects.create(
+            name='Matematika 2',
+            subject='Matematika',
+            teacher=self.teacher,
+        )
+        self.ts2 = TimeSlot.objects.create(
+            group=self.group2,
+            days='Seshanba, Payshanba, Shanba',
+            start_time='11:00',
+            end_time='12:30',
+        )
+
+        # Guruh 1 dagi o'quvchilar
+        self.student1 = Student.objects.create(
+            first_name='Anvar',
+            last_name='Sobirov',
+            phone_1='998901111111',
+            time_slot=self.ts1,
+        )
+        self.student2 = Student.objects.create(
+            first_name='Feruza',
+            last_name='Kamalova',
+            phone_1='998902222222',
+            time_slot=self.ts1,
+        )
+        # Guruh 2 dagi o'quvchi
+        self.student3 = Student.objects.create(
+            first_name='Bobur',
+            last_name='Alimov',
+            phone_1='998903333333',
+            time_slot=self.ts2,
+        )
+
+        # 2026-yil Oktyabr oyi uchun test ma'lumotlari:
+        # student1: 8 ta present, 2 ta absent => 8/10 = 80.0%
+        # student2: 10 ta present, 0 ta absent => 10/10 = 100.0%
+        # group1 jami: 18 ta present, 2 ta absent => 18/20 = 90.0%
+        # student3: 5 ta present, 5 ta absent => 5/10 = 50.0% (group2)
+        # teacher jami: (18 + 5) / (20 + 10) = 23 / 30 = 76.67%
+        records = []
+        # student1 records
+        for day in range(1, 9):  # 8 present
+            records.append(Attendance(student=self.student1, date=date(2026, 10, day), status='present'))
+        for day in range(9, 11):  # 2 absent
+            records.append(Attendance(student=self.student1, date=date(2026, 10, day), status='absent'))
+
+        # student2 records
+        for day in range(1, 11):  # 10 present
+            records.append(Attendance(student=self.student2, date=date(2026, 10, day), status='present'))
+
+        # student3 records (Group 2)
+        for day in range(1, 6):  # 5 present
+            records.append(Attendance(student=self.student3, date=date(2026, 10, day), status='present'))
+        for day in range(6, 11):  # 5 absent
+            records.append(Attendance(student=self.student3, date=date(2026, 10, day), status='absent'))
+
+        Attendance.objects.bulk_create(records)
+
+    def test_student_monthly_attendance_calculation(self):
+        """Yakka o'quvchining oylik davomati foizi to'g'ri hisoblanadi."""
+        from core.attendance_service import calculate_student_monthly_attendance
+
+        # student1: 8 present, 2 absent => 80.0%
+        res1 = calculate_student_monthly_attendance(self.student1, year=2026, month=10)
+        self.assertEqual(res1['present_classes'], 8)
+        self.assertEqual(res1['absent_classes'], 2)
+        self.assertEqual(res1['total_classes'], 10)
+        self.assertEqual(res1['percentage'], 80.0)
+
+        # Model metodi orqali ham to'g'ri natija qaytadi
+        self.assertEqual(self.student1.get_monthly_attendance_percentage(2026, 10), 80.0)
+
+        # student2: 10 present, 0 absent => 100.0%
+        res2 = calculate_student_monthly_attendance(self.student2, year=2026, month=10)
+        self.assertEqual(res2['present_classes'], 10)
+        self.assertEqual(res2['total_classes'], 10)
+        self.assertEqual(res2['percentage'], 100.0)
+
+    def test_student_monthly_attendance_zero_classes_edge_case(self):
+        """Yo'qlama qilinmagan oy uchun ZeroDivisionError bermasdan 0.0% qaytadi."""
+        from core.attendance_service import calculate_student_monthly_attendance
+
+        # 2026-yil Noyabr oyida hali davomat qilinmagan
+        res = calculate_student_monthly_attendance(self.student1, year=2026, month=11)
+        self.assertEqual(res['present_classes'], 0)
+        self.assertEqual(res['total_classes'], 0)
+        self.assertEqual(res['percentage'], 0.0)
+        self.assertFalse(res['has_records'])
+
+    def test_group_monthly_attendance_calculation(self):
+        """Guruhning oylik umumiy davomat foizi to'g'ri hisoblanadi."""
+        from core.attendance_service import calculate_group_monthly_attendance
+
+        # Group 1: 18 present / 20 total = 90.0%
+        grp1_res = calculate_group_monthly_attendance(self.group1, year=2026, month=10)
+        self.assertEqual(grp1_res['present_records'], 18)
+        self.assertEqual(grp1_res['absent_records'], 2)
+        self.assertEqual(grp1_res['total_records'], 20)
+        self.assertEqual(grp1_res['percentage'], 90.0)
+        self.assertEqual(grp1_res['students_count'], 2)
+        self.assertEqual(grp1_res['lesson_days_count'], 10)
+
+        # Model metodi
+        self.assertEqual(self.group1.get_monthly_attendance_percentage(2026, 10), 90.0)
+
+        # Group 2: 5 present / 10 total = 50.0%
+        grp2_res = calculate_group_monthly_attendance(self.group2, year=2026, month=10)
+        self.assertEqual(grp2_res['percentage'], 50.0)
+        self.assertEqual(self.group2.get_monthly_attendance_percentage(2026, 10), 50.0)
+
+    def test_group_monthly_attendance_zero_records_edge_case(self):
+        """Yo'qlama yo'q oy uchun guruh davomati 0.0% qaytadi."""
+        from core.attendance_service import calculate_group_monthly_attendance
+
+        res = calculate_group_monthly_attendance(self.group1, year=2026, month=11)
+        self.assertEqual(res['total_records'], 0)
+        self.assertEqual(res['percentage'], 0.0)
+        self.assertFalse(res['has_records'])
+
+    def test_teacher_monthly_attendance_calculation(self):
+        """O'qituvchining barcha guruhlari bo'yicha umumiy davomat ko'rsatkichi hisoblanadi."""
+        from core.attendance_service import calculate_teacher_monthly_attendance
+
+        # Jami: (18 + 5) / (20 + 10) = 23 / 30 = 76.67%
+        res = calculate_teacher_monthly_attendance(self.teacher, year=2026, month=10)
+        self.assertEqual(res['groups_count'], 2)
+        self.assertEqual(res['total_records'], 30)
+        self.assertEqual(res['present_records'], 23)
+        self.assertEqual(res['absent_records'], 7)
+        self.assertEqual(res['overall_percentage'], 76.67)
+
+        # Model metodi
+        self.assertEqual(self.teacher.get_monthly_attendance_percentage(2026, 10), 76.67)
+
+    def test_teacher_attendance_kpi_evaluation_and_bonus(self):
+        """O'qituvchi davomat KPI bahosi va bonus huquqi to'g'ri aniqlanadi."""
+        from core.attendance_service import evaluate_teacher_attendance_kpi, apply_teacher_attendance_bonus
+        from core.models import StaffBonus
+
+        # 76.67% bo'lgani uchun AVERAGE daraja (70% - 79.9%)
+        kpi = evaluate_teacher_attendance_kpi(self.teacher, year=2026, month=10)
+        self.assertEqual(kpi['kpi_status'], 'AVERAGE')
+        self.assertFalse(kpi['is_bonus_eligible'])
+
+        # Faqat Group 1 ni hisobga olsak (90.0% => EXCELLENT)
+        # Guruh 2 ni o'chirib yoki 90%+ davomatli o'qituvchi bilan sinab ko'ramiz
+        teacher2_user = CustomUser.objects.create_user(username='t_exc', password='Password123', role='teacher')
+        teacher2 = Teacher.objects.create(
+            user=teacher2_user, first_name='Zilola', last_name='Ahmedova',
+            monthly_salary=Decimal('5000000.00'),
+        )
+        self.group1.teacher = teacher2
+        self.group1.save()
+
+        kpi2 = evaluate_teacher_attendance_kpi(teacher2, year=2026, month=10)
+        self.assertEqual(kpi2['kpi_status'], 'EXCELLENT')
+        self.assertTrue(kpi2['is_bonus_eligible'])
+        # 5% of 5,000,000 = 250,000
+        self.assertEqual(kpi2['suggested_bonus'], Decimal('250000.00'))
+
+        # Bonusni bazaga biriktirish (apply_teacher_attendance_bonus)
+        bonus_obj, created, msg = apply_teacher_attendance_bonus(teacher2, year=2026, month=10, created_by=self.admin_user)
+        self.assertTrue(created)
+        self.assertIsNotNone(bonus_obj)
+        self.assertEqual(bonus_obj.amount, Decimal('250000.00'))
+        self.assertEqual(StaffBonus.objects.filter(user=teacher2_user, month='2026-10').count(), 1)
+
+        # Takroriy qo'shish urinishi (spam protection) -> created=False
+        bonus_obj2, created2, msg2 = apply_teacher_attendance_bonus(teacher2, year=2026, month=10)
+        self.assertFalse(created2)
+        self.assertEqual(StaffBonus.objects.filter(user=teacher2_user, month='2026-10').count(), 1)
+
+    def test_admin_salary_report_view_includes_attendance_kpi(self):
+        """admin_salary_report sahifasida o'qituvchilarning davomat ma'lumotlari to'g'ri ko'rinadi."""
+        self.client.force_login(self.admin_user)
+        resp = self.client.get(reverse('admin_salary_report') + '?month=2026-10')
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Davomat:")
+
 
 
 

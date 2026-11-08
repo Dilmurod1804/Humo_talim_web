@@ -212,6 +212,20 @@ class Teacher(models.Model):
             })
         return weekly
 
+    def get_monthly_attendance_summary(self, year: int, month: int) -> dict:
+        """O'qituvchining barcha guruhlari bo'yicha oylik davomat statistikasini qaytaradi."""
+        from core.attendance_service import calculate_teacher_monthly_attendance
+        return calculate_teacher_monthly_attendance(self, year, month)
+
+    def get_monthly_attendance_percentage(self, year: int, month: int) -> float:
+        """O'qituvchining barcha guruhlari bo'yicha umumiy davomat foizini qaytaradi."""
+        return self.get_monthly_attendance_summary(year, month)['overall_percentage']
+
+    def get_monthly_attendance_kpi(self, year: int, month: int) -> dict:
+        """O'qituvchining oylik davomat KPI ko'rsatkichlari va tavsiya etilgan bonusini qaytaradi."""
+        from core.attendance_service import evaluate_teacher_attendance_kpi
+        return evaluate_teacher_attendance_kpi(self, year, month)
+
     def __str__(self):
         return f"{self.first_name} {self.last_name}"
 
@@ -361,6 +375,15 @@ class Group(models.Model):
     def subject_name(self):
         return self.subject.strip() if self.subject and self.subject.strip() else self.name
 
+    def get_monthly_attendance_summary(self, year: int, month: int) -> dict:
+        """Guruhning berilgan oy bo'yicha umumiy davomat hisobotini qaytaradi."""
+        from core.attendance_service import calculate_group_monthly_attendance
+        return calculate_group_monthly_attendance(self, year, month)
+
+    def get_monthly_attendance_percentage(self, year: int, month: int) -> float:
+        """Guruhning berilgan oy bo'yicha umumiy davomat foizini (0.0 - 100.0) qaytaradi."""
+        return self.get_monthly_attendance_summary(year, month)['percentage']
+
     def __str__(self):
         return self.name
 
@@ -424,6 +447,15 @@ class Student(models.Model):
     @is_archived.setter
     def is_archived(self, value):
         self.is_active = not bool(value)
+
+    def get_monthly_attendance_summary(self, year: int, month: int) -> dict:
+        """O'quvchining berilgan oy bo'yicha davomat hisobotini qaytaradi."""
+        from core.attendance_service import calculate_student_monthly_attendance
+        return calculate_student_monthly_attendance(self, year, month)
+
+    def get_monthly_attendance_percentage(self, year: int, month: int) -> float:
+        """O'quvchining berilgan oy bo'yicha davomat foizini (0.0 - 100.0) qaytaradi."""
+        return self.get_monthly_attendance_summary(year, month)['percentage']
 
     def __str__(self):
         return f"{self.first_name} {self.last_name}"

@@ -1234,6 +1234,9 @@ def admin_salary_report(request):
     ):
         summary = calculate_staff_salary_summary(staff, year, month)
         summary['role_title'] = role_title
+        if isinstance(staff, Teacher):
+            from core.attendance_service import enrich_salary_summary_with_attendance
+            enrich_salary_summary_with_attendance(summary, staff, year, month)
         reports.append(summary)
         total_base += summary['base_salary']
         total_deductions += summary['total_fine_amount']

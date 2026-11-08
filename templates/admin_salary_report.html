@@ -146,6 +146,13 @@
 
                     <td>
                         <span class="badge bg-light text-dark border rounded-pill px-3 py-1 fw-bold">{{ r.role_title }}</span>
+                        {% if r.attendance_kpi and r.attendance_kpi.has_records %}
+                        <div class="mt-1" title="{{ r.attendance_kpi.note }}">
+                            <span class="badge bg-{{ r.attendance_badge_class }} bg-opacity-15 text-{{ r.attendance_badge_class }} border border-{{ r.attendance_badge_class }} border-opacity-25 rounded-pill px-2 py-1 fw-semibold" style="font-size:0.72rem;">
+                                <i class="bi bi-people-fill me-1"></i>Davomat: {{ r.attendance_percentage }}%
+                            </span>
+                        </div>
+                        {% endif %}
                     </td>
 
                     <td>
