@@ -10,7 +10,7 @@
         </div>
         <div>
             <h2 class="text-white fw-black mb-0 fs-3" style="letter-spacing:-0.5px; text-shadow:0 2px 8px rgba(0,0,0,0.15);">{{ group.name }}</h2>
-            <div class="d-flex align-items-center gap-2 mt-0.5">
+            <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
                 <small class="text-white" style="opacity:0.9;">
                     <i class="bi bi-person-badge me-1"></i>O'qituvchi: <b id="groupDetailTeacherName">{{ group.teacher|default:"Biriktirilmagan" }}</b>
                 </small>
@@ -22,6 +22,17 @@
                     <i class="bi bi-pencil-square text-primary"></i>
                     <span>O'zgartirish</span>
                 </button>
+
+                <span class="text-white opacity-50">•</span>
+
+                <!-- Guruh oylik umumiy davomat foizi -->
+                <span class="badge rounded-pill px-2.5 py-1 fw-bold d-inline-flex align-items-center gap-1.5 shadow-sm text-white"
+                      style="background:{% if group_attendance.percentage >= 90 %}rgba(16,185,129,0.35);border:1px solid rgba(16,185,129,0.6);{% elif group_attendance.percentage >= 75 %}rgba(59,130,246,0.35);border:1px solid rgba(59,130,246,0.6);{% elif group_attendance.percentage > 0 %}rgba(245,158,11,0.35);border:1px solid rgba(245,158,11,0.6);{% else %}rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.3);{% endif %}"
+                      title="{{ current_month }} oyi bo'yicha guruh umumiy davomati ({{ group_attendance.present_records }}/{{ group_attendance.total_records }} ta kelgan)">
+                    <i class="bi bi-pie-chart-fill text-warning"></i>
+                    <span>Guruh davomati: <b class="text-white">{{ group_attendance.percentage|floatformat:1 }}%</b></span>
+                    <small class="opacity-75 fw-normal">({{ group_attendance.present_records }}/{{ group_attendance.total_records }})</small>
+                </span>
             </div>
         </div>
     </div>
@@ -200,6 +211,9 @@
                 <i class="bi bi-clock me-1"></i>{{ ts.start_time|time:"H:i" }} – {{ ts.end_time|time:"H:i" }}
             </span>
             <small class="text-muted fw-semibold">{{ ts.active_students|length }} ta o'quvchi</small>
+            <span class="badge rounded-pill px-2.5 py-1 fw-bold {% if ts.attendance_percentage >= 90 %}bg-success bg-opacity-15 text-success border border-success border-opacity-30{% elif ts.attendance_percentage >= 75 %}bg-primary bg-opacity-15 text-primary border border-primary border-opacity-30{% elif ts.attendance_percentage > 0 %}bg-warning bg-opacity-15 text-warning border border-warning border-opacity-30{% else %}bg-secondary bg-opacity-10 text-muted border border-secondary border-opacity-20{% endif %}" title="Dars soati oylik davomati ({{ ts.total_present }}/{{ ts.total_records }})">
+                <i class="bi bi-pie-chart me-1"></i>Davomat: {{ ts.attendance_percentage|floatformat:1 }}%
+            </span>
         </div>
         
         <div class="d-flex align-items-center gap-2">
@@ -224,6 +238,9 @@
                     <th class="student-name"><span class="text-muted opacity-75 me-1">#</span> F.I.O. (Tarif)</th>
                     <th class="joined-date-col text-center" title="Guruhga kelgan sana">
                         <i class="bi bi-calendar2-event me-1 text-primary"></i>Kelgan sana
+                    </th>
+                    <th class="att-percent-col text-center px-2" style="min-width:80px;" title="O'quvchining oylik davomat foizi (Kelgan / Jami darslar)">
+                        <i class="bi bi-pie-chart-fill me-1 text-primary"></i>Davomat
                     </th>
                     {% for d in days_data %}
                     <th class="att-header-cell {% if d.is_today %}today-col{% elif d.is_weekend %}weekend-col{% endif %}" title="{{ d.date_str }} ({{ d.weekday }})">
@@ -269,8 +286,11 @@
                                     <div class="student-first-name fw-semibold">
                                         {{ student.first_name }}
                                     </div>
-                                    <div class="student-rate">
-                                        {{ student.payment_rate }} so'm
+                                    <div class="student-rate d-flex align-items-center gap-1.5 flex-wrap">
+                                        <span>{{ student.payment_rate }} so'm</span>
+                                        <span class="badge rounded-pill px-1.5 py-0 fw-bold {% if student.attendance_percentage >= 90 %}bg-success bg-opacity-15 text-success{% elif student.attendance_percentage >= 75 %}bg-primary bg-opacity-15 text-primary{% elif student.attendance_percentage > 0 %}bg-warning bg-opacity-15 text-warning{% else %}bg-secondary bg-opacity-10 text-muted{% endif %}" style="font-size:0.7rem;" title="Oylik davomat: {{ student.attendance_present_count }}/{{ student.attendance_total_count }}">
+                                            <i class="bi bi-pie-chart-fill me-0.5"></i>{{ student.attendance_percentage|floatformat:1 }}%
+                                        </span>
                                     </div>
                                     {% if student.phone_1 %}
                                     <div class="student-phone-badge mt-1" onclick="event.stopPropagation();">
@@ -325,6 +345,15 @@
                                    title="Kelgan sanani o'zgartirish (tanlaganda avtomatik saqlanadi)"
                                    aria-label="Kelgan sana">
                         </div>
+                    </td>
+
+                    <!-- O'quvchi oylik davomat foizi ustuni -->
+                    <td class="text-center align-middle px-2 cell-att-percent">
+                        <span class="badge rounded-pill px-2.5 py-1 fw-bold {% if student.attendance_percentage >= 90 %}bg-success bg-opacity-15 text-success border border-success border-opacity-30{% elif student.attendance_percentage >= 75 %}bg-primary bg-opacity-15 text-primary border border-primary border-opacity-30{% elif student.attendance_percentage > 0 %}bg-warning bg-opacity-15 text-warning border border-warning border-opacity-30{% else %}bg-secondary bg-opacity-10 text-muted border border-secondary border-opacity-20{% endif %}"
+                              style="font-size:0.8rem;"
+                              title="{{ student.attendance_present_count }}/{{ student.attendance_total_count }} ta darsga kelgan">
+                            {{ student.attendance_percentage|floatformat:1 }}%
+                        </span>
                     </td>
                     
                     {% for item in student.attendance_matrix %}

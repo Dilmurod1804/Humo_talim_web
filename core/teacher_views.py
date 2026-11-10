@@ -218,13 +218,32 @@ def teacher_dashboard(request):
             ).order_by('-deleted_at')
         )
         g.archived_count = len(g.archived_students)
+        group_total_present = 0
+        group_total_absent = 0
+
         for ts in g.time_slots.all():
             ts_weekdays = parse_schedule_weekdays(ts.days)
             ts.active_students = [
                 s for s in ts.students.all()
                 if s.id not in deleted_ids and _student_visible_in_month(s, y, m)
             ]
+            ts_present = 0
+            ts_absent = 0
             for s in ts.active_students:
+                s_att = attendance_map.get(s.id, {})
+                present_count = sum(1 for st in s_att.values() if st == 'present')
+                absent_count = sum(1 for st in s_att.values() if st == 'absent')
+                total_marked = present_count + absent_count
+                pct = round((present_count / total_marked) * 100, 1) if total_marked > 0 else 0.0
+
+                s.attendance_present_count = present_count
+                s.attendance_absent_count = absent_count
+                s.attendance_total_count = total_marked
+                s.attendance_percentage = pct
+
+                ts_present += present_count
+                ts_absent += absent_count
+
                 matrix = []
                 for d in days_data:
                     is_lesson = (d['weekday_idx'] in ts_weekdays)
@@ -242,6 +261,34 @@ def teacher_dashboard(request):
                     })
                 s.attendance_matrix = matrix
 
+            ts.total_present = ts_present
+            ts.total_absent = ts_absent
+            ts.total_records = ts_present + ts_absent
+            ts.attendance_percentage = (
+                round((ts_present / ts.total_records) * 100, 1)
+                if ts.total_records > 0 else 0.0
+            )
+            group_total_present += ts_present
+            group_total_absent += ts_absent
+
+        g.total_present = group_total_present
+        g.total_absent = group_total_absent
+        g.total_records = group_total_present + group_total_absent
+        g.attendance_percentage = (
+            round((group_total_present / g.total_records) * 100, 1)
+            if g.total_records > 0 else 0.0
+        )
+        g.group_attendance = {
+            'total_records': g.total_records,
+            'present_records': group_total_present,
+            'absent_records': group_total_absent,
+            'percentage': g.attendance_percentage,
+        }
+
+    sel_att = getattr(selected_group, 'group_attendance', None) if selected_group else None
+    if not sel_att and groups:
+        sel_att = groups[0].group_attendance
+
     return render(request, 'teacher_dashboard.html', {
         'teacher': teacher,
         'groups': groups,
@@ -250,6 +297,8 @@ def teacher_dashboard(request):
         'teacher_groups': teacher_groups,
         'current_month': req_month,
         'days_data': days_data,
+        'group_attendance': sel_att or {'total_records': 0, 'present_records': 0, 'absent_records': 0, 'percentage': 0.0},
+        'group_attendance_percentage': sel_att['percentage'] if sel_att else 0.0,
     })
 
 

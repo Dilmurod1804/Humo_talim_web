@@ -297,14 +297,32 @@ def admin_group_detail(request, id):
         ).order_by('-deleted_at')
     )
 
+    group_total_present = 0
+    group_total_absent = 0
+
     for ts in timeslots:
         ts_weekdays = parse_schedule_weekdays(ts.days)
         ts.active_students = [
             s for s in ts.students.all()
             if s.id not in deleted_ids and _student_visible_in_month(s, y, m)
         ]
+        ts_present = 0
+        ts_absent = 0
         for s in ts.active_students:
             s_att = attendance_map.get(s.id, {})
+            present_count = sum(1 for st in s_att.values() if st == 'present')
+            absent_count = sum(1 for st in s_att.values() if st == 'absent')
+            total_marked = present_count + absent_count
+            pct = round((present_count / total_marked) * 100, 1) if total_marked > 0 else 0.0
+
+            s.attendance_present_count = present_count
+            s.attendance_absent_count = absent_count
+            s.attendance_total_count = total_marked
+            s.attendance_percentage = pct
+
+            ts_present += present_count
+            ts_absent += absent_count
+
             s.attendance_matrix = [
                 {
                     'day': d['day'],
@@ -319,6 +337,30 @@ def admin_group_detail(request, id):
                 for d in days_data
             ]
 
+        ts.total_present = ts_present
+        ts.total_absent = ts_absent
+        ts.total_records = ts_present + ts_absent
+        ts.attendance_percentage = (
+            round((ts_present / ts.total_records) * 100, 1)
+            if ts.total_records > 0 else 0.0
+        )
+        group_total_present += ts_present
+        group_total_absent += ts_absent
+
+    group_total_records = group_total_present + group_total_absent
+    group_attendance_percentage = (
+        round((group_total_present / group_total_records) * 100, 1)
+        if group_total_records > 0 else 0.0
+    )
+
+    group_attendance = {
+        'total_records': group_total_records,
+        'present_records': group_total_present,
+        'absent_records': group_total_absent,
+        'percentage': group_attendance_percentage,
+        'students_count': len(student_ids),
+    }
+
     return render(request, 'admin_group_detail.html', {
         'group': group,
         'timeslots': timeslots,
@@ -327,6 +369,8 @@ def admin_group_detail(request, id):
         'archived_students': archived_students,
         'archived_count': len(archived_students),
         'teachers': Teacher.objects.filter(is_active=True).order_by('first_name', 'last_name'),
+        'group_attendance': group_attendance,
+        'group_attendance_percentage': group_attendance_percentage,
     })
 
 

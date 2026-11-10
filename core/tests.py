@@ -1774,12 +1774,14 @@ class MonthlyAttendanceCalculationTests(TestCase):
             last_name='Sobirov',
             phone_1='998901111111',
             time_slot=self.ts1,
+            joined_date=date(2026, 10, 1),
         )
         self.student2 = Student.objects.create(
             first_name='Feruza',
             last_name='Kamalova',
             phone_1='998902222222',
             time_slot=self.ts1,
+            joined_date=date(2026, 10, 1),
         )
         # Guruh 2 dagi o'quvchi
         self.student3 = Student.objects.create(
@@ -1787,6 +1789,7 @@ class MonthlyAttendanceCalculationTests(TestCase):
             last_name='Alimov',
             phone_1='998903333333',
             time_slot=self.ts2,
+            joined_date=date(2026, 10, 1),
         )
 
         # 2026-yil Oktyabr oyi uchun test ma'lumotlari:
@@ -1934,6 +1937,68 @@ class MonthlyAttendanceCalculationTests(TestCase):
         resp = self.client.get(reverse('admin_salary_report') + '?month=2026-10')
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "Davomat:")
+
+    def test_admin_group_detail_displays_attendance_percentages(self):
+        """admin_group_detail sahifasida guruh va har bir o'quvchi davomat foizlari to'g'ri hisoblanadi va ko'rsatiladi."""
+        self.client.force_login(self.admin_user)
+        resp = self.client.get(reverse('admin_group_detail', args=[self.group1.id]) + '?month=2026-10')
+        self.assertEqual(resp.status_code, 200)
+
+        # Context tekshiruvi: Guruh umumiy davomati
+        group_att = resp.context['group_attendance']
+        self.assertEqual(group_att['total_records'], 20)
+        self.assertEqual(group_att['present_records'], 18)
+        self.assertEqual(group_att['absent_records'], 2)
+        self.assertEqual(group_att['percentage'], 90.0)
+        self.assertEqual(resp.context['group_attendance_percentage'], 90.0)
+
+        # O'quvchilar alohida foizlari
+        active_students = resp.context['timeslots'][0].active_students
+        st_map = {s.id: s for s in active_students}
+        # student1: 8/10 = 80.0%
+        self.assertEqual(st_map[self.student1.id].attendance_percentage, 80.0)
+        self.assertEqual(st_map[self.student1.id].attendance_present_count, 8)
+        self.assertEqual(st_map[self.student1.id].attendance_total_count, 10)
+        # student2: 10/10 = 100.0%
+        self.assertEqual(st_map[self.student2.id].attendance_percentage, 100.0)
+        self.assertEqual(st_map[self.student2.id].attendance_present_count, 10)
+        self.assertEqual(st_map[self.student2.id].attendance_total_count, 10)
+
+        # HTML sahifasida guruh va o'quvchilar foizlari aks etganligi
+        self.assertContains(resp, "Guruh davomati:")
+        self.assertContains(resp, "90")
+        self.assertContains(resp, "80")
+        self.assertContains(resp, "100")
+
+    def test_admin_group_detail_zero_records_edge_case(self):
+        """Yo'qlama yo'q oyda guruh va o'quvchilar davomati xatosiz 0% ko'rsatiladi."""
+        self.client.force_login(self.admin_user)
+        # 2026-11 oyida davomat qaydlari yo'q
+        resp = self.client.get(reverse('admin_group_detail', args=[self.group1.id]) + '?month=2026-11')
+        self.assertEqual(resp.status_code, 200)
+
+        group_att = resp.context['group_attendance']
+        self.assertEqual(group_att['total_records'], 0)
+        self.assertEqual(group_att['percentage'], 0.0)
+
+        active_students = resp.context['timeslots'][0].active_students
+        for s in active_students:
+            self.assertEqual(s.attendance_percentage, 0.0)
+            self.assertEqual(s.attendance_total_count, 0)
+
+        self.assertContains(resp, "0")
+
+    def test_teacher_dashboard_displays_attendance_percentages(self):
+        """teacher_dashboard sahifasida ham guruh va o'quvchilar davomat foizlari to'g'ri chiqadi."""
+        self.client.force_login(self.teacher_user)
+        resp = self.client.get(reverse('teacher_dashboard') + f'?group_id={self.group1.id}&month=2026-10')
+        self.assertEqual(resp.status_code, 200)
+
+        self.assertEqual(resp.context['group_attendance_percentage'], 90.0)
+        self.assertContains(resp, "Davomat:")
+        self.assertContains(resp, "90")
+        self.assertContains(resp, "80")
+        self.assertContains(resp, "100")
 
 
 
