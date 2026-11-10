@@ -1964,11 +1964,11 @@ class MonthlyAttendanceCalculationTests(TestCase):
         self.assertEqual(st_map[self.student2.id].attendance_present_count, 10)
         self.assertEqual(st_map[self.student2.id].attendance_total_count, 10)
 
-        # HTML sahifasida guruh va o'quvchilar foizlari aks etganligi
+        # HTML sahifasida guruh va o'quvchilar foizlari aks etganligi (aniq raqamli ko'rsatkich formatida)
         self.assertContains(resp, "Guruh davomati:")
-        self.assertContains(resp, "90")
-        self.assertContains(resp, "80")
-        self.assertContains(resp, "100")
+        self.assertContains(resp, "80% (8/10)")
+        self.assertContains(resp, "100% (10/10)")
+        self.assertContains(resp, "(18/20)")
 
     def test_admin_group_detail_zero_records_edge_case(self):
         """Yo'qlama yo'q oyda guruh va o'quvchilar davomati xatosiz 0% ko'rsatiladi."""
@@ -1996,9 +1996,184 @@ class MonthlyAttendanceCalculationTests(TestCase):
 
         self.assertEqual(resp.context['group_attendance_percentage'], 90.0)
         self.assertContains(resp, "Davomat:")
-        self.assertContains(resp, "90")
-        self.assertContains(resp, "80")
-        self.assertContains(resp, "100")
+        self.assertContains(resp, "80% (8/10)")
+        self.assertContains(resp, "100% (10/10)")
+        self.assertContains(resp, "(18/20)")
+
+
+class GroupAttendanceExcelExportTests(TestCase):
+    """Guruh oylik davomatini Excel eksport qilish funksiyasi testlari."""
+
+    def setUp(self):
+        self.admin_user = CustomUser.objects.create_superuser(
+            username='admin_excel_test', password='Password123'
+        )
+        self.teacher_user = CustomUser.objects.create_user(
+            username='teacher_excel_test', password='Password123', role='teacher'
+        )
+        self.teacher = Teacher.objects.create(
+            user=self.teacher_user,
+            first_name='Shahnoza',
+            last_name='Karimova',
+            generated_login='teacher_excel_test',
+            generated_password='Password123',
+        )
+        self.group = Group.objects.create(
+            name='Fizika 101',
+            subject='Fizika',
+            teacher=self.teacher,
+        )
+        self.ts = TimeSlot.objects.create(
+            group=self.group,
+            days='Dushanba, Chorshanba, Juma',
+            start_time='14:00',
+            end_time='15:30',
+        )
+        self.student1 = Student.objects.create(
+            first_name='Jasur',
+            last_name='Toshmatov',
+            phone_1='+998901234567',
+            payment_rate=450000,
+            time_slot=self.ts,
+            joined_date=date(2026, 10, 1),
+            is_active=True,
+        )
+        self.student2 = Student.objects.create(
+            first_name='Dilnoza',
+            last_name='Ergasheva',
+            phone_1='+998939876543',
+            payment_rate=450000,
+            time_slot=self.ts,
+            joined_date=date(2026, 10, 1),
+            is_active=True,
+        )
+        # 2026 yil oktyabr (31 kun) uchun davomat:
+        # student1: 8 kelgan (+), 2 kelmagan (-) -> 80% (8/10)
+        records = []
+        oct_days = [1, 2, 5, 7, 9, 12, 14, 16, 19, 21]
+        for idx, day in enumerate(oct_days):
+            st1_status = 'absent' if idx in (8, 9) else 'present'
+            records.append(Attendance(
+                student=self.student1,
+                date=date(2026, 10, day),
+                status=st1_status,
+            ))
+            # student2: barchasiga kelgan (+) -> 100% (10/10)
+            records.append(Attendance(
+                student=self.student2,
+                date=date(2026, 10, day),
+                status='present',
+            ))
+        Attendance.objects.bulk_create(records)
+
+    def test_admin_group_export_excel_success(self):
+        """Admin guruh sahifasidagi Excel eksport dinamik sana ustunlari va ko'rsatkichlarni to'g'ri shakllantiradi."""
+        import openpyxl
+        from io import BytesIO
+
+        self.client.force_login(self.admin_user)
+        resp = self.client.get(reverse('admin_group_export_excel', args=[self.group.id]) + '?month=2026-10')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            resp['Content-Type'],
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        self.assertIn('Davomat_Fizika_101_2026-10.xlsx', resp['Content-Disposition'])
+
+        # Excel faylni o'qish
+        wb = openpyxl.load_workbook(BytesIO(resp.content))
+        ws = wb.active
+
+        # Sarlavha satrlari
+        self.assertIn("FIZIKA 101 GURUHI DAVOMAT JURNALI", str(ws['A1'].value))
+        self.assertIn("2026-10", str(ws['A2'].value))
+
+        # Jadval ustun sarlavhalari (Row 3)
+        headers = [ws.cell(row=3, column=c).value for c in range(1, 39)]
+        self.assertEqual(headers[0], "№")
+        self.assertEqual(headers[1], "F.I.O")
+        self.assertEqual(headers[2], "Telefon raqami")
+        self.assertEqual(headers[3], "Kelgan sana")
+        self.assertEqual(headers[4], "To'lov tarifi")
+        self.assertEqual(headers[5], "Davomat foizi")
+        self.assertEqual(headers[6], "Keldi / Jami")
+
+        # Oktyabr oyining barcha 31 kuni dinamik ustun sifatida mavjudligi
+        self.assertEqual(headers[7], "01.10")
+        self.assertEqual(headers[8], "02.10")
+        self.assertEqual(headers[37], "31.10")
+        self.assertEqual(len(headers), 7 + 31)
+
+        # O'quvchilar qatorlari (Row 4 va Row 5)
+        # O'quvchilar ism-familiyasi bo'yicha saralangan: Dilnoza, Jasur
+        row4_name = ws.cell(row=4, column=2).value
+        row5_name = ws.cell(row=5, column=2).value
+
+        if "Dilnoza" in row4_name:
+            dilnoza_row, jasur_row = 4, 5
+        else:
+            dilnoza_row, jasur_row = 5, 4
+
+        # Dilnoza: 100% va 10/10
+        self.assertEqual(ws.cell(row=dilnoza_row, column=6).value, "100%")
+        self.assertEqual(ws.cell(row=dilnoza_row, column=7).value, "10/10")
+
+        # Jasur: 80% va 8/10
+        self.assertEqual(ws.cell(row=jasur_row, column=6).value, "80%")
+        self.assertEqual(ws.cell(row=jasur_row, column=7).value, "8/10")
+
+        # Jasurning kunlik belgilari tekshiruvi:
+        # 1-oktyabr (ustun 8) -> '+'
+        self.assertEqual(ws.cell(row=jasur_row, column=8).value, "+")
+        # 21-oktyabr (ustun 7 + 21 = 28) -> '-' (absent)
+        self.assertEqual(ws.cell(row=jasur_row, column=28).value, "-")
+        # Dars o'tkazilmagan kun, masalan 3-oktyabr (ustun 10) -> bo'sh katak (None yoki "")
+        self.assertIn(ws.cell(row=jasur_row, column=10).value, (None, ""))
+
+        # Jami / Xulosa qatori (Row 6)
+        self.assertEqual(ws.cell(row=6, column=2).value, "JAMI / GURUH DAVOMATI:")
+        self.assertEqual(ws.cell(row=6, column=6).value, "90%")
+        self.assertEqual(ws.cell(row=6, column=7).value, "18/20")
+
+    def test_teacher_export_excel_with_group_attendance(self):
+        """O'qituvchi o'z kabinetidan guruh bo'yicha Excel eksport qilganda ham yo'qlama jurnali chiqadi."""
+        import openpyxl
+        from io import BytesIO
+
+        self.client.force_login(self.teacher_user)
+        resp = self.client.get(reverse('teacher_export_excel') + f'?group_id={self.group.id}&month=2026-10')
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('Davomat_Fizika_101_2026-10.xlsx', resp['Content-Disposition'])
+
+        wb = openpyxl.load_workbook(BytesIO(resp.content))
+        ws = wb.active
+        self.assertIn("FIZIKA 101 GURUHI DAVOMAT JURNALI", str(ws['A1'].value))
+
+    def test_admin_group_export_excel_zero_records_edge_case(self):
+        """Davomat qilinmagan oy uchun Excel xatoliksiz 0% va bo'sh kataklar bilan yuklanadi."""
+        import openpyxl
+        from io import BytesIO
+
+        self.client.force_login(self.admin_user)
+        # 2026-11 oyi uchun davomat mavjud emas
+        resp = self.client.get(reverse('admin_group_export_excel', args=[self.group.id]) + '?month=2026-11')
+        self.assertEqual(resp.status_code, 200)
+
+        wb = openpyxl.load_workbook(BytesIO(resp.content))
+        ws = wb.active
+        # Noyabr (30 kun): 7 + 30 = 37 ustun
+        self.assertEqual(ws.cell(row=3, column=37).value, "30.11")
+        # O'quvchi davomati 0% va 0/0
+        self.assertEqual(ws.cell(row=4, column=6).value, "0%")
+        self.assertEqual(ws.cell(row=4, column=7).value, "0/0")
+        self.assertEqual(ws.cell(row=6, column=6).value, "0%")
+        self.assertEqual(ws.cell(row=6, column=7).value, "0/0")
+
+    def test_admin_group_export_excel_permission_denied(self):
+        """Tizimga kirmagan foydalanuvchi Excelni yuklay olmaydi."""
+        resp = self.client.get(reverse('admin_group_export_excel', args=[self.group.id]))
+        # admin_required login yoki home sahifasiga yo'naltiradi
+        self.assertEqual(resp.status_code, 302)
 
 
 

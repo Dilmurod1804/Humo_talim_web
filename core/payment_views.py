@@ -12,15 +12,19 @@ except ImportError:
     relativedelta = None
 
 import openpyxl
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
 from django.contrib import messages
 from django.db.models import Exists, OuterRef, Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 
 from .auth_views import _admin_only, admin_required, is_admin_or_manager, is_manager_user
-from .models import AuditLog, DeletedStudent, Group, MonthlyPayment, Student, Teacher, TimeSlot
+from .models import (
+    Attendance, AuditLog, DeletedStudent, Group, MonthlyPayment, Student, Teacher, TimeSlot
+)
 from .payment_excel import generate_payments_excel
-from .teacher_views import _populate_excel_sheet
+from .teacher_views import _populate_excel_sheet, _student_visible_in_month
 
 
 # ─────────────────────────────────────────────────────────────
@@ -951,30 +955,297 @@ def admin_export_excel(request):
     return response
 
 
+def generate_group_attendance_excel(group, year: int, month: int) -> openpyxl.Workbook:
+    """
+    Guruh o'quvchilarining tanlangan oy bo'yicha yo'qlama (davomat) jurnali
+    va shaxsiy ko'rsatkichlarini veb-interfeys bilan bir xil ko'rinishda
+    dinamik sanalar ustunlari bilan Excel (.xlsx) sifatida shakllantiradi.
+    """
+    num_days = calendar.monthrange(year, month)[1]
+    curr_month = f"{year:04d}-{month:02d}"
+    start_date = date(year, month, 1)
+    end_date = date(year, month, num_days)
+
+    # Guruhning ushbu oyda faol va arxivda bo'lmagan o'quvchilari
+    students = list(
+        get_active_students_qs(group=group)
+        .filter(joined_date__lte=end_date)
+        .order_by('first_name', 'last_name')
+    )
+    students = [s for s in students if _student_visible_in_month(s, year, month)]
+
+    # Davomat qaydlarini olish
+    student_ids = [s.id for s in students]
+    attendance_map = {sid: {} for sid in student_ids}
+    if student_ids:
+        att_records = Attendance.objects.filter(
+            student_id__in=student_ids,
+            date__range=(start_date, end_date),
+        ).values_list('student_id', 'date', 'status')
+        for sid, att_date, status in att_records:
+            attendance_map[sid][att_date.day] = status
+
+    # Workbook yaratish
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    safe_name = "".join(c for c in group.name if c.isalnum() or c in (' ', '_', '-')).strip()
+    ws.title = safe_name[:28] or "Davomat"
+    ws.views.sheetView[0].showGridLines = True
+
+    # Ranglar va shriftlar
+    c_title_bg = "1E293B"       # Slate 900
+    c_subtitle_bg = "334155"    # Slate 700
+    c_header_bg = "4F46E5"      # Indigo 600
+    c_weekend_header_bg = "6366F1"  # Indigo 500 (Dam olish kunlari)
+    c_border = "CBD5E1"         # Slate 300
+    c_total_bg = "F1F5F9"       # Slate 100
+    c_zebra_bg = "F8FAFC"       # Slate 50
+
+    font_title = Font(name="Arial", size=13, bold=True, color="FFFFFF")
+    font_sub = Font(name="Arial", size=10, italic=True, color="E2E8F0")
+    font_hdr = Font(name="Arial", size=10, bold=True, color="FFFFFF")
+    font_cell = Font(name="Arial", size=10)
+    font_bold = Font(name="Arial", size=10, bold=True)
+    font_present = Font(name="Arial", size=11, bold=True, color="15803D")  # Yashil (+)
+    font_absent = Font(name="Arial", size=11, bold=True, color="B91C1C")   # Qizil (-)
+
+    fill_title = PatternFill(start_color=c_title_bg, end_color=c_title_bg, fill_type="solid")
+    fill_sub = PatternFill(start_color=c_subtitle_bg, end_color=c_subtitle_bg, fill_type="solid")
+    fill_hdr = PatternFill(start_color=c_header_bg, end_color=c_header_bg, fill_type="solid")
+    fill_hdr_weekend = PatternFill(start_color=c_weekend_header_bg, end_color=c_weekend_header_bg, fill_type="solid")
+    fill_present = PatternFill(start_color="DCFCE7", end_color="DCFCE7", fill_type="solid")  # Yashil fon
+    fill_absent = PatternFill(start_color="FEE2E2", end_color="FEE2E2", fill_type="solid")   # Qizil fon
+    fill_total = PatternFill(start_color=c_total_bg, end_color=c_total_bg, fill_type="solid")
+    fill_zebra = PatternFill(start_color=c_zebra_bg, end_color=c_zebra_bg, fill_type="solid")
+
+    thin_side = Side(border_style="thin", color=c_border)
+    thick_bottom = Side(border_style="medium", color="1E293B")
+    double_bottom = Side(border_style="double", color="1E293B")
+    cell_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
+    header_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thick_bottom)
+    total_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=double_bottom)
+
+    align_center = Alignment(horizontal="center", vertical="center")
+    align_left = Alignment(horizontal="left", vertical="center")
+    align_right = Alignment(horizontal="right", vertical="center")
+
+    total_cols = 7 + num_days
+    last_col_letter = get_column_letter(total_cols)
+
+    # Guruhning umumiy oylik ko'rsatkichlari
+    group_total_present = 0
+    group_total_absent = 0
+    student_stats = []
+    for s in students:
+        s_att = attendance_map.get(s.id, {})
+        p_cnt = sum(1 for d in range(1, num_days + 1) if s_att.get(d) == 'present')
+        a_cnt = sum(1 for d in range(1, num_days + 1) if s_att.get(d) == 'absent')
+        tot = p_cnt + a_cnt
+        pct = round((p_cnt / tot) * 100, 1) if tot > 0 else 0.0
+        student_stats.append({
+            'student': s,
+            'present_count': p_cnt,
+            'absent_count': a_cnt,
+            'total_marked': tot,
+            'percentage': pct,
+            'attendance_map': s_att,
+        })
+        group_total_present += p_cnt
+        group_total_absent += a_cnt
+
+    group_total_records = group_total_present + group_total_absent
+    group_pct = round((group_total_present / group_total_records) * 100, 1) if group_total_records > 0 else 0.0
+
+    # 1. Asosiy Sarlavha (Row 1)
+    ws.merge_cells(f"A1:{last_col_letter}1")
+    t_cell = ws["A1"]
+    t_cell.value = f"HUMO TA'LIM MARKAZI — {group.name.upper()} GURUHI DAVOMAT JURNALI"
+    t_cell.font = font_title
+    t_cell.fill = fill_title
+    t_cell.alignment = align_center
+    ws.row_dimensions[1].height = 34
+
+    # 2. Quyi Sarlavha / Meta-ma'lumotlar (Row 2)
+    ws.merge_cells(f"A2:{last_col_letter}2")
+    sub_cell = ws["A2"]
+    sub_cell.value = (
+        f"Fan: {group.subject or group.name}  |  "
+        f"O'qituvchi: {group.teacher or '—'}  |  "
+        f"Oylik davr: {curr_month}  |  "
+        f"Guruh umumiy davomati: {group_pct:.0f}% ({group_total_present}/{group_total_records})  |  "
+        f"Jami o'quvchilar: {len(students)} ta  |  "
+        f"Eksport sanasi: {date.today().strftime('%d.%m.%Y')}"
+    )
+    sub_cell.font = font_sub
+    sub_cell.fill = fill_sub
+    sub_cell.alignment = align_center
+    ws.row_dimensions[2].height = 24
+
+    # 3. Jadval Sarlavhalari (Row 3)
+    ws.row_dimensions[3].height = 28
+    headers = [
+        "№", "F.I.O", "Telefon raqami", "Kelgan sana",
+        "To'lov tarifi", "Davomat foizi", "Keldi / Jami"
+    ]
+    # Har bir kun uchun ustun (01.11, 02.11, ..., 30.11)
+    date_cols_meta = []
+    for d in range(1, num_days + 1):
+        cur_d = date(year, month, d)
+        is_wknd = cur_d.weekday() in (5, 6)
+        label = f"{d:02d}.{month:02d}"
+        headers.append(label)
+        date_cols_meta.append({'day': d, 'is_weekend': is_wknd, 'label': label})
+
+    for col_idx, h in enumerate(headers, 1):
+        c = ws.cell(row=3, column=col_idx, value=h)
+        c.font = font_hdr
+        c.alignment = align_center
+        c.border = header_border
+        if col_idx > 7 and date_cols_meta[col_idx - 8]['is_weekend']:
+            c.fill = fill_hdr_weekend
+        else:
+            c.fill = fill_hdr
+
+    # 4. O'quvchilar Qatorlari (Row 4..N)
+    for idx, stat in enumerate(student_stats, 1):
+        row_idx = 3 + idx
+        ws.row_dimensions[row_idx].height = 20
+        s = stat['student']
+        p_cnt = stat['present_count']
+        tot = stat['total_marked']
+        pct = stat['percentage']
+        s_att = stat['attendance_map']
+
+        phone = f"{s.phone_1} {s.phone_2 or ''}".strip()
+        joined = s.joined_date.strftime('%Y-%m-%d') if s.joined_date else ""
+        rate_val = f"{s.payment_rate:,}".replace(',', ' ') if s.payment_rate else ""
+        pct_display = f"{pct:.0f}%"
+        ratio_display = f"{p_cnt}/{tot}"
+
+        is_zebra = (idx % 2 == 0)
+        base_fill = fill_zebra if is_zebra else None
+
+        row_values = [
+            (idx, align_center, font_cell, base_fill),
+            (f"{s.first_name} {s.last_name}", align_left, font_bold, base_fill),
+            (phone, align_center, font_cell, base_fill),
+            (joined, align_center, font_cell, base_fill),
+            (rate_val, align_right, font_cell, base_fill),
+            (pct_display, align_center, font_bold, base_fill),
+            (ratio_display, align_center, font_cell, base_fill),
+        ]
+
+        for col_idx, (val, algn, fnt, fll) in enumerate(row_values, 1):
+            cell = ws.cell(row=row_idx, column=col_idx, value=val)
+            cell.alignment = algn
+            cell.font = fnt
+            cell.border = cell_border
+            if fll:
+                cell.fill = fll
+
+        # Kunlik davomat kataklari (+, - yoki bo'sh)
+        for d_meta in date_cols_meta:
+            col_idx = 7 + d_meta['day']
+            st = s_att.get(d_meta['day'], '')
+            cell = ws.cell(row=row_idx, column=col_idx)
+            cell.border = cell_border
+            cell.alignment = align_center
+
+            if st == 'present':
+                cell.value = "+"
+                cell.font = font_present
+                cell.fill = fill_present
+            elif st == 'absent':
+                cell.value = "-"
+                cell.font = font_absent
+                cell.fill = fill_absent
+            else:
+                cell.value = ""
+                if base_fill:
+                    cell.fill = base_fill
+
+    # 5. Jami / Xulosa Qatori (Summary Row)
+    summary_row_idx = 4 + len(student_stats)
+    ws.row_dimensions[summary_row_idx].height = 24
+
+    ws.cell(row=summary_row_idx, column=1, value="").border = total_border
+    sum_title_cell = ws.cell(row=summary_row_idx, column=2, value="JAMI / GURUH DAVOMATI:")
+    sum_title_cell.font = font_bold
+    sum_title_cell.alignment = align_left
+    sum_title_cell.fill = fill_total
+    sum_title_cell.border = total_border
+
+    for c_i in range(3, 6):
+        c = ws.cell(row=summary_row_idx, column=c_i, value="")
+        c.fill = fill_total
+        c.border = total_border
+
+    sum_pct_cell = ws.cell(row=summary_row_idx, column=6, value=f"{group_pct:.0f}%")
+    sum_pct_cell.font = font_bold
+    sum_pct_cell.alignment = align_center
+    sum_pct_cell.fill = fill_total
+    sum_pct_cell.border = total_border
+
+    sum_ratio_cell = ws.cell(row=summary_row_idx, column=7, value=f"{group_total_present}/{group_total_records}")
+    sum_ratio_cell.font = font_bold
+    sum_ratio_cell.alignment = align_center
+    sum_ratio_cell.fill = fill_total
+    sum_ratio_cell.border = total_border
+
+    # Har bir kunda nechta o'quvchi kelganligi (kunlik yig'indi)
+    for d_meta in date_cols_meta:
+        col_idx = 7 + d_meta['day']
+        day_p_cnt = sum(
+            1 for stat in student_stats
+            if stat['attendance_map'].get(d_meta['day']) == 'present'
+        )
+        c = ws.cell(
+            row=summary_row_idx,
+            column=col_idx,
+            value=day_p_cnt if day_p_cnt > 0 else ""
+        )
+        c.font = font_bold
+        c.alignment = align_center
+        c.fill = fill_total
+        c.border = total_border
+
+    # Ustun kengliklari
+    ws.column_dimensions['A'].width = 6
+    ws.column_dimensions['B'].width = 26
+    ws.column_dimensions['C'].width = 18
+    ws.column_dimensions['D'].width = 14
+    ws.column_dimensions['E'].width = 14
+    ws.column_dimensions['F'].width = 15
+    ws.column_dimensions['G'].width = 14
+    for d in range(1, num_days + 1):
+        col_letter = get_column_letter(7 + d)
+        ws.column_dimensions[col_letter].width = 6
+
+    # Qator va ustunlarni muzlatish (Freeze panes)
+    ws.freeze_panes = "H4"
+
+    return wb
+
+
 @admin_required
 def admin_group_export_excel(request, group_id):
-    """Guruh o'quvchilarini Excel fayl qilib yuklab berish."""
+    """
+    Guruh o'quvchilarining tanlangan oy bo'yicha yo'qlama (davomat) jurnali
+    va shaxsiy ko'rsatkichlarini Excel fayl qilib yuklab berish.
+    """
     if not is_admin_or_manager(request):
         return redirect('home')
 
     group = get_object_or_404(Group, id=group_id)
     curr_month, req_year, req_mon = normalize_month_str(request.GET.get('month'))
-    max_d = calendar.monthrange(req_year, req_mon)[1]
-    month_end_date = date(req_year, req_mon, max_d)
-    payment_map = dict(MonthlyPayment.objects.filter(month=curr_month).values_list('student_id', 'amount_paid'))
-    students = (
-        get_active_students_qs(group=group)
-        .filter(joined_date__lte=month_end_date)
-        .order_by('first_name', 'last_name')
+
+    wb = generate_group_attendance_excel(group, req_year, req_mon)
+
+    response = HttpResponse(
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
-
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = group.name[:28]
-    _populate_excel_sheet(ws, students, payment_map)
-
-    response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-    response['Content-Disposition'] = f'attachment; filename="Guruh_{group.name}_{curr_month}.xlsx"'
+    safe_name = "".join(c for c in group.name if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
+    response['Content-Disposition'] = f'attachment; filename="Davomat_{safe_name}_{curr_month}.xlsx"'
     wb.save(response)
     return response
 

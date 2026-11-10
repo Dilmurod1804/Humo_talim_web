@@ -20,7 +20,7 @@
         <a href="{% url 'face_id_check_in' %}" target="_blank" class="btn text-white fw-bold d-flex align-items-center gap-2 shadow-sm" style="background: linear-gradient(135deg, #6366f1, #8b5cf6); border:none; border-radius:10px;">
             <i class="bi bi-camera-fill"></i> Face ID Kirish
         </a>
-        <a href="{% url 'teacher_export_excel' %}{% if selected_group %}?group_id={{ selected_group.id }}{% endif %}" class="btn text-white fw-bold d-flex align-items-center gap-2" style="background: linear-gradient(135deg,#10b981,#059669); border:none; border-radius:10px;">
+        <a href="{% url 'teacher_export_excel' %}{% if selected_group %}?group_id={{ selected_group.id }}{% if current_month %}&month={{ current_month }}{% endif %}{% elif current_month %}?month={{ current_month }}{% endif %}" class="btn text-white fw-bold d-flex align-items-center gap-2" style="background: linear-gradient(135deg,#10b981,#059669); border:none; border-radius:10px;">
             <i class="bi bi-file-earmark-excel-fill"></i> Excel
         </a>
         <a href="{% url 'teacher_chat' %}" class="btn text-white fw-bold d-flex align-items-center gap-2" style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.4); border-radius:10px;">
@@ -87,8 +87,8 @@
                     <small class="text-muted"><i class="bi bi-mortarboard-fill me-1 text-primary"></i>Fan: <b class="text-dark">{{ group.subject }}</b></small>
                     <span class="text-muted opacity-50">•</span>
                     {% endif %}
-                    <span class="badge rounded-pill px-2.5 py-1 fw-bold {% if group.attendance_percentage >= 90 %}bg-success bg-opacity-15 text-success border border-success border-opacity-30{% elif group.attendance_percentage >= 75 %}bg-primary bg-opacity-15 text-primary border border-primary border-opacity-30{% elif group.attendance_percentage > 0 %}bg-warning bg-opacity-15 text-warning border border-warning border-opacity-30{% else %}bg-secondary bg-opacity-10 text-muted border border-secondary border-opacity-20{% endif %}" title="Guruh oylik davomati ({{ group.total_present }}/{{ group.total_records }})">
-                        <i class="bi bi-pie-chart-fill me-1"></i>Davomat: {{ group.attendance_percentage|floatformat:1 }}%
+                    <span class="text-secondary fw-semibold small d-inline-flex align-items-center gap-1" title="Guruh oylik davomati: {{ group.total_present }}/{{ group.total_records }} ta kelgan">
+                        <i class="bi bi-pie-chart text-muted"></i>Davomat: <b class="text-dark">{{ group.attendance_percentage|floatformat:0 }}% ({{ group.total_present }}/{{ group.total_records }})</b>
                     </span>
                 </div>
             </div>
@@ -266,8 +266,9 @@
                                         </div>
                                         <div class="student-rate d-flex align-items-center gap-1.5 flex-wrap">
                                             <span>{{ student.payment_rate }} so'm</span>
-                                            <span class="badge rounded-pill px-1.5 py-0 fw-bold {% if student.attendance_percentage >= 90 %}bg-success bg-opacity-15 text-success{% elif student.attendance_percentage >= 75 %}bg-primary bg-opacity-15 text-primary{% elif student.attendance_percentage > 0 %}bg-warning bg-opacity-15 text-warning{% else %}bg-secondary bg-opacity-10 text-muted{% endif %}" style="font-size:0.7rem;" title="Oylik davomat: {{ student.attendance_present_count }}/{{ student.attendance_total_count }}">
-                                                <i class="bi bi-pie-chart-fill me-0.5"></i>{{ student.attendance_percentage|floatformat:1 }}%
+                                            <span class="text-muted opacity-50">•</span>
+                                            <span class="fw-bold text-dark" style="font-size:0.78rem;" title="Oylik davomat: {{ student.attendance_present_count }}/{{ student.attendance_total_count }} dars">
+                                                {{ student.attendance_percentage|floatformat:0 }}% ({{ student.attendance_present_count }}/{{ student.attendance_total_count }})
                                             </span>
                                         </div>
                                         {% if student.phone_1 %}
@@ -323,10 +324,9 @@
 
                         <!-- O'quvchi oylik davomat foizi ustuni -->
                         <td class="text-center align-middle px-2 cell-att-percent">
-                            <span class="badge rounded-pill px-2.5 py-1 fw-bold {% if student.attendance_percentage >= 90 %}bg-success bg-opacity-15 text-success border border-success border-opacity-30{% elif student.attendance_percentage >= 75 %}bg-primary bg-opacity-15 text-primary border border-primary border-opacity-30{% elif student.attendance_percentage > 0 %}bg-warning bg-opacity-15 text-warning border border-warning border-opacity-30{% else %}bg-secondary bg-opacity-10 text-muted border border-secondary border-opacity-20{% endif %}"
-                                  style="font-size:0.8rem;"
+                            <span class="fw-bold text-dark font-monospace" style="font-size:0.84rem;"
                                   title="{{ student.attendance_present_count }}/{{ student.attendance_total_count }} ta darsga kelgan">
-                                {{ student.attendance_percentage|floatformat:1 }}%
+                                {{ student.attendance_percentage|floatformat:0 }}% ({{ student.attendance_present_count }}/{{ student.attendance_total_count }})
                             </span>
                         </td>
                         

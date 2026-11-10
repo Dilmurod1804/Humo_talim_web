@@ -624,6 +624,19 @@ def teacher_export_excel(request):
     payment_map = {p.student_id: p.amount_paid for p in payments}
 
     req_group_id = request.GET.get('group_id')
+    if req_group_id and str(req_group_id).isdigit():
+        target_group = teacher.groups.filter(id=int(req_group_id)).first()
+        if target_group:
+            from .payment_views import generate_group_attendance_excel
+            wb = generate_group_attendance_excel(target_group, y, m)
+            response = HttpResponse(
+                content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            )
+            safe_name = "".join(c for c in target_group.name if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
+            response['Content-Disposition'] = f'attachment; filename="Davomat_{safe_name}_{curr_month}.xlsx"'
+            wb.save(response)
+            return response
+
     deleted_ids = DeletedStudent.objects.filter(student_id__isnull=False).values_list('student_id', flat=True)
     students = (
         Student.objects.select_related('time_slot__group__teacher')
