@@ -27,6 +27,9 @@ from .models import (
 )
 from .services import optimize_student_photo
 from .validators import contains_cyrillic
+from .attendance_service import (
+    calculate_student_monthly_attendance, compute_student_attendance_stats,
+)
 from .auth_views import _admin_only, is_admin_or_manager
 from .schedule_helper import parse_schedule_weekdays
 
@@ -231,18 +234,15 @@ def teacher_dashboard(request):
             ts_absent = 0
             for s in ts.active_students:
                 s_att = attendance_map.get(s.id, {})
-                present_count = sum(1 for st in s_att.values() if st == 'present')
-                absent_count = sum(1 for st in s_att.values() if st == 'absent')
-                total_marked = present_count + absent_count
-                pct = round((present_count / total_marked) * 100, 1) if total_marked > 0 else 0.0
+                st_stats = compute_student_attendance_stats(s_att)
 
-                s.attendance_present_count = present_count
-                s.attendance_absent_count = absent_count
-                s.attendance_total_count = total_marked
-                s.attendance_percentage = pct
+                s.attendance_present_count = st_stats['present_count']
+                s.attendance_absent_count = st_stats['absent_count']
+                s.attendance_total_count = st_stats['total_count']
+                s.attendance_percentage = st_stats['percentage']
 
-                ts_present += present_count
-                ts_absent += absent_count
+                ts_present += st_stats['present_count']
+                ts_absent += st_stats['absent_count']
 
                 matrix = []
                 for d in days_data:
@@ -384,7 +384,7 @@ def teacher_attendance_mark(request):
             )
         except Exception:
             pass
-        return JsonResponse({'status': 'success', 'attendance': att.status})
+        final_status = att.status
     else:
         Attendance.objects.filter(student=student, date=req_date).delete()
         try:
@@ -398,7 +398,26 @@ def teacher_attendance_mark(request):
             )
         except Exception:
             pass
-        return JsonResponse({'status': 'success', 'attendance': ''})
+        final_status = ''
+
+    att_summary = calculate_student_monthly_attendance(student, req_date.year, req_date.month)
+    tot = att_summary['total_classes']
+    pres = att_summary['present_classes']
+    pct_val = att_summary['percentage'] if tot > 0 else 0.0
+    display_text = f"{int(round(pct_val))}% ({pres}/{tot})" if tot > 0 else "0% (0/0)"
+
+    return JsonResponse({
+        'status': 'success',
+        'attendance': final_status,
+        'student_attendance': {
+            'percentage': pct_val,
+            'present_count': pres,
+            'absent_count': att_summary['absent_classes'],
+            'total_count': tot,
+            'has_records': tot > 0,
+            'display': display_text,
+        },
+    })
 
 
 # ─────────────────────────────────────────────

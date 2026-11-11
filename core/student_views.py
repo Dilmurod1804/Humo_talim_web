@@ -12,6 +12,9 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
+from .attendance_service import (
+    calculate_student_monthly_attendance, compute_student_attendance_stats,
+)
 from .auth_views import _admin_only, admin_required, is_admin_or_manager
 from .forms import TemporaryStudentForm
 from .models import (
@@ -310,18 +313,15 @@ def admin_group_detail(request, id):
         ts_absent = 0
         for s in ts.active_students:
             s_att = attendance_map.get(s.id, {})
-            present_count = sum(1 for st in s_att.values() if st == 'present')
-            absent_count = sum(1 for st in s_att.values() if st == 'absent')
-            total_marked = present_count + absent_count
-            pct = round((present_count / total_marked) * 100, 1) if total_marked > 0 else 0.0
+            st_stats = compute_student_attendance_stats(s_att)
 
-            s.attendance_present_count = present_count
-            s.attendance_absent_count = absent_count
-            s.attendance_total_count = total_marked
-            s.attendance_percentage = pct
+            s.attendance_present_count = st_stats['present_count']
+            s.attendance_absent_count = st_stats['absent_count']
+            s.attendance_total_count = st_stats['total_count']
+            s.attendance_percentage = st_stats['percentage']
 
-            ts_present += present_count
-            ts_absent += absent_count
+            ts_present += st_stats['present_count']
+            ts_absent += st_stats['absent_count']
 
             s.attendance_matrix = [
                 {
@@ -430,10 +430,29 @@ def admin_attendance_mark(request):
         except ValidationError as ve:
             err_msg = ve.message_dict.get('date', [str(ve)])[0] if hasattr(ve, 'message_dict') else str(ve)
             return JsonResponse({'status': 'error', 'msg': err_msg}, status=400)
-        return JsonResponse({'status': 'success', 'attendance': status_val})
+        final_status = status_val
+    else:
+        Attendance.objects.filter(student=student, date=req_date).delete()
+        final_status = ''
 
-    Attendance.objects.filter(student=student, date=req_date).delete()
-    return JsonResponse({'status': 'success', 'attendance': ''})
+    att_summary = calculate_student_monthly_attendance(student, req_date.year, req_date.month)
+    tot = att_summary['total_classes']
+    pres = att_summary['present_classes']
+    pct_val = att_summary['percentage'] if tot > 0 else 0.0
+    display_text = f"{int(round(pct_val))}% ({pres}/{tot})" if tot > 0 else "0% (0/0)"
+
+    return JsonResponse({
+        'status': 'success',
+        'attendance': final_status,
+        'student_attendance': {
+            'percentage': pct_val,
+            'present_count': pres,
+            'absent_count': att_summary['absent_classes'],
+            'total_count': tot,
+            'has_records': tot > 0,
+            'display': display_text,
+        },
+    })
 
 
 # ─────────────────────────────────────────────────────────────

@@ -21,6 +21,29 @@ logger = logging.getLogger(__name__)
 # 1. TALABANING OYLIK DAVOMAT FOIZI
 # ─────────────────────────────────────────────────────────────
 
+def compute_student_attendance_stats(attendance_day_map: dict) -> dict:
+    """
+    O'quvchining kunlik davomat lug'ati ({day: status}) asosida oylik
+    kelgan/kelmagan/jami belgilangan darslar soni va davomat foizini hisoblaydi.
+
+    Agar birorta ham haqiqiy belgilangan dars bo'lmasa (total_marked == 0),
+    davomat foizi qat'iy ravishda 0.0 qaytariladi (100% emas).
+    """
+    present_count = sum(1 for st in attendance_day_map.values() if st == 'present')
+    absent_count = sum(1 for st in attendance_day_map.values() if st == 'absent')
+    total_marked = present_count + absent_count
+
+    percentage = round((present_count / total_marked) * 100, 1) if total_marked > 0 else 0.0
+
+    return {
+        'present_count': present_count,
+        'absent_count': absent_count,
+        'total_count': total_marked,
+        'percentage': percentage,
+        'has_records': total_marked > 0,
+    }
+
+
 def calculate_student_monthly_attendance(student_or_id, year: int, month: int) -> dict:
     """
     Muayyan o'quvchining berilgan yil va oy uchun davomat foizini hisoblaydi.
@@ -53,19 +76,19 @@ def calculate_student_monthly_attendance(student_or_id, year: int, month: int) -
         student=student,
         date__year=year,
         date__month=month,
+        status__in=['present', 'absent'],
     )
 
     stats = qs.aggregate(
-        total=Count('id'),
         present=Count('id', filter=Q(status='present')),
         absent=Count('id', filter=Q(status='absent')),
     )
 
-    total_classes = stats['total'] or 0
     present_classes = stats['present'] or 0
     absent_classes = stats['absent'] or 0
+    total_classes = present_classes + absent_classes
 
-    # Dars o'tilmagan yoki yo'qlama qilinmagan bo'lsa 0.0 (ZeroDivisionError dan himoyalangan)
+    # Dars o'tilmagan yoki yo'qlama qilinmagan bo'lsa 0.0 (hech qachon 100% emas)
     percentage = (
         round((present_classes / total_classes) * 100, 2)
         if total_classes > 0 else 0.0
@@ -122,22 +145,22 @@ def calculate_group_monthly_attendance(group_or_id, year: int, month: int) -> di
     else:
         group = Group.objects.select_related('teacher').get(id=group_or_id)
 
-    # Guruhga tegishli barcha o'quvchilarning shu oydagi davomat qaydlari
+    # Guruhga tegishli barcha o'quvchilarning shu oydagi davomat qaydlari (faqat present/absent)
     qs = Attendance.objects.filter(
         student__time_slot__group=group,
         date__year=year,
         date__month=month,
+        status__in=['present', 'absent'],
     )
 
     stats = qs.aggregate(
-        total=Count('id'),
         present=Count('id', filter=Q(status='present')),
         absent=Count('id', filter=Q(status='absent')),
     )
 
-    total_records = stats['total'] or 0
     present_records = stats['present'] or 0
     absent_records = stats['absent'] or 0
+    total_records = present_records + absent_records
 
     percentage = (
         round((present_records / total_records) * 100, 2)

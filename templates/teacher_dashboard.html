@@ -267,8 +267,8 @@
                                         <div class="student-rate d-flex align-items-center gap-1.5 flex-wrap">
                                             <span>{{ student.payment_rate }} so'm</span>
                                             <span class="text-muted opacity-50">•</span>
-                                            <span class="fw-bold text-dark" style="font-size:0.78rem;" title="Oylik davomat: {{ student.attendance_present_count }}/{{ student.attendance_total_count }} dars">
-                                                {{ student.attendance_percentage|floatformat:0 }}% ({{ student.attendance_present_count }}/{{ student.attendance_total_count }})
+                                            <span class="fw-bold text-dark" style="font-size:0.78rem;" data-student-att="{{ student.id }}" title="Oylik davomat: {{ student.attendance_present_count|default:0 }}/{{ student.attendance_total_count|default:0 }} dars">
+                                                {% if student.attendance_total_count > 0 %}{{ student.attendance_percentage|default:0|floatformat:0 }}% ({{ student.attendance_present_count|default:0 }}/{{ student.attendance_total_count|default:0 }}){% else %}0% (0/0){% endif %}
                                             </span>
                                         </div>
                                         {% if student.phone_1 %}
@@ -325,8 +325,9 @@
                         <!-- O'quvchi oylik davomat foizi ustuni -->
                         <td class="text-center align-middle px-2 cell-att-percent">
                             <span class="fw-bold text-dark font-monospace" style="font-size:0.84rem;"
-                                  title="{{ student.attendance_present_count }}/{{ student.attendance_total_count }} ta darsga kelgan">
-                                {{ student.attendance_percentage|floatformat:0 }}% ({{ student.attendance_present_count }}/{{ student.attendance_total_count }})
+                                  data-student-att="{{ student.id }}"
+                                  title="{{ student.attendance_present_count|default:0 }}/{{ student.attendance_total_count|default:0 }} ta darsga kelgan">
+                                {% if student.attendance_total_count > 0 %}{{ student.attendance_percentage|default:0|floatformat:0 }}% ({{ student.attendance_present_count|default:0 }}/{{ student.attendance_total_count|default:0 }}){% else %}0% (0/0){% endif %}
                             </span>
                         </td>
                         
@@ -649,6 +650,11 @@
                     } else if (data.attendance === 'absent') {
                         this.classList.add('absent');
                         this.innerText = '-';
+                    }
+                    if (data.student_attendance) {
+                        document.querySelectorAll(`[data-student-att="${sid}"]`).forEach(el => {
+                            el.textContent = data.student_attendance.display;
+                        });
                     }
                 } else {
                     alert("Xatolik: " + (data.msg || "Davomatni saqlab bo'lmadi"));

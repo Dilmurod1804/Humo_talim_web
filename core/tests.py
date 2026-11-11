@@ -1986,7 +1986,8 @@ class MonthlyAttendanceCalculationTests(TestCase):
             self.assertEqual(s.attendance_percentage, 0.0)
             self.assertEqual(s.attendance_total_count, 0)
 
-        self.assertContains(resp, "0")
+        self.assertContains(resp, "0% (0/0)")
+        self.assertNotContains(resp, "100% (")
 
     def test_teacher_dashboard_displays_attendance_percentages(self):
         """teacher_dashboard sahifasida ham guruh va o'quvchilar davomat foizlari to'g'ri chiqadi."""
@@ -1999,6 +2000,57 @@ class MonthlyAttendanceCalculationTests(TestCase):
         self.assertContains(resp, "80% (8/10)")
         self.assertContains(resp, "100% (10/10)")
         self.assertContains(resp, "(18/20)")
+
+    def test_teacher_dashboard_zero_records_not_100_percent(self):
+        """Yo'qlama bo'lmagan oyda teacher_dashboard da 0% (0/0) chiqadi, 100% emas."""
+        self.client.force_login(self.teacher_user)
+        resp = self.client.get(reverse('teacher_dashboard') + f'?group_id={self.group1.id}&month=2026-11')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.context['group_attendance_percentage'], 0.0)
+        self.assertContains(resp, "0% (0/0)")
+        self.assertNotContains(resp, "100% (")
+
+    def test_compute_student_attendance_stats_empty_and_invalid(self):
+        """Bo'sh yoki noto'g'ri statusli davomat uchun foiz 0.0 qaytariladi (100% emas)."""
+        from core.attendance_service import compute_student_attendance_stats
+
+        empty_stats = compute_student_attendance_stats({})
+        self.assertEqual(empty_stats['percentage'], 0.0)
+        self.assertEqual(empty_stats['total_count'], 0)
+        self.assertFalse(empty_stats['has_records'])
+
+        invalid_stats = compute_student_attendance_stats({1: '', 2: 'unknown'})
+        self.assertEqual(invalid_stats['percentage'], 0.0)
+        self.assertEqual(invalid_stats['total_count'], 0)
+        self.assertFalse(invalid_stats['has_records'])
+
+    def test_attendance_mark_api_returns_0_percent_when_cleared(self):
+        """AJAX orqali davomat belgilanganda va o'chirilganda API to'g'ri 0% (0/0) qaytaradi."""
+        today_str = date.today().strftime('%Y-%m-%d')
+        self.client.force_login(self.admin_user)
+
+        # 1. Present deb belgilash -> 100% (1/1)
+        resp1 = self.client.post(reverse('admin_attendance_mark'), {
+            'student_id': self.student1.id,
+            'date': today_str,
+            'status': 'present',
+        })
+        self.assertEqual(resp1.status_code, 200)
+        data1 = resp1.json()
+        self.assertEqual(data1['student_attendance']['percentage'], 100.0)
+        self.assertEqual(data1['student_attendance']['display'], '100% (1/1)')
+
+        # 2. Belgini tozalash (status='') -> 0% (0/0) qaytishi kerak (100% emas!)
+        resp2 = self.client.post(reverse('admin_attendance_mark'), {
+            'student_id': self.student1.id,
+            'date': today_str,
+            'status': '',
+        })
+        self.assertEqual(resp2.status_code, 200)
+        data2 = resp2.json()
+        self.assertEqual(data2['student_attendance']['percentage'], 0.0)
+        self.assertEqual(data2['student_attendance']['total_count'], 0)
+        self.assertEqual(data2['student_attendance']['display'], '0% (0/0)')
 
 
 class GroupAttendanceExcelExportTests(TestCase):

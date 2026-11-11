@@ -19,6 +19,7 @@ from django.db.models import Exists, OuterRef, Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 
+from .attendance_service import compute_student_attendance_stats
 from .auth_views import _admin_only, admin_required, is_admin_or_manager, is_manager_user
 from .models import (
     Attendance, AuditLog, DeletedStudent, Group, MonthlyPayment, Student, Teacher, TimeSlot
@@ -1038,20 +1039,17 @@ def generate_group_attendance_excel(group, year: int, month: int) -> openpyxl.Wo
     student_stats = []
     for s in students:
         s_att = attendance_map.get(s.id, {})
-        p_cnt = sum(1 for d in range(1, num_days + 1) if s_att.get(d) == 'present')
-        a_cnt = sum(1 for d in range(1, num_days + 1) if s_att.get(d) == 'absent')
-        tot = p_cnt + a_cnt
-        pct = round((p_cnt / tot) * 100, 1) if tot > 0 else 0.0
+        st_stats = compute_student_attendance_stats(s_att)
         student_stats.append({
             'student': s,
-            'present_count': p_cnt,
-            'absent_count': a_cnt,
-            'total_marked': tot,
-            'percentage': pct,
+            'present_count': st_stats['present_count'],
+            'absent_count': st_stats['absent_count'],
+            'total_marked': st_stats['total_count'],
+            'percentage': st_stats['percentage'],
             'attendance_map': s_att,
         })
-        group_total_present += p_cnt
-        group_total_absent += a_cnt
+        group_total_present += st_stats['present_count']
+        group_total_absent += st_stats['absent_count']
 
     group_total_records = group_total_present + group_total_absent
     group_pct = round((group_total_present / group_total_records) * 100, 1) if group_total_records > 0 else 0.0
