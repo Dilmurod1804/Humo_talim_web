@@ -2060,8 +2060,8 @@ class MonthlyAttendanceCalculationTests(TestCase):
         late_student = Student.objects.create(
             first_name='Sardor',
             last_name='Kechkeldi',
+            phone_1='998909998877',
             time_slot=self.ts1,
-            phone='+998909998877',
             joined_date=date(2026, 10, 1),
         )
         # ts1 da 2026-10-01..2026-10-10 gacha 10 ta dars kuni bor (setUp da yaratilgan).
