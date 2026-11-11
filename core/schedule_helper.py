@@ -1,3 +1,4 @@
+import calendar
 import re
 from datetime import date
 
@@ -58,3 +59,22 @@ def is_timeslot_lesson_day(timeslot_days: str, target_date: date) -> bool:
     """
     weekdays = parse_schedule_weekdays(timeslot_days)
     return target_date.weekday() in weekdays
+
+
+def get_scheduled_lesson_days_in_month(timeslot_days: str, year: int, month: int) -> list[date]:
+    """
+    Berilgan dars jadvali (masalan, 'Seshanba, Payshanba, Shanba') bo'yicha
+    oy davomidagi barcha rejalashtirilgan dars sanalarini qaytaradi.
+    """
+    _, num_days = calendar.monthrange(year, month)
+    weekdays = parse_schedule_weekdays(timeslot_days)
+    return [
+        date(year, month, day)
+        for day in range(1, num_days + 1)
+        if date(year, month, day).weekday() in weekdays
+    ]
+
+
+def count_scheduled_classes_in_month(timeslot_days: str, year: int, month: int) -> int:
+    """Berilgan yil va oyda jadval bo'yicha rejalashtirilgan jami darslar sonini qaytaradi."""
+    return len(get_scheduled_lesson_days_in_month(timeslot_days, year, month))

@@ -295,21 +295,6 @@ def admin_group_detail(request, id):
         for sid, att_date, status in attendances:
             attendance_map[sid][att_date.day] = status
 
-    ts_lesson_dates_map = {}
-    timeslot_ids = [ts.id for ts in timeslots]
-    if timeslot_ids:
-        lesson_dates = (
-            Attendance.objects.filter(
-                student__time_slot_id__in=timeslot_ids,
-                date__range=(date(y, m, 1), date(y, m, num_days)),
-                status__in=['present', 'absent'],
-            )
-            .values_list('student__time_slot_id', 'date')
-            .distinct()
-        )
-        for ts_id, att_date in lesson_dates:
-            ts_lesson_dates_map.setdefault(ts_id, set()).add(att_date)
-
     archived_students = list(
         DeletedStudent.objects.filter(
             Q(group=group) | Q(group_name=group.name)
@@ -321,7 +306,7 @@ def admin_group_detail(request, id):
 
     for ts in timeslots:
         ts_weekdays = parse_schedule_weekdays(ts.days)
-        ts_classes_held = len(ts_lesson_dates_map.get(ts.id, set()))
+        ts_scheduled_classes = sum(1 for d in days_data if d['weekday_idx'] in ts_weekdays)
         ts.active_students = [
             s for s in ts.students.all()
             if s.id not in deleted_ids and _student_visible_in_month(s, y, m)
@@ -330,7 +315,7 @@ def admin_group_detail(request, id):
         ts_absent = 0
         for s in ts.active_students:
             s_att = attendance_map.get(s.id, {})
-            st_stats = compute_student_attendance_stats(s_att, total_group_classes=ts_classes_held)
+            st_stats = compute_student_attendance_stats(s_att, total_group_classes=ts_scheduled_classes)
 
             s.attendance_present_count = st_stats['present_count']
             s.attendance_absent_count = st_stats['absent_count']
@@ -338,7 +323,7 @@ def admin_group_detail(request, id):
             s.attendance_percentage = st_stats['percentage']
 
             ts_present += st_stats['present_count']
-            ts_absent += st_stats['absent_count']
+            ts_absent += st_stats['marked_absent_count']
 
             s.attendance_matrix = [
                 {

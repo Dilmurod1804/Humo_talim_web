@@ -26,20 +26,20 @@ def compute_student_attendance_stats(
     total_group_classes: int | None = None,
 ) -> dict:
     """
-    O'quvchining kunlik davomat lug'ati ({day: status}) va guruhda o'tilgan jami
-    darslar soni asosida oylik davomat statistikasi va foizini hisoblaydi.
+    O'quvchining kunlik davomat lug'ati ({day: status}) va guruhning oylik
+    rejalashtirilgan darslar soni asosida oylik davomat foizini hisoblaydi.
 
-    Agar `total_group_classes` berilsa, maxraj sifatida shu oyda guruhda o'tkazilgan
-    noyob dars kunlari soni olinadi: (kelganlar / jami guruh darslari) * 100.
-    Agar birorta ham dars o'tilmagan/belgilanmagan bo'lsa, foiz 0.0 qaytariladi.
+    Agar `total_group_classes` berilsa, maxraj sifatida shu oyda guruh jadvali
+    bo'yicha rejalashtirilgan jami darslar soni olinadi:
+      (kelgan darslar / oylik rejalashtirilgan darslar) * 100
     """
     present_count = sum(1 for st in attendance_day_map.values() if st == 'present')
+    marked_absent = sum(1 for st in attendance_day_map.values() if st == 'absent')
 
     if total_group_classes is not None:
         total_classes = max(0, int(total_group_classes))
         absent_count = max(0, total_classes - present_count)
     else:
-        marked_absent = sum(1 for st in attendance_day_map.values() if st == 'absent')
         total_classes = present_count + marked_absent
         absent_count = marked_absent
 
@@ -51,6 +51,7 @@ def compute_student_attendance_stats(
     return {
         'present_count': present_count,
         'absent_count': absent_count,
+        'marked_absent_count': marked_absent,
         'total_count': total_classes,
         'percentage': percentage,
         'has_records': total_classes > 0,
@@ -79,6 +80,7 @@ def calculate_student_monthly_attendance(student_or_id, year: int, month: int) -
       }
     """
     from core.models import Student, Attendance
+    from core.schedule_helper import count_scheduled_classes_in_month
 
     if isinstance(student_or_id, Student):
         student = student_or_id
@@ -94,18 +96,8 @@ def calculate_student_monthly_attendance(student_or_id, year: int, month: int) -
         ).count()
     )
 
-    if student.time_slot_id:
-        total_classes = (
-            Attendance.objects.filter(
-                student__time_slot_id=student.time_slot_id,
-                date__year=year,
-                date__month=month,
-                status__in=['present', 'absent'],
-            )
-            .values('date')
-            .distinct()
-            .count()
-        )
+    if student.time_slot:
+        total_classes = count_scheduled_classes_in_month(student.time_slot.days, year, month)
     else:
         total_classes = (
             Attendance.objects.filter(
@@ -121,7 +113,7 @@ def calculate_student_monthly_attendance(student_or_id, year: int, month: int) -
 
     absent_classes = max(0, total_classes - present_classes)
 
-    # Guruhda dars o'tilmagan bo'lsa 0.0 (hech qachon 100% emas)
+    # Guruhda dars rejalashtirilmagan bo'lsa 0.0 (hech qachon 100% emas)
     percentage = (
         min(100.0, round((present_classes / total_classes) * 100, 2))
         if total_classes > 0 else 0.0

@@ -1818,35 +1818,36 @@ class MonthlyAttendanceCalculationTests(TestCase):
         Attendance.objects.bulk_create(records)
 
     def test_student_monthly_attendance_calculation(self):
-        """Yakka o'quvchining oylik davomati foizi to'g'ri hisoblanadi."""
+        """Yakka o'quvchining oylik davomati foizi jadval bo'yicha oylik darslar soniga nisbatan hisoblanadi."""
         from core.attendance_service import calculate_student_monthly_attendance
 
-        # student1: 8 present, 2 absent => 80.0%
+        # 2026-10 da Dushanba/Chorshanba/Juma bo'yicha 13 ta rejalashtirilgan dars bor
+        # student1: 8 present / 13 scheduled => 61.54%
         res1 = calculate_student_monthly_attendance(self.student1, year=2026, month=10)
         self.assertEqual(res1['present_classes'], 8)
-        self.assertEqual(res1['absent_classes'], 2)
-        self.assertEqual(res1['total_classes'], 10)
-        self.assertEqual(res1['percentage'], 80.0)
+        self.assertEqual(res1['absent_classes'], 5)
+        self.assertEqual(res1['total_classes'], 13)
+        self.assertEqual(res1['percentage'], 61.54)
 
         # Model metodi orqali ham to'g'ri natija qaytadi
-        self.assertEqual(self.student1.get_monthly_attendance_percentage(2026, 10), 80.0)
+        self.assertEqual(self.student1.get_monthly_attendance_percentage(2026, 10), 61.54)
 
-        # student2: 10 present, 0 absent => 100.0%
+        # student2: 10 present / 13 scheduled => 76.92%
         res2 = calculate_student_monthly_attendance(self.student2, year=2026, month=10)
         self.assertEqual(res2['present_classes'], 10)
-        self.assertEqual(res2['total_classes'], 10)
-        self.assertEqual(res2['percentage'], 100.0)
+        self.assertEqual(res2['total_classes'], 13)
+        self.assertEqual(res2['percentage'], 76.92)
 
     def test_student_monthly_attendance_zero_classes_edge_case(self):
         """Yo'qlama qilinmagan oy uchun ZeroDivisionError bermasdan 0.0% qaytadi."""
         from core.attendance_service import calculate_student_monthly_attendance
 
-        # 2026-yil Noyabr oyida hali davomat qilinmagan
+        # 2026-yil Noyabr oyida hali davomat qilinmagan (13 ta rejalashtirilgan dars bor, 0/13 = 0.0%)
         res = calculate_student_monthly_attendance(self.student1, year=2026, month=11)
         self.assertEqual(res['present_classes'], 0)
-        self.assertEqual(res['total_classes'], 0)
+        self.assertEqual(res['total_classes'], 13)
         self.assertEqual(res['percentage'], 0.0)
-        self.assertFalse(res['has_records'])
+        self.assertTrue(res['has_records'])
 
     def test_group_monthly_attendance_calculation(self):
         """Guruhning oylik umumiy davomat foizi to'g'ri hisoblanadi."""
@@ -1952,28 +1953,28 @@ class MonthlyAttendanceCalculationTests(TestCase):
         self.assertEqual(group_att['percentage'], 90.0)
         self.assertEqual(resp.context['group_attendance_percentage'], 90.0)
 
-        # O'quvchilar alohida foizlari
+        # O'quvchilar alohida foizlari (2026-10 da MWF bo'yicha 13 ta rejalashtirilgan dars)
         active_students = resp.context['timeslots'][0].active_students
         st_map = {s.id: s for s in active_students}
-        # student1: 8/10 = 80.0%
-        self.assertEqual(st_map[self.student1.id].attendance_percentage, 80.0)
+        # student1: 8/13 = 61.5% -> 62% (8/13)
+        self.assertEqual(st_map[self.student1.id].attendance_percentage, 61.5)
         self.assertEqual(st_map[self.student1.id].attendance_present_count, 8)
-        self.assertEqual(st_map[self.student1.id].attendance_total_count, 10)
-        # student2: 10/10 = 100.0%
-        self.assertEqual(st_map[self.student2.id].attendance_percentage, 100.0)
+        self.assertEqual(st_map[self.student1.id].attendance_total_count, 13)
+        # student2: 10/13 = 76.9% -> 77% (10/13)
+        self.assertEqual(st_map[self.student2.id].attendance_percentage, 76.9)
         self.assertEqual(st_map[self.student2.id].attendance_present_count, 10)
-        self.assertEqual(st_map[self.student2.id].attendance_total_count, 10)
+        self.assertEqual(st_map[self.student2.id].attendance_total_count, 13)
 
         # HTML sahifasida guruh va o'quvchilar foizlari aks etganligi (aniq raqamli ko'rsatkich formatida)
         self.assertContains(resp, "Guruh davomati:")
-        self.assertContains(resp, "80% (8/10)")
-        self.assertContains(resp, "100% (10/10)")
+        self.assertContains(resp, "62% (8/13)")
+        self.assertContains(resp, "77% (10/13)")
         self.assertContains(resp, "(18/20)")
 
     def test_admin_group_detail_zero_records_edge_case(self):
         """Yo'qlama yo'q oyda guruh va o'quvchilar davomati xatosiz 0% ko'rsatiladi."""
         self.client.force_login(self.admin_user)
-        # 2026-11 oyida davomat qaydlari yo'q
+        # 2026-11 oyida davomat qaydlari yo'q (13 ta rejalashtirilgan dars bor -> 0% (0/13))
         resp = self.client.get(reverse('admin_group_detail', args=[self.group1.id]) + '?month=2026-11')
         self.assertEqual(resp.status_code, 200)
 
@@ -1984,9 +1985,9 @@ class MonthlyAttendanceCalculationTests(TestCase):
         active_students = resp.context['timeslots'][0].active_students
         for s in active_students:
             self.assertEqual(s.attendance_percentage, 0.0)
-            self.assertEqual(s.attendance_total_count, 0)
+            self.assertEqual(s.attendance_total_count, 13)
 
-        self.assertContains(resp, "0% (0/0)")
+        self.assertContains(resp, "0% (0/13)")
         self.assertNotContains(resp, "100% (")
 
     def test_teacher_dashboard_displays_attendance_percentages(self):
@@ -1997,17 +1998,17 @@ class MonthlyAttendanceCalculationTests(TestCase):
 
         self.assertEqual(resp.context['group_attendance_percentage'], 90.0)
         self.assertContains(resp, "Davomat:")
-        self.assertContains(resp, "80% (8/10)")
-        self.assertContains(resp, "100% (10/10)")
+        self.assertContains(resp, "62% (8/13)")
+        self.assertContains(resp, "77% (10/13)")
         self.assertContains(resp, "(18/20)")
 
     def test_teacher_dashboard_zero_records_not_100_percent(self):
-        """Yo'qlama bo'lmagan oyda teacher_dashboard da 0% (0/0) chiqadi, 100% emas."""
+        """Yo'qlama bo'lmagan oyda teacher_dashboard da 0% (0/13) chiqadi, 100% emas."""
         self.client.force_login(self.teacher_user)
         resp = self.client.get(reverse('teacher_dashboard') + f'?group_id={self.group1.id}&month=2026-11')
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.context['group_attendance_percentage'], 0.0)
-        self.assertContains(resp, "0% (0/0)")
+        self.assertContains(resp, "0% (0/13)")
         self.assertNotContains(resp, "100% (")
 
     def test_compute_student_attendance_stats_empty_and_invalid(self):
@@ -2025,11 +2026,16 @@ class MonthlyAttendanceCalculationTests(TestCase):
         self.assertFalse(invalid_stats['has_records'])
 
     def test_attendance_mark_api_returns_0_percent_when_cleared(self):
-        """AJAX orqali davomat belgilanganda va o'chirilganda API to'g'ri 0% (0/0) qaytaradi."""
-        today_str = date.today().strftime('%Y-%m-%d')
+        """AJAX orqali davomat belgilanganda jadvaldagi jami oylik darslarga nisbatan hisoblaydi."""
+        from core.schedule_helper import count_scheduled_classes_in_month
+        today = date.today()
+        today_str = today.strftime('%Y-%m-%d')
+        expected_total = count_scheduled_classes_in_month(self.ts1.days, today.year, today.month)
+        expected_pct = round((1 / expected_total) * 100, 2)
+        expected_display = f"{int(round(expected_pct))}% (1/{expected_total})"
         self.client.force_login(self.admin_user)
 
-        # 1. Present deb belgilash -> 100% (1/1)
+        # 1. Present deb belgilash -> jadvaldagi oylik jami darslar soniga nisbatan (1/13 = 8% emas, 1/1 = 100% emas!)
         resp1 = self.client.post(reverse('admin_attendance_mark'), {
             'student_id': self.student1.id,
             'date': today_str,
@@ -2037,10 +2043,11 @@ class MonthlyAttendanceCalculationTests(TestCase):
         })
         self.assertEqual(resp1.status_code, 200)
         data1 = resp1.json()
-        self.assertEqual(data1['student_attendance']['percentage'], 100.0)
-        self.assertEqual(data1['student_attendance']['display'], '100% (1/1)')
+        self.assertEqual(data1['student_attendance']['percentage'], expected_pct)
+        self.assertEqual(data1['student_attendance']['total_count'], expected_total)
+        self.assertEqual(data1['student_attendance']['display'], expected_display)
 
-        # 2. Belgini tozalash (status='') -> 0% (0/0) qaytishi kerak (100% emas!)
+        # 2. Belgini tozalash (status='') -> 0% qaytishi kerak (100% emas!)
         resp2 = self.client.post(reverse('admin_attendance_mark'), {
             'student_id': self.student1.id,
             'date': today_str,
@@ -2049,82 +2056,66 @@ class MonthlyAttendanceCalculationTests(TestCase):
         self.assertEqual(resp2.status_code, 200)
         data2 = resp2.json()
         self.assertEqual(data2['student_attendance']['percentage'], 0.0)
-        self.assertEqual(data2['student_attendance']['total_count'], 0)
-        self.assertEqual(data2['student_attendance']['display'], '0% (0/0)')
+        self.assertEqual(data2['student_attendance']['total_count'], expected_total)
+        self.assertEqual(data2['student_attendance']['display'], f'0% (0/{expected_total})')
 
-    def test_student_monthly_attendance_uses_total_group_classes_held(self):
+    def test_single_present_mark_uses_monthly_scheduled_classes_denominator(self):
         """
-        O'quvchida 4 ta '+' (present) va 1 ta '-' (absent) belgisi bo'lib, guruhda shu oyda
-        jami 14 ta noyob dars kuni o'tilgan bo'lsa, natija 4/5 = 80% EMAS,
-        balki 4/14 = 28.57% (ko'rinishda 29% (4/14)) bo'lishi kerak.
+        Guruhda oy davomida 12 ta rejalashtirilgan dars (Seshanba/Payshanba/Shanba, 2026-11)
+        bo'lsa va hozircha faqat 1 ta darsga '+' (masalan 11.11) qo'yilgan bo'lsa,
+        foiz 1/1 = 100% EMAS, balki 1/12 = 8% (1/12) ko'rinishida chiqishi kerak.
         """
-        partial_student = Student.objects.create(
+        nov_student = Student.objects.create(
             first_name='Sardor',
-            last_name='Qisman',
+            last_name='Bekzodov',
             phone_1='998909998877',
-            time_slot=self.ts1,
-            joined_date=date(2026, 9, 1),
+            time_slot=self.ts2,
+            joined_date=date(2026, 11, 1),
         )
-        # 2026-yil Sentyabr oyida guruh (ts1) da 14 ta noyob dars kuni o'tilgan (student2 orqali)
-        sept_records = [
-            Attendance(student=self.student2, date=date(2026, 9, d), status='present')
-            for d in range(1, 15)
-        ]
-        # partial_student da esa faqat 4 ta '+' va 1 ta '-' bor (qolgan 9 kun bo'sh)
-        sept_records.extend([
-            Attendance(student=partial_student, date=date(2026, 9, 1), status='present'),
-            Attendance(student=partial_student, date=date(2026, 9, 2), status='present'),
-            Attendance(student=partial_student, date=date(2026, 9, 3), status='present'),
-            Attendance(student=partial_student, date=date(2026, 9, 4), status='present'),
-            Attendance(student=partial_student, date=date(2026, 9, 5), status='absent'),
+        Attendance.objects.bulk_create([
+            Attendance(student=nov_student, date=date(2026, 11, 11), status='present'),
         ])
-        Attendance.objects.bulk_create(sept_records)
 
-        # 1. Backend calculate_student_monthly_attendance funksiyasi (4 / 14 = 28.57%)
+        # 1. Backend calculate_student_monthly_attendance funksiyasi (1 / 12 = 8.33%)
         from core.attendance_service import calculate_student_monthly_attendance
-        stats = calculate_student_monthly_attendance(partial_student, 2026, 9)
-        self.assertEqual(stats['present_classes'], 4)
-        self.assertEqual(stats['total_classes'], 14)
-        self.assertEqual(stats['absent_classes'], 10)
-        self.assertEqual(stats['percentage'], 28.57)
+        stats = calculate_student_monthly_attendance(nov_student, 2026, 11)
+        self.assertEqual(stats['present_classes'], 1)
+        self.assertEqual(stats['total_classes'], 12)
+        self.assertEqual(stats['absent_classes'], 11)
+        self.assertEqual(stats['percentage'], 8.33)
 
-        # 2. admin_group_detail sahifasi (4/14 ko'rsatilishi, 80% (4/5) emas)
+        # 2. admin_group_detail sahifasi: talaba ustunida 8% (1/12) ko'rsatilishi, 100% (1/1) emas
         self.client.force_login(self.admin_user)
-        resp_admin = self.client.get(reverse('admin_group_detail', args=[self.group1.id]) + '?month=2026-09')
+        resp_admin = self.client.get(reverse('admin_group_detail', args=[self.group2.id]) + '?month=2026-11')
         self.assertEqual(resp_admin.status_code, 200)
-        self.assertContains(resp_admin, '29% (4/14)')
-        self.assertNotContains(resp_admin, '80% (4/5)')
+        admin_students = {s.id: s for s in resp_admin.context['timeslots'][0].active_students}
+        self.assertEqual(admin_students[nov_student.id].attendance_present_count, 1)
+        self.assertEqual(admin_students[nov_student.id].attendance_total_count, 12)
+        self.assertEqual(admin_students[nov_student.id].attendance_percentage, 8.3)
+        self.assertContains(resp_admin, '8% (1/12)')
 
         # 3. teacher_dashboard sahifasi
         self.client.force_login(self.teacher_user)
-        resp_teacher = self.client.get(reverse('teacher_dashboard') + f'?group_id={self.group1.id}&month=2026-09')
+        resp_teacher = self.client.get(reverse('teacher_dashboard') + f'?group_id={self.group2.id}&month=2026-11')
         self.assertEqual(resp_teacher.status_code, 200)
-        self.assertContains(resp_teacher, '29% (4/14)')
-        self.assertNotContains(resp_teacher, '80% (4/5)')
+        self.assertContains(resp_teacher, '8% (1/12)')
 
         # 4. Excel eksport funksiyasi
         self.client.force_login(self.admin_user)
-        resp_excel = self.client.get(reverse('admin_group_export_excel', args=[self.group1.id]) + '?month=2026-09')
+        resp_excel = self.client.get(reverse('admin_group_export_excel', args=[self.group2.id]) + '?month=2026-11')
         self.assertEqual(resp_excel.status_code, 200)
         import io
         import openpyxl
         wb = openpyxl.load_workbook(io.BytesIO(resp_excel.content))
         ws = wb.active
-        partial_row_values = []
+        row_values = []
         for row in ws.iter_rows(min_row=4, values_only=True):
             if row and row[1] and 'Sardor' in str(row[1]):
-                partial_row_values = list(row)
+                row_values = list(row)
                 break
-        self.assertTrue(partial_row_values, "O'quvchi Excel jadvalida topilmadi")
-        self.assertEqual(partial_row_values[5], '29%')
-        self.assertEqual(partial_row_values[6], '4/14')
-
-        # 5. Guruhda dars o'tilmagan oyda (2026-11) 0% (0/0) qaytadi
-        stats_nov = calculate_student_monthly_attendance(partial_student, 2026, 11)
-        self.assertEqual(stats_nov['present_classes'], 0)
-        self.assertEqual(stats_nov['absent_classes'], 0)
-        self.assertEqual(stats_nov['total_classes'], 0)
-        self.assertEqual(stats_nov['percentage'], 0.0)
+        self.assertTrue(row_values, "O'quvchi Excel jadvalida topilmadi")
+        self.assertEqual(row_values[5], '8%')
+        self.assertEqual(row_values[6], '1/12')
 
 
 class GroupAttendanceExcelExportTests(TestCase):
@@ -2240,13 +2231,13 @@ class GroupAttendanceExcelExportTests(TestCase):
         else:
             dilnoza_row, jasur_row = 5, 4
 
-        # Dilnoza: 100% va 10/10
-        self.assertEqual(ws.cell(row=dilnoza_row, column=6).value, "100%")
-        self.assertEqual(ws.cell(row=dilnoza_row, column=7).value, "10/10")
+        # Dilnoza: 10 present / 13 scheduled classes in Oct 2026 -> 77% va 10/13
+        self.assertEqual(ws.cell(row=dilnoza_row, column=6).value, "77%")
+        self.assertEqual(ws.cell(row=dilnoza_row, column=7).value, "10/13")
 
-        # Jasur: 80% va 8/10
-        self.assertEqual(ws.cell(row=jasur_row, column=6).value, "80%")
-        self.assertEqual(ws.cell(row=jasur_row, column=7).value, "8/10")
+        # Jasur: 8 present / 13 scheduled classes in Oct 2026 -> 62% va 8/13
+        self.assertEqual(ws.cell(row=jasur_row, column=6).value, "62%")
+        self.assertEqual(ws.cell(row=jasur_row, column=7).value, "8/13")
 
         # Jasurning kunlik belgilari tekshiruvi:
         # 1-oktyabr (ustun 8) -> '+'
@@ -2289,9 +2280,9 @@ class GroupAttendanceExcelExportTests(TestCase):
         ws = wb.active
         # Noyabr (30 kun): 7 + 30 = 37 ustun
         self.assertEqual(ws.cell(row=3, column=37).value, "30.11")
-        # O'quvchi davomati 0% va 0/0
+        # O'quvchi davomati 0% va 0/13 (Noyabrda 13 ta rejalashtirilgan dars bor), guruh jami 0/0
         self.assertEqual(ws.cell(row=4, column=6).value, "0%")
-        self.assertEqual(ws.cell(row=4, column=7).value, "0/0")
+        self.assertEqual(ws.cell(row=4, column=7).value, "0/13")
         self.assertEqual(ws.cell(row=6, column=6).value, "0%")
         self.assertEqual(ws.cell(row=6, column=7).value, "0/0")
 

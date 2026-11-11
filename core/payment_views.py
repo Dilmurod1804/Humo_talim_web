@@ -25,6 +25,7 @@ from .models import (
     Attendance, AuditLog, DeletedStudent, Group, MonthlyPayment, Student, Teacher, TimeSlot
 )
 from .payment_excel import generate_payments_excel
+from .schedule_helper import count_scheduled_classes_in_month
 from .teacher_views import _populate_excel_sheet, _student_visible_in_month
 
 
@@ -987,18 +988,10 @@ def generate_group_attendance_excel(group, year: int, month: int) -> openpyxl.Wo
         for sid, att_date, status in att_records:
             attendance_map[sid][att_date.day] = status
 
-    ts_lesson_dates_map = {}
-    lesson_dates = (
-        Attendance.objects.filter(
-            student__time_slot__group=group,
-            date__range=(start_date, end_date),
-            status__in=['present', 'absent'],
-        )
-        .values_list('student__time_slot_id', 'date')
-        .distinct()
-    )
-    for ts_id, att_date in lesson_dates:
-        ts_lesson_dates_map.setdefault(ts_id, set()).add(att_date)
+    ts_scheduled_map = {
+        ts.id: count_scheduled_classes_in_month(ts.days, year, month)
+        for ts in group.time_slots.all()
+    }
 
     # Workbook yaratish
     wb = openpyxl.Workbook()
@@ -1053,8 +1046,8 @@ def generate_group_attendance_excel(group, year: int, month: int) -> openpyxl.Wo
     student_stats = []
     for s in students:
         s_att = attendance_map.get(s.id, {})
-        ts_classes_held = len(ts_lesson_dates_map.get(s.time_slot_id, set()))
-        st_stats = compute_student_attendance_stats(s_att, total_group_classes=ts_classes_held)
+        ts_scheduled_classes = ts_scheduled_map.get(s.time_slot_id)
+        st_stats = compute_student_attendance_stats(s_att, total_group_classes=ts_scheduled_classes)
         student_stats.append({
             'student': s,
             'present_count': st_stats['present_count'],
@@ -1064,7 +1057,7 @@ def generate_group_attendance_excel(group, year: int, month: int) -> openpyxl.Wo
             'attendance_map': s_att,
         })
         group_total_present += st_stats['present_count']
-        group_total_absent += st_stats['absent_count']
+        group_total_absent += st_stats['marked_absent_count']
 
     group_total_records = group_total_present + group_total_absent
     group_pct = round((group_total_present / group_total_records) * 100, 1) if group_total_records > 0 else 0.0

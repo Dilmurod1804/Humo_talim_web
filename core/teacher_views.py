@@ -217,21 +217,6 @@ def teacher_dashboard(request):
         for a in attendances:
             attendance_map[a.student_id][a.date.day] = a.status
 
-    ts_lesson_dates_map = {}
-    timeslot_ids = [ts.id for g in groups for ts in g.time_slots.all()]
-    if timeslot_ids:
-        lesson_dates = (
-            Attendance.objects.filter(
-                student__time_slot_id__in=timeslot_ids,
-                date__range=(start_d, end_d),
-                status__in=['present', 'absent'],
-            )
-            .values_list('student__time_slot_id', 'date')
-            .distinct()
-        )
-        for ts_id, att_date in lesson_dates:
-            ts_lesson_dates_map.setdefault(ts_id, set()).add(att_date)
-
     for g in groups:
         g.archived_students = list(
             DeletedStudent.objects.filter(
@@ -244,7 +229,7 @@ def teacher_dashboard(request):
 
         for ts in g.time_slots.all():
             ts_weekdays = parse_schedule_weekdays(ts.days)
-            ts_classes_held = len(ts_lesson_dates_map.get(ts.id, set()))
+            ts_scheduled_classes = sum(1 for d in days_data if d['weekday_idx'] in ts_weekdays)
             ts.active_students = [
                 s for s in ts.students.all()
                 if s.id not in deleted_ids and _student_visible_in_month(s, y, m)
@@ -253,7 +238,7 @@ def teacher_dashboard(request):
             ts_absent = 0
             for s in ts.active_students:
                 s_att = attendance_map.get(s.id, {})
-                st_stats = compute_student_attendance_stats(s_att, total_group_classes=ts_classes_held)
+                st_stats = compute_student_attendance_stats(s_att, total_group_classes=ts_scheduled_classes)
 
                 s.attendance_present_count = st_stats['present_count']
                 s.attendance_absent_count = st_stats['absent_count']
@@ -261,7 +246,7 @@ def teacher_dashboard(request):
                 s.attendance_percentage = st_stats['percentage']
 
                 ts_present += st_stats['present_count']
-                ts_absent += st_stats['absent_count']
+                ts_absent += st_stats['marked_absent_count']
 
                 matrix = []
                 for d in days_data:
