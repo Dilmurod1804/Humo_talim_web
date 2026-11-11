@@ -206,13 +206,28 @@ def teacher_dashboard(request):
                     student_ids.append(s.id)
 
     attendance_map = {sid: {} for sid in student_ids}
+    start_d = date(y, m, 1)
+    end_d = date(y, m, num_days)
     if student_ids:
-        start_d = date(y, m, 1)
-        end_d = date(y, m, num_days)
         attendances = Attendance.objects.filter(
             student_id__in=student_ids, date__range=(start_d, end_d))
         for a in attendances:
             attendance_map[a.student_id][a.date.day] = a.status
+
+    ts_lesson_dates_map = {}
+    timeslot_ids = [ts.id for g in groups for ts in g.time_slots.all()]
+    if timeslot_ids:
+        lesson_dates = (
+            Attendance.objects.filter(
+                student__time_slot_id__in=timeslot_ids,
+                date__range=(start_d, end_d),
+                status__in=['present', 'absent'],
+            )
+            .values_list('student__time_slot_id', 'date')
+            .distinct()
+        )
+        for ts_id, att_date in lesson_dates:
+            ts_lesson_dates_map.setdefault(ts_id, set()).add(att_date)
 
     for g in groups:
         g.archived_students = list(
@@ -226,6 +241,7 @@ def teacher_dashboard(request):
 
         for ts in g.time_slots.all():
             ts_weekdays = parse_schedule_weekdays(ts.days)
+            ts_classes_held = len(ts_lesson_dates_map.get(ts.id, set()))
             ts.active_students = [
                 s for s in ts.students.all()
                 if s.id not in deleted_ids and _student_visible_in_month(s, y, m)
@@ -234,7 +250,7 @@ def teacher_dashboard(request):
             ts_absent = 0
             for s in ts.active_students:
                 s_att = attendance_map.get(s.id, {})
-                st_stats = compute_student_attendance_stats(s_att)
+                st_stats = compute_student_attendance_stats(s_att, total_group_classes=ts_classes_held)
 
                 s.attendance_present_count = st_stats['present_count']
                 s.attendance_absent_count = st_stats['absent_count']

@@ -21,26 +21,39 @@ logger = logging.getLogger(__name__)
 # 1. TALABANING OYLIK DAVOMAT FOIZI
 # ─────────────────────────────────────────────────────────────
 
-def compute_student_attendance_stats(attendance_day_map: dict) -> dict:
+def compute_student_attendance_stats(
+    attendance_day_map: dict,
+    total_group_classes: int | None = None,
+) -> dict:
     """
-    O'quvchining kunlik davomat lug'ati ({day: status}) asosida oylik
-    kelgan/kelmagan/jami belgilangan darslar soni va davomat foizini hisoblaydi.
+    O'quvchining kunlik davomat lug'ati ({day: status}) va guruhda o'tilgan darslar
+    soni asosida oylik kelgan/kelmagan/jami darslar soni va davomat foizini hisoblaydi.
 
-    Agar birorta ham haqiqiy belgilangan dars bo'lmasa (total_marked == 0),
-    davomat foizi qat'iy ravishda 0.0 qaytariladi (100% emas).
+    Agar `total_group_classes` berilsa, maxraj sifatida guruhning shu oyda o'tilgan
+    jami darslar soni olinadi (belgilanmagan bo'sh kunlar kelmagan hisoblanadi).
+    Agar birorta ham dars o'tilmagan/belgilanmagan bo'lsa, foiz 0.0 qaytariladi.
     """
     present_count = sum(1 for st in attendance_day_map.values() if st == 'present')
-    absent_count = sum(1 for st in attendance_day_map.values() if st == 'absent')
-    total_marked = present_count + absent_count
 
-    percentage = round((present_count / total_marked) * 100, 1) if total_marked > 0 else 0.0
+    if total_group_classes is not None:
+        total_classes = max(0, int(total_group_classes))
+        absent_count = max(0, total_classes - present_count)
+    else:
+        marked_absent = sum(1 for st in attendance_day_map.values() if st == 'absent')
+        total_classes = present_count + marked_absent
+        absent_count = marked_absent
+
+    percentage = (
+        min(100.0, round((present_count / total_classes) * 100, 1))
+        if total_classes > 0 else 0.0
+    )
 
     return {
         'present_count': present_count,
         'absent_count': absent_count,
-        'total_count': total_marked,
+        'total_count': total_classes,
         'percentage': percentage,
-        'has_records': total_marked > 0,
+        'has_records': total_classes > 0,
     }
 
 
@@ -72,25 +85,45 @@ def calculate_student_monthly_attendance(student_or_id, year: int, month: int) -
     else:
         student = Student.objects.select_related('time_slot__group').get(id=student_or_id)
 
-    qs = Attendance.objects.filter(
-        student=student,
-        date__year=year,
-        date__month=month,
-        status__in=['present', 'absent'],
+    present_classes = (
+        Attendance.objects.filter(
+            student=student,
+            date__year=year,
+            date__month=month,
+            status='present',
+        ).count()
     )
 
-    stats = qs.aggregate(
-        present=Count('id', filter=Q(status='present')),
-        absent=Count('id', filter=Q(status='absent')),
-    )
+    if student.time_slot_id:
+        total_classes = (
+            Attendance.objects.filter(
+                student__time_slot_id=student.time_slot_id,
+                date__year=year,
+                date__month=month,
+                status__in=['present', 'absent'],
+            )
+            .values('date')
+            .distinct()
+            .count()
+        )
+    else:
+        total_classes = (
+            Attendance.objects.filter(
+                student=student,
+                date__year=year,
+                date__month=month,
+                status__in=['present', 'absent'],
+            )
+            .values('date')
+            .distinct()
+            .count()
+        )
 
-    present_classes = stats['present'] or 0
-    absent_classes = stats['absent'] or 0
-    total_classes = present_classes + absent_classes
+    absent_classes = max(0, total_classes - present_classes)
 
-    # Dars o'tilmagan yoki yo'qlama qilinmagan bo'lsa 0.0 (hech qachon 100% emas)
+    # Guruhda dars o'tilmagan yoki yo'qlama qilinmagan bo'lsa 0.0 (hech qachon 100% emas)
     percentage = (
-        round((present_classes / total_classes) * 100, 2)
+        min(100.0, round((present_classes / total_classes) * 100, 2))
         if total_classes > 0 else 0.0
     )
 
