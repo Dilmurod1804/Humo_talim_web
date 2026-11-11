@@ -2072,6 +2072,7 @@ class MonthlyAttendanceCalculationTests(TestCase):
         ])
 
         # 1. Backend calculate_student_monthly_attendance funksiyasi
+        from core.attendance_service import calculate_student_monthly_attendance
         stats = calculate_student_monthly_attendance(late_student, 2026, 10)
         self.assertEqual(stats['present_classes'], 2)
         self.assertEqual(stats['total_classes'], 10)
@@ -2101,12 +2102,13 @@ class MonthlyAttendanceCalculationTests(TestCase):
         wb = openpyxl.load_workbook(io.BytesIO(resp_excel.content))
         ws = wb.active
         late_row_values = []
-        for row in ws.iter_rows(min_row=5, values_only=True):
+        for row in ws.iter_rows(min_row=4, values_only=True):
             if row and row[1] and 'Sardor' in str(row[1]):
                 late_row_values = list(row)
                 break
         self.assertTrue(late_row_values, "Kech qo'shilgan o'quvchi Excel jadvalida topilmadi")
-        self.assertTrue(any('20%' in str(v) and '(2/10)' in str(v) for v in late_row_values))
+        self.assertEqual(late_row_values[5], '20%')
+        self.assertEqual(late_row_values[6], '2/10')
 
         # 5. Dars umuman o'tilmagan oyda (2026-11) hali ham 0% (0/0) qaytadi
         stats_nov = calculate_student_monthly_attendance(late_student, 2026, 11)
