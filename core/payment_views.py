@@ -975,29 +975,17 @@ def generate_group_attendance_excel(group, year: int, month: int) -> openpyxl.Wo
     )
     students = [s for s in students if _student_visible_in_month(s, year, month)]
 
-    # Davomat qaydlarini olish
+    # Davomat qaydlarini olish (faqat haqiqiy belgilangan present/absent)
     student_ids = [s.id for s in students]
     attendance_map = {sid: {} for sid in student_ids}
     if student_ids:
         att_records = Attendance.objects.filter(
             student_id__in=student_ids,
             date__range=(start_date, end_date),
+            status__in=['present', 'absent'],
         ).values_list('student_id', 'date', 'status')
         for sid, att_date, status in att_records:
             attendance_map[sid][att_date.day] = status
-
-    ts_lesson_dates_map = {}
-    lesson_dates = (
-        Attendance.objects.filter(
-            student__time_slot__group=group,
-            date__range=(start_date, end_date),
-            status__in=['present', 'absent'],
-        )
-        .values_list('student__time_slot_id', 'date')
-        .distinct()
-    )
-    for ts_id, att_date in lesson_dates:
-        ts_lesson_dates_map.setdefault(ts_id, set()).add(att_date)
 
     # Workbook yaratish
     wb = openpyxl.Workbook()
@@ -1052,8 +1040,7 @@ def generate_group_attendance_excel(group, year: int, month: int) -> openpyxl.Wo
     student_stats = []
     for s in students:
         s_att = attendance_map.get(s.id, {})
-        ts_classes_held = len(ts_lesson_dates_map.get(s.time_slot_id, set()))
-        st_stats = compute_student_attendance_stats(s_att, total_group_classes=ts_classes_held)
+        st_stats = compute_student_attendance_stats(s_att)
         student_stats.append({
             'student': s,
             'present_count': st_stats['present_count'],

@@ -2052,46 +2052,49 @@ class MonthlyAttendanceCalculationTests(TestCase):
         self.assertEqual(data2['student_attendance']['total_count'], 0)
         self.assertEqual(data2['student_attendance']['display'], '0% (0/0)')
 
-    def test_late_joiner_uses_total_group_classes_as_denominator(self):
+    def test_unmarked_blank_days_are_ignored_in_student_attendance(self):
         """
-        Guruhda 10 ta dars o'tilgan bo'lsa va kech qo'shilgan o'quvchida faqat 2 ta '+' belgi
-        (8 tasi bo'sh) bo'lsa, foiz 2/2 = 100% EMAS, balki 2/10 = 20% bo'lishi kerak.
+        Bo'sh (belgilanmagan) kunlar hech qachon 'present' (+) yoki 'absent' (-) sifatida
+        hisoblanmasligi kerak. Maxraj qat'iy ravishda faqat shu o'quvchi uchun haqiqiy
+        belgilangan ('present' + 'absent') kunlar sonidan iborat bo'ladi.
         """
-        late_student = Student.objects.create(
+        partial_student = Student.objects.create(
             first_name='Sardor',
-            last_name='Kechkeldi',
+            last_name='Qisman',
             phone_1='998909998877',
             time_slot=self.ts1,
             joined_date=date(2026, 10, 1),
         )
         # ts1 da 2026-10-01..2026-10-10 gacha 10 ta dars kuni bor (setUp da yaratilgan).
-        # Kech qo'shilgan o'quvchiga faqat 2 ta 'present' yozuvi qo'shamiz, qolgan 8 kuni bo'sh.
+        # O'quvchida 2 ta 'present' (+) va 3 ta 'absent' (-) mavjud, qolgan 5 kuni bo'sh.
+        # Formula: 2 / (2 + 3) * 100 = 40.0% (bo'sh kunlar present ham, absent ham emas).
         Attendance.objects.bulk_create([
-            Attendance(student=late_student, date=date(2026, 10, 9), status='present'),
-            Attendance(student=late_student, date=date(2026, 10, 10), status='present'),
+            Attendance(student=partial_student, date=date(2026, 10, 1), status='present'),
+            Attendance(student=partial_student, date=date(2026, 10, 2), status='present'),
+            Attendance(student=partial_student, date=date(2026, 10, 3), status='absent'),
+            Attendance(student=partial_student, date=date(2026, 10, 4), status='absent'),
+            Attendance(student=partial_student, date=date(2026, 10, 5), status='absent'),
         ])
 
         # 1. Backend calculate_student_monthly_attendance funksiyasi
         from core.attendance_service import calculate_student_monthly_attendance
-        stats = calculate_student_monthly_attendance(late_student, 2026, 10)
+        stats = calculate_student_monthly_attendance(partial_student, 2026, 10)
         self.assertEqual(stats['present_classes'], 2)
-        self.assertEqual(stats['total_classes'], 10)
-        self.assertEqual(stats['absent_classes'], 8)
-        self.assertEqual(stats['percentage'], 20.0)
+        self.assertEqual(stats['absent_classes'], 3)
+        self.assertEqual(stats['total_classes'], 5)
+        self.assertEqual(stats['percentage'], 40.0)
 
         # 2. admin_group_detail sahifasi
         self.client.force_login(self.admin_user)
         resp_admin = self.client.get(reverse('admin_group_detail', args=[self.group1.id]) + '?month=2026-10')
         self.assertEqual(resp_admin.status_code, 200)
-        self.assertContains(resp_admin, '20% (2/10)')
-        self.assertNotContains(resp_admin, '100% (2/2)')
+        self.assertContains(resp_admin, '40% (2/5)')
 
         # 3. teacher_dashboard sahifasi
         self.client.force_login(self.teacher_user)
         resp_teacher = self.client.get(reverse('teacher_dashboard') + f'?group_id={self.group1.id}&month=2026-10')
         self.assertEqual(resp_teacher.status_code, 200)
-        self.assertContains(resp_teacher, '20% (2/10)')
-        self.assertNotContains(resp_teacher, '100% (2/2)')
+        self.assertContains(resp_teacher, '40% (2/5)')
 
         # 4. Excel eksport funksiyasi
         self.client.force_login(self.admin_user)
@@ -2101,17 +2104,19 @@ class MonthlyAttendanceCalculationTests(TestCase):
         import openpyxl
         wb = openpyxl.load_workbook(io.BytesIO(resp_excel.content))
         ws = wb.active
-        late_row_values = []
+        partial_row_values = []
         for row in ws.iter_rows(min_row=4, values_only=True):
             if row and row[1] and 'Sardor' in str(row[1]):
-                late_row_values = list(row)
+                partial_row_values = list(row)
                 break
-        self.assertTrue(late_row_values, "Kech qo'shilgan o'quvchi Excel jadvalida topilmadi")
-        self.assertEqual(late_row_values[5], '20%')
-        self.assertEqual(late_row_values[6], '2/10')
+        self.assertTrue(partial_row_values, "O'quvchi Excel jadvalida topilmadi")
+        self.assertEqual(partial_row_values[5], '40%')
+        self.assertEqual(partial_row_values[6], '2/5')
 
-        # 5. Dars umuman o'tilmagan oyda (2026-11) hali ham 0% (0/0) qaytadi
-        stats_nov = calculate_student_monthly_attendance(late_student, 2026, 11)
+        # 5. Belgilangan yozuv bo'lmagan oyda (2026-11) 0% (0/0) qaytadi (100% yoki NaN emas)
+        stats_nov = calculate_student_monthly_attendance(partial_student, 2026, 11)
+        self.assertEqual(stats_nov['present_classes'], 0)
+        self.assertEqual(stats_nov['absent_classes'], 0)
         self.assertEqual(stats_nov['total_classes'], 0)
         self.assertEqual(stats_nov['percentage'], 0.0)
 
