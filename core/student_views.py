@@ -245,6 +245,11 @@ def admin_timeslot_delete(request, id):
         fallback_ts = TimeSlot.objects.filter(group_id=group_id).exclude(id=timeslot.id).first()
         if fallback_ts:
             timeslot.students.update(time_slot=fallback_ts)
+        else:
+            # Guruhdagi oxirgi TimeSlot o'chirilsa, faol o'quvchilar yo'qolib ketmasligi uchun arxivlaymiz
+            reason = f"Dars vaqti o'chirilishi sababli arxivlandi ({timeslot.group.name})"
+            for student in timeslot.students.all():
+                _archive_student_record(student, reason=reason, group_name=timeslot.group.name, clear_timeslot=True)
         timeslot.delete()
         messages.success(request, "Dars vaqti o'chirildi.")
     return redirect('admin_group_detail', id=group_id)
@@ -587,8 +592,10 @@ def admin_deleted_student_restore(request, id):
         timeslot_id = request.POST.get('timeslot_id')
         if timeslot_id:
             ts = get_object_or_404(TimeSlot, id=timeslot_id)
-            student = Student.objects.filter(id=ds.student_id).first() if ds.student_id else None
+            student = Student.all_objects.filter(id=ds.student_id).first() if ds.student_id else None
             if student:
+                student.is_deleted = False
+                student.deleted_at = None
                 student.is_active = True
                 student.left_date = None
                 student.time_slot = ts
@@ -620,9 +627,12 @@ def admin_deleted_student_delete_permanent(request, id):
     if request.method == 'POST':
         ds = get_object_or_404(DeletedStudent, id=id)
         if ds.student_id:
-            Student.objects.filter(id=ds.student_id).delete()
+            # Bazadan jismonan o'chirmasdan Soft Delete bajaramiz (Attendance/Payment tarixi saqlanadi)
+            student = Student.all_objects.filter(id=ds.student_id).first()
+            if student:
+                student.delete()
         ds.delete()
-        messages.success(request, "O'quvchi arxivdan butunlay o'chirildi.")
+        messages.success(request, "O'quvchi arxivdan olib tashlandi (ma'lumotlar bazasida soft-delete holatida saqlandi).")
         next_url = request.POST.get('next') or request.GET.get('next')
         if next_url:
             return redirect(next_url)

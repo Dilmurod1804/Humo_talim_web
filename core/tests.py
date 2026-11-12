@@ -2293,6 +2293,107 @@ class GroupAttendanceExcelExportTests(TestCase):
         self.assertEqual(resp.status_code, 302)
 
 
+class StudentSoftDeleteTests(TestCase):
+    """O'quvchilar uchun Soft Delete va kaskad o'chirishdan himoya testlari."""
+
+    def setUp(self):
+        self.admin_user = CustomUser.objects.create_superuser(
+            username='admin_soft_del', password='Password123'
+        )
+        self.group = Group.objects.create(name='Ingliz tili A1', subject='Ingliz tili')
+        self.ts = TimeSlot.objects.create(
+            group=self.group,
+            days='Dushanba, Chorshanba, Juma',
+            start_time='10:00',
+            end_time='11:30',
+        )
+        self.student = Student.objects.create(
+            first_name='Aziz',
+            last_name='Karimov',
+            phone_1='+998901112233',
+            payment_rate=400000,
+            time_slot=self.ts,
+            joined_date=date(2026, 11, 1),
+        )
+        self.att = Attendance.objects.create(
+            student=self.student,
+            date=date.today(),
+            status='present',
+        )
+        self.payment = MonthlyPayment.objects.create(
+            student=self.student,
+            month='2026-11',
+            amount_paid=400000,
+            status='paid',
+        )
+
+    def test_model_and_queryset_delete_perform_soft_delete(self):
+        """student.delete() va QuerySet.delete() bazadan jismonan o'chirmaydi va kaskadni oldini oladi."""
+        self.student.delete()
+
+        # Default managerda ko'rinmaydi
+        self.assertFalse(Student.objects.filter(id=self.student.id).exists())
+        self.assertEqual(self.ts.students.count(), 0)
+
+        # Bazada (all_objects) saqlanib qoladi, is_deleted=True, is_active=False
+        saved = Student.all_objects.get(id=self.student.id)
+        self.assertTrue(saved.is_deleted)
+        self.assertFalse(saved.is_active)
+        self.assertIsNotNone(saved.deleted_at)
+
+        # Attendance va MonthlyPayment yozuvlari CASCADE bilan o'chib ketmaydi
+        self.assertTrue(Attendance.objects.filter(id=self.att.id).exists())
+        self.assertTrue(MonthlyPayment.objects.filter(id=self.payment.id).exists())
+        self.assertEqual(self.att.student.id, self.student.id)
+
+        # Qayta tiklash (restore)
+        saved.restore()
+        self.assertTrue(Student.objects.filter(id=self.student.id).exists())
+        self.assertFalse(saved.is_deleted)
+        self.assertTrue(saved.is_active)
+
+        # QuerySet.delete() ham soft-delete bajaradi
+        Student.objects.filter(id=self.student.id).delete()
+        self.assertFalse(Student.objects.filter(id=self.student.id).exists())
+        saved_after_qs = Student.all_objects.get(id=self.student.id)
+        self.assertTrue(saved_after_qs.is_deleted)
+        self.assertTrue(Attendance.objects.filter(id=self.att.id).exists())
+
+    def test_admin_deleted_student_delete_permanent_uses_soft_delete(self):
+        """Arxivdan o'chirish tugmasi ham o'quvchi va to'lov/davomat tarixini bazadan yo'q qilmaydi."""
+        self.client.force_login(self.admin_user)
+        # Avval arxivga o'tkazamiz
+        self.client.post(reverse('admin_student_delete', args=[self.student.id]), {
+            'reason': 'Test arxivlash',
+        })
+        ds = DeletedStudent.objects.get(student_id=self.student.id)
+
+        # Arxivdan o'chirish so'rovi
+        resp = self.client.post(reverse('admin_deleted_student_delete_permanent', args=[ds.id]))
+        self.assertEqual(resp.status_code, 302)
+
+        # DeletedStudent yozuvi arxivdan ketadi, lekin Student bazada soft-deleted bo'lib qoladi
+        self.assertFalse(DeletedStudent.objects.filter(id=ds.id).exists())
+        self.assertFalse(Student.objects.filter(id=self.student.id).exists())
+        saved = Student.all_objects.get(id=self.student.id)
+        self.assertTrue(saved.is_deleted)
+        self.assertFalse(saved.is_active)
+        self.assertTrue(Attendance.objects.filter(id=self.att.id).exists())
+        self.assertTrue(MonthlyPayment.objects.filter(id=self.payment.id).exists())
+
+    def test_deleting_last_timeslot_archives_students_instead_of_orphaning(self):
+        """Guruhdagi oxirgi TimeSlot o'chirilganda o'quvchilar yetim qolmasdan arxivlanadi."""
+        self.client.force_login(self.admin_user)
+        resp = self.client.post(reverse('admin_timeslot_delete', args=[self.ts.id]))
+        self.assertEqual(resp.status_code, 302)
+
+        self.assertTrue(Student.all_objects.filter(id=self.student.id).exists())
+        saved = Student.all_objects.get(id=self.student.id)
+        self.assertFalse(saved.is_active)
+        self.assertFalse(saved.is_deleted)
+        self.assertTrue(DeletedStudent.objects.filter(student_id=self.student.id).exists())
+
+
 
 
 

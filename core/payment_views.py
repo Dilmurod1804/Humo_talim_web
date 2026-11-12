@@ -221,6 +221,7 @@ def get_active_students_qs(group=None, group_id=None, search_q: str = '', requir
         Student.objects.annotate(_is_deleted=Exists(deleted_subquery))
         .filter(
             _is_deleted=False,
+            is_deleted=False,
             is_active=True,
             left_date__isnull=True,
             time_slot__isnull=False,

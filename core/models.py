@@ -396,6 +396,27 @@ class TimeSlot(models.Model):
     def __str__(self):
         return f"{self.group.name} | {self.days} | {self.start_time.strftime('%H:%M')} - {self.end_time.strftime('%H:%M')}"
 
+class StudentQuerySet(models.QuerySet):
+    """O'quvchilar uchun QuerySet: o'chirishda bazadan butunlay o'chirmasdan Soft Delete bajaradi."""
+
+    def delete(self):
+        return self.update(
+            is_deleted=True,
+            is_active=False,
+            deleted_at=timezone.now(),
+        )
+
+    def hard_delete(self):
+        return super().delete()
+
+
+class StudentManager(models.Manager):
+    """Odatiy so'rovlarda Soft Delete qilinmagan (is_deleted=False) o'quvchilarni qaytaradi."""
+
+    def get_queryset(self):
+        return StudentQuerySet(self.model, using=self._db).filter(is_deleted=False)
+
+
 class Student(models.Model):
     first_name = models.CharField(max_length=100, validators=[validate_latin_only])
     last_name = models.CharField(max_length=100, validators=[validate_latin_only])
@@ -406,9 +427,36 @@ class Student(models.Model):
     time_slot = models.ForeignKey(TimeSlot, on_delete=models.SET_NULL, null=True, related_name='students')
     joined_date = models.DateField(default=date.today, help_text="Guruhga qo'shilgan sana")
     is_active = models.BooleanField(default=True)
+    is_deleted = models.BooleanField(default=False, db_index=True, help_text="Soft delete holati")
+    deleted_at = models.DateTimeField(null=True, blank=True, help_text="Soft delete qilingan vaqt")
     left_date = models.DateField(null=True, blank=True, help_text="Guruhdan o'chirilgan/chiqqan sana")
     is_local = models.BooleanField(default=False, verbose_name="Mahalladan keladigan o'quvchi")
     photo = models.ImageField(upload_to='students/photos/', blank=True, null=True, help_text="O'quvchi rasmi (ixtiyoriy)")
+
+    objects = StudentManager()
+    all_objects = StudentQuerySet.as_manager()
+
+    class Meta:
+        base_manager_name = 'all_objects'
+
+    def delete(self, using=None, keep_parents=False):
+        """O'quvchini bazadan jismonan o'chirmasdan Soft Delete (is_deleted=True, is_active=False) qiladi."""
+        self.is_deleted = True
+        self.is_active = False
+        self.deleted_at = timezone.now()
+        update_fields = ['is_deleted', 'is_active', 'deleted_at']
+        if not self.left_date:
+            self.left_date = date.today()
+            update_fields.append('left_date')
+        self.save(using=using, update_fields=update_fields)
+
+    def restore(self):
+        """Soft Delete qilingan o'quvchini qayta tiklaydi."""
+        self.is_deleted = False
+        self.is_active = True
+        self.deleted_at = None
+        self.left_date = None
+        self.save(update_fields=['is_deleted', 'is_active', 'deleted_at', 'left_date'])
 
     @property
     def phone_1_tel(self):

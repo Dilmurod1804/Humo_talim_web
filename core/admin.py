@@ -276,7 +276,22 @@ class FaceIDSettingsAdmin(admin.ModelAdmin):
 admin.site.register(CustomUser, CustomUserAdmin)
 admin.site.register(Group)
 admin.site.register(TimeSlot)
-admin.site.register(Student)
+
+@admin.register(Student)
+class StudentAdmin(admin.ModelAdmin):
+    list_display = ('first_name', 'last_name', 'phone_1', 'time_slot', 'is_active', 'is_deleted', 'deleted_at')
+    list_filter = ('is_active', 'is_deleted')
+    search_fields = ('first_name', 'last_name', 'phone_1', 'phone_2')
+
+    def get_queryset(self, request):
+        return Student.all_objects.get_queryset()
+
+    def delete_model(self, request, obj):
+        obj.delete()
+
+    def delete_queryset(self, request, queryset):
+        queryset.delete()
+
 admin.site.register(Attendance)
 admin.site.register(DeletedStudent)
 
