@@ -178,3 +178,6 @@ ESKIZ_PASSWORD = os.getenv('ESKIZ_PASSWORD', '')
 ESKIZ_FROM = os.getenv('ESKIZ_FROM', '4546')  # Eskiz tasdiqlangan sender nomi
 CENTER_NAME = os.getenv('CENTER_NAME', "Humo Ta'lim o'quv markazi")
 CENTER_PHONE = os.getenv('CENTER_PHONE', '+998901234567')
+TEST_SMS_PHONE = os.getenv('TEST_SMS_PHONE', '+998901234567').strip()
+PAYMENT_BASE_URL = os.getenv('PAYMENT_BASE_URL', 'https://hummokids.uz').rstrip('/')
+

@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ student.first_name }} {{ student.last_name }} — To'lov Sahifasi | {{ center_name }}</title>
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --brand-primary: #f59e0b;
+            --brand-primary-dark: #d97706;
+            --brand-bg: #0f172a;
+            --card-bg: #ffffff;
+        }
+        body {
+            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            min-height: 100vh;
+            color: #1e293b;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+        .payment-wrapper {
+            max-width: 540px;
+            margin: 40px auto;
+            padding: 0 16px;
+        }
+        .payment-card {
+            background: var(--card-bg);
+            border-radius: 24px;
+            box-shadow: 0 20px 40px -15px rgba(0,0,0,0.3);
+            overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .header-gradient {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            color: #ffffff;
+            padding: 28px 24px;
+            text-align: center;
+            position: relative;
+        }
+        .header-gradient::after {
+            content: '';
+            position: absolute;
+            bottom: -10px;
+            left: 0;
+            right: 0;
+            height: 20px;
+            background: var(--card-bg);
+            border-top-left-radius: 20px;
+            border-top-right-radius: 20px;
+        }
+        .brand-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(255, 255, 255, 0.2);
+            padding: 6px 14px;
+            border-radius: 50px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            backdrop-filter: blur(8px);
+            margin-bottom: 12px;
+        }
+        .student-avatar {
+            width: 72px;
+            height: 72px;
+            border-radius: 20px;
+            background: linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%);
+            color: #334155;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.8rem;
+            font-weight: 700;
+            margin: -40px auto 16px;
+            border: 4px solid #ffffff;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.1);
+            position: relative;
+            z-index: 2;
+        }
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px dashed #e2e8f0;
+            font-size: 0.95rem;
+        }
+        .info-row:last-child {
+            border-bottom: none;
+        }
+        .amount-box {
+            background: #fffbeb;
+            border: 2px solid #fde68a;
+            border-radius: 16px;
+            padding: 20px;
+            text-align: center;
+            margin: 20px 0;
+        }
+        .amount-box.paid {
+            background: #f0fdf4;
+            border-color: #bbf7d0;
+        }
+        .btn-pay {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            color: #ffffff;
+            border: none;
+            padding: 16px 24px;
+            border-radius: 14px;
+            font-weight: 700;
+            font-size: 1.05rem;
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            box-shadow: 0 10px 20px rgba(217, 119, 6, 0.3);
+            transition: all 0.2s ease;
+        }
+        .btn-pay:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 14px 24px rgba(217, 119, 6, 0.4);
+            color: #ffffff;
+        }
+        .payment-methods {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-top: 14px;
+        }
+        .method-card {
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 10px;
+            text-align: center;
+            font-size: 0.82rem;
+            font-weight: 600;
+            color: #475569;
+            background: #f8fafc;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .method-card:hover {
+            border-color: #f59e0b;
+            background: #fffbeb;
+            color: #d97706;
+        }
+        .footer-note {
+            text-align: center;
+            color: #94a3b8;
+            font-size: 0.82rem;
+            margin-top: 24px;
+            padding-bottom: 24px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="payment-wrapper">
+        <div class="payment-card">
+            <!-- Header -->
+            <div class="header-gradient">
+                <div class="brand-badge">
+                    <i class="bi bi-mortarboard-fill"></i>
+                    <span>{{ center_name }}</span>
+                </div>
+                <h4 class="fw-bold mb-1 text-white">Oylik To'lov Sahifasi</h4>
+                <p class="mb-0 text-white-50 small">{{ current_month_uz }} oyi uchun</p>
+            </div>
+
+            <!-- Body -->
+            <div class="p-4 pt-0">
+                <div class="student-avatar">
+                    <i class="bi bi-person-fill text-secondary"></i>
+                </div>
+
+                <div class="text-center mb-4">
+                    <h4 class="fw-bold text-dark mb-1">{{ student.first_name }} {{ student.last_name }}</h4>
+                    <span class="badge bg-light text-secondary border px-3 py-1">
+                        <i class="bi bi-book-half me-1 text-warning"></i>
+                        {{ group.name|default:"Guruh tayinlanmagan" }}
+                    </span>
+                    {% if teacher %}
+                    <div class="small text-muted mt-1">
+                        <i class="bi bi-person-badge me-1"></i>O'qituvchi: {{ teacher.first_name }} {{ teacher.last_name }}
+                    </div>
+                    {% endif %}
+                </div>
+
+                <!-- Info Table -->
+                <div class="bg-light rounded-3 p-3 mb-3 border">
+                    <div class="info-row">
+                        <span class="text-muted"><i class="bi bi-calendar3 me-1"></i> Hisob davri:</span>
+                        <strong class="text-dark">{{ current_month_uz }}</strong>
+                    </div>
+                    <div class="info-row">
+                        <span class="text-muted"><i class="bi bi-cash me-1"></i> Kurs oylik to'lovi:</span>
+                        <strong class="text-dark">{{ rate_formatted }} so'm</strong>
+                    </div>
+                    {% if paid_amount > 0 %}
+                    <div class="info-row">
+                        <span class="text-muted"><i class="bi bi-check2-circle me-1 text-success"></i> Qisman to'langan:</span>
+                        <span class="badge bg-success-subtle text-success fw-bold">{{ paid_formatted }} so'm</span>
+                    </div>
+                    {% endif %}
+                    <div class="info-row">
+                        <span class="text-muted"><i class="bi bi-info-circle me-1"></i> To'lov holati:</span>
+                        {% if is_paid %}
+                            <span class="badge bg-success px-2 py-1"><i class="bi bi-check-circle me-1"></i> {{ status_label }}</span>
+                        {% elif is_mahalla %}
+                            <span class="badge bg-info text-dark px-2 py-1"><i class="bi bi-award me-1"></i> {{ status_label }}</span>
+                        {% else %}
+                            <span class="badge bg-danger px-2 py-1"><i class="bi bi-exclamation-circle me-1"></i> {{ status_label }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Amount Box -->
+                {% if is_paid %}
+                    <div class="amount-box paid">
+                        <i class="bi bi-check-circle-fill text-success" style="font-size:2.4rem;"></i>
+                        <h5 class="fw-bold text-success mt-2 mb-1">To'lov to'liq qabul qilingan!</h5>
+                        <p class="text-muted small mb-0">{{ current_month_uz }} oyi uchun to'lov amalga oshirilgan. Rahmat!</p>
+                    </div>
+                {% elif is_mahalla %}
+                    <div class="amount-box" style="background:#f0f9ff; border-color:#bae6fd;">
+                        <i class="bi bi-star-fill text-primary" style="font-size:2.4rem;"></i>
+                        <h5 class="fw-bold text-primary mt-2 mb-1">Imtiyozli (Mahalla) o'quvchi</h5>
+                        <p class="text-muted small mb-0">Ushbu o'quvchi uchun to'lov talab etilmaydi.</p>
+                    </div>
+                {% else %}
+                    <div class="amount-box">
+                        <small class="text-uppercase fw-bold text-muted" style="letter-spacing:1px;">To'lanishi kerak bo'lgan summa</small>
+                        <h2 class="fw-black text-danger mt-1 mb-0" style="font-size:2.2rem;">
+                            {{ due_amount_formatted }} <small style="font-size:1.1rem; font-weight:600;">so'm</small>
+                        </h2>
+                    </div>
+
+                    <!-- Payment Action Button -->
+                    <button type="button" class="btn-pay" data-bs-toggle="modal" data-bs-target="#paymentChoiceModal">
+                        <i class="bi bi-shield-lock-fill"></i>
+                        <span>To'lov qilish (Onlayn)</span>
+                    </button>
+
+                    <!-- Fast Payment Providers -->
+                    <div class="payment-methods">
+                        <div class="method-card" data-bs-toggle="modal" data-bs-target="#paymentChoiceModal">
+                            <i class="bi bi-credit-card-2-front d-block fs-5 text-primary mb-1"></i>
+                            Payme
+                        </div>
+                        <div class="method-card" data-bs-toggle="modal" data-bs-target="#paymentChoiceModal">
+                            <i class="bi bi-cursor-fill d-block fs-5 text-primary mb-1"></i>
+                            Click
+                        </div>
+                        <div class="method-card" data-bs-toggle="modal" data-bs-target="#paymentChoiceModal">
+                            <i class="bi bi-bank d-block fs-5 text-primary mb-1"></i>
+                            Uzum Bank
+                        </div>
+                    </div>
+                {% endif %}
+
+                <!-- Support Contact -->
+                <div class="text-center mt-4 pt-2 border-top">
+                    <small class="text-muted d-block mb-1">Savollar yoki to'lov bo'yicha ma'lumot olish:</small>
+                    <a href="tel:{{ center_phone }}" class="fw-bold text-decoration-none text-dark d-inline-flex align-items-center gap-1">
+                        <i class="bi bi-telephone-fill text-warning"></i>
+                        <span>{{ center_phone }}</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer-note">
+            <i class="bi bi-shield-check text-success me-1"></i> 256-bit shifrlangan xavfsiz to'lov tizimi | {{ center_name }}
+        </div>
+    </div>
+
+    <!-- Modal: To'lov tizimini tanlash -->
+    <div class="modal fade" id="paymentChoiceModal" tabindex="-1" aria-labelledby="paymentChoiceModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+                <div class="modal-header border-0 text-white p-4" style="background: linear-gradient(135deg, #f59e0b, #d97706);">
+                    <div class="d-flex align-items-center gap-3">
+                        <div style="width:44px;height:44px;background:rgba(255,255,255,0.2);border-radius:12px;display:flex;align-items:center;justify-content:center;">
+                            <i class="bi bi-credit-card-fill fs-4 text-white"></i>
+                        </div>
+                        <div>
+                            <h5 class="modal-title fw-bold mb-0" id="paymentChoiceModalLabel">To'lov Tizimini Tanlang</h5>
+                            <small class="text-white-50">Summa: {{ due_amount_formatted }} so'm</small>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="list-group gap-2">
+                        <a href="#" onclick="alert('Payme integratsiyasi: to\'lov tizimiga yo\'naltirilmoqda...'); return false;" class="list-group-item list-group-item-action p-3 rounded-3 border d-flex align-items-center justify-content-between">
+                            <div class="d-flex align-items-center gap-3">
+                                <span class="badge bg-primary-subtle text-primary p-2 fs-6 rounded-3"><i class="bi bi-credit-card-2-front"></i></span>
+                                <div>
+                                    <div class="fw-bold text-dark">Payme</div>
+                                    <small class="text-muted">Uzcard / Humo orqali to'lov</small>
+                                </div>
+                            </div>
+                            <i class="bi bi-chevron-right text-muted"></i>
+                        </a>
+
+                        <a href="#" onclick="alert('Click integratsiyasi: to\'lov tizimiga yo\'naltirilmoqda...'); return false;" class="list-group-item list-group-item-action p-3 rounded-3 border d-flex align-items-center justify-content-between">
+                            <div class="d-flex align-items-center gap-3">
+                                <span class="badge bg-info-subtle text-info p-2 fs-6 rounded-3"><i class="bi bi-cursor-fill"></i></span>
+                                <div>
+                                    <div class="fw-bold text-dark">Click Up</div>
+                                    <small class="text-muted">Click orqali tezkor to'lov</small>
+                                </div>
+                            </div>
+                            <i class="bi bi-chevron-right text-muted"></i>
+                        </a>
+
+                        <a href="#" onclick="alert('Uzum Bank integratsiyasi: to\'lov tizimiga yo\'naltirilmoqda...'); return false;" class="list-group-item list-group-item-action p-3 rounded-3 border d-flex align-items-center justify-content-between">
+                            <div class="d-flex align-items-center gap-3">
+                                <span class="badge bg-purple-subtle text-dark p-2 fs-6 rounded-3" style="background:#f3e8ff;"><i class="bi bi-bank text-purple"></i></span>
+                                <div>
+                                    <div class="fw-bold text-dark">Uzum Bank</div>
+                                    <small class="text-muted">Uzum ilovasi orqali to'lov</small>
+                                </div>
+                            </div>
+                            <i class="bi bi-chevron-right text-muted"></i>
+                        </a>
+                    </div>
+
+                    <div class="alert alert-light border mt-3 mb-0 small text-muted">
+                        <i class="bi bi-info-circle me-1 text-primary"></i>
+                        To'lov amalga oshirilgandan so'ng, markaz administratorining tizimida to'lov avtomatik ravishda tasdiqlanadi.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap 5 JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

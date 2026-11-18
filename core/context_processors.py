@@ -2,6 +2,7 @@
 HUMO O'quv markazi — Context Processors
 Shablonlarda Admin va Menejer rollarini aniqlash uchun global o'zgaruvchilar.
 """
+from django.conf import settings
 from .auth_views import is_admin_user, is_manager_user, is_teacher_user
 
 
@@ -20,6 +21,8 @@ def auth_roles(request):
             'is_assigned_teacher': False,
             'is_unassigned_staff': False,
             'assigned_group': None,
+            'test_sms_phone': getattr(settings, 'TEST_SMS_PHONE', '+998901234567'),
+            'payment_base_url': getattr(settings, 'PAYMENT_BASE_URL', 'https://hummokids.uz'),
         }
 
     is_admin = is_admin_user(request)
@@ -48,5 +51,7 @@ def auth_roles(request):
         'is_assigned_teacher': is_assigned_teacher,
         'is_unassigned_staff': is_unassigned_staff,
         'assigned_group': assigned_group,
+        'test_sms_phone': getattr(settings, 'TEST_SMS_PHONE', '+998901234567'),
+        'payment_base_url': getattr(settings, 'PAYMENT_BASE_URL', 'https://hummokids.uz'),
     }
 

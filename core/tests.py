@@ -1,4 +1,5 @@
 from datetime import date, datetime, time, timedelta
+from unittest import mock
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from decimal import Decimal
@@ -2392,6 +2393,556 @@ class StudentSoftDeleteTests(TestCase):
         self.assertFalse(saved.is_active)
         self.assertFalse(saved.is_deleted)
         self.assertTrue(DeletedStudent.objects.filter(student_id=self.student.id).exists())
+
+
+class SmsPaymentReminderAndPublicPaymentTests(TestCase):
+    def setUp(self):
+        self.admin_user = CustomUser.objects.create_superuser(
+            username='sms_admin',
+            password='AdminPass123',
+            role='admin',
+        )
+        self.teacher_user = CustomUser.objects.create_user(
+            username='sms_teacher',
+            password='TeacherPass123',
+            role='teacher',
+        )
+        self.teacher = Teacher.objects.create(
+            user=self.teacher_user,
+            first_name='Anvar',
+            last_name='Ustoz',
+            generated_login='sms_teacher',
+            generated_password='TeacherPass123',
+        )
+        self.group = Group.objects.create(
+            name='Matematika Test',
+            subject='Matematika',
+            teacher=self.teacher,
+        )
+        self.ts = TimeSlot.objects.create(
+            group=self.group,
+            days='Dushanba-Chorshanba-Juma',
+            start_time='10:00',
+            end_time='12:00',
+        )
+        self.paid_student = Student.objects.create(
+            first_name='Jasur',
+            last_name='Toshev',
+            phone_1='+998909876543',
+            time_slot=self.ts,
+            payment_rate=450000,
+            student_type='paid',
+        )
+        self.mahalla_student = Student.objects.create(
+            first_name='Shokir',
+            last_name='Imtiyozov',
+            phone_1='+998911112233',
+            time_slot=self.ts,
+            payment_rate=450000,
+            student_type='mahalla',
+            is_local=True,
+        )
+
+    def test_student_uuid_and_payment_url(self):
+        """Student UUID generatsiya qilingan bo'lishi va payment_url to'g'ri shakllanishi kerak."""
+        self.assertIsNotNone(self.paid_student.uuid)
+        self.assertIn(str(self.paid_student.uuid), self.paid_student.payment_url)
+        self.assertTrue(self.paid_student.payment_url.startswith('https://hummokids.uz/pay/'))
+
+    def test_public_payment_view_unpaid_student(self):
+        """To'lanmagan o'quvchi uchun public to'lov sahifasi 200 qaytaradi va summani ko'rsatadi."""
+        url = reverse('public_student_payment', args=[self.paid_student.uuid])
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Jasur Toshev')
+        self.assertContains(resp, 'Matematika Test')
+        self.assertContains(resp, '450 000')
+
+    def test_public_payment_view_paid_student(self):
+        """To'lagan o'quvchi uchun to'liq to'langanligi ko'rsatiladi."""
+        curr_month = timezone.now().strftime('%Y-%m')
+        MonthlyPayment.objects.create(
+            student=self.paid_student,
+            month=curr_month,
+            amount_paid='450000',
+            status='paid',
+        )
+        url = reverse('public_student_payment', args=[self.paid_student.uuid])
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "To'lov to'liq qabul qilingan")
+
+    def test_public_payment_view_mahalla_student(self):
+        """Mahalla o'quvchisi uchun imtiyozli ekanligi va to'lov talab etilmasligi ko'rsatiladi."""
+        url = reverse('public_student_payment', args=[self.mahalla_student.uuid])
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Imtiyozli (Mahalla)")
+
+    @override_settings(TEST_SMS_PHONE='+998901234567', SMS_ENABLED=False)
+    def test_send_test_payment_reminder_strictly_to_test_phone(self):
+        """Sinov SMS faqat TEST_SMS_PHONE ga yuboriladi va to'lov havolasini o'z ichiga oladi."""
+        from core.eskiz_service import send_test_payment_reminder
+        from core.models import SMSLog
+
+        curr_month = timezone.now().strftime('%Y-%m')
+        res = send_test_payment_reminder(
+            student_id=self.paid_student.id,
+            month_str=curr_month,
+        )
+        self.assertTrue(res['success'])
+        self.assertEqual(res['test_phone'], '998901234567')
+        self.assertIn(str(self.paid_student.uuid), res['message'])
+        self.assertIn(self.paid_student.payment_url, res['message'])
+
+        # O'quvchining shaxsiy raqamiga (998909876543) emas, faqat test raqamiga yozilgan
+        log = SMSLog.objects.filter(student=self.paid_student, month=curr_month).last()
+        self.assertIsNotNone(log)
+        self.assertEqual(log.phone, '998901234567')
+
+    @override_settings(SMS_ENABLED=False)
+    def test_bulk_sms_skips_mahalla_students(self):
+        """Ommaviy SMS yuborishda faqat to'lovli o'quvchilar olinadi, mahalla o'quvchisi mutlaqo o'tkazib yuboriladi."""
+        from core.eskiz_service import send_payment_reminders_to_paid_students
+        from core.models import SMSLog
+
+        curr_month = timezone.now().strftime('%Y-%m')
+        summary = send_payment_reminders_to_paid_students(
+            month_str=curr_month,
+            group_id=self.group.id,
+            force=True,
+        )
+        self.assertGreaterEqual(summary['sent'], 1)
+        self.assertTrue(SMSLog.objects.filter(student=self.paid_student).exists())
+        self.assertFalse(SMSLog.objects.filter(student=self.mahalla_student).exists())
+
+    @override_settings(TEST_SMS_PHONE='+998901234567', SMS_ENABLED=False)
+    def test_admin_send_test_sms_view(self):
+        """Admin paneldan sinov SMS yuborish POST so'rovi to'g'ri ishlaydi."""
+        self.client.force_login(self.admin_user)
+        resp = self.client.post(reverse('admin_send_test_sms'), {
+            'student_id': self.paid_student.id,
+        }, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data['success'])
+        self.assertIn('998901234567', data['message'])
+
+    @override_settings(SMS_ENABLED=False)
+    def test_admin_send_payment_reminders_view_action_test_and_bulk(self):
+        """admin_send_payment_reminders endpointi action='test' va action='bulk' ni to'g'ri boshqaradi."""
+        self.client.force_login(self.admin_user)
+
+        # 1. Action = 'test'
+        resp_test = self.client.post(reverse('admin_send_payment_reminders'), {
+            'action': 'test',
+            'student_id': self.paid_student.id,
+        }, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        self.assertEqual(resp_test.status_code, 200)
+        self.assertTrue(resp_test.json()['success'])
+
+        # 2. Action = 'bulk'
+        resp_bulk = self.client.post(reverse('admin_send_payment_reminders'), {
+            'action': 'bulk',
+            'group_id': self.group.id,
+            'force': '1',
+        }, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        self.assertEqual(resp_bulk.status_code, 200)
+        data_bulk = resp_bulk.json()
+        self.assertTrue(data_bulk['success'])
+        self.assertIn('summary', data_bulk)
+
+    def test_custom_template_placeholders_and_auto_payment_link(self):
+        """Maxsus shablon dinamik placeholderlarni almashtirishi va to'lov havolasini avtomatik qo'shishi kerak."""
+        from core.sms_service import build_tuition_reminder_text
+
+        tpl = "Salom, {student_name}! {course_name} kursingiz uchun {month} oyi to'lovi: {amount} so'm."
+        result = build_tuition_reminder_text(
+            self.paid_student,
+            month_str='2026-11',
+            custom_template=tpl,
+        )
+        self.assertIn('Jasur Toshev', result)
+        self.assertIn('Matematika', result)
+        self.assertIn('450 000', result)
+        self.assertIn('Noyabr', result)
+        # To'lov havolasi avtomatik tarzda oxiriga qo'shilgan bo'lishi kerak
+        self.assertIn(self.paid_student.payment_url, result)
+        self.assertIn("To'lov havolasi:", result)
+
+    @override_settings(TEST_SMS_PHONE='+998901234567', SMS_ENABLED=False)
+    def test_custom_message_sent_to_test_sms(self):
+        """Admin tahrirlagan custom_message sinov SMS rejimiga to'liq yetib borishi kerak."""
+        from core.models import SMSLog
+
+        self.client.force_login(self.admin_user)
+        custom_txt = "Maxsus eslatma: {student_name} uchun to'lov summasi {amount} so'm."
+        resp = self.client.post(reverse('admin_send_payment_reminders'), {
+            'action': 'test',
+            'student_id': self.paid_student.id,
+            'custom_message': custom_txt,
+        }, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        self.assertEqual(resp.status_code, 200)
+
+        log = SMSLog.objects.filter(phone='998901234567').last()
+        self.assertIsNotNone(log)
+        self.assertIn('Jasur Toshev', log.message)
+        self.assertIn('450 000', log.message)
+        self.assertIn(self.paid_student.payment_url, log.message)
+
+    @override_settings(SMS_ENABLED=False)
+    def test_custom_message_sent_to_bulk_sms(self):
+        """Admin tahrirlagan custom_message ommaviy SMS rejimida har bir o'quvchiga o'z ma'lumotlari bilan borishi kerak."""
+        from core.models import SMSLog
+
+        self.client.force_login(self.admin_user)
+        custom_txt = "Eslatma: {student_name} - {amount} so'm."
+        resp = self.client.post(reverse('admin_send_payment_reminders'), {
+            'action': 'bulk',
+            'group_id': self.group.id,
+            'force': '1',
+            'custom_message': custom_txt,
+        }, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        self.assertEqual(resp.status_code, 200)
+
+        log = SMSLog.objects.filter(student=self.paid_student).last()
+        self.assertIsNotNone(log)
+        self.assertIn('Jasur Toshev', log.message)
+        self.assertIn('450 000', log.message)
+        self.assertIn(self.paid_student.payment_url, log.message)
+
+    @override_settings(SMS_ENABLED=False)
+    def test_per_group_sms_strictly_targets_unpaid_debtors_in_group(self):
+        """Guruh bo'yicha SMS yuborilganda faqat shu guruhdagi to'lamagan qarzdorlar olinadi;
+        to'laganlar, mahalla o'quvchilari va boshqa guruh o'quvchilari mutlaqo kiritilmaydi."""
+        from core.eskiz_service import send_payment_reminders_to_paid_students
+        from core.models import SMSLog, MonthlyPayment, Group, TimeSlot, Student
+
+        curr_month = timezone.now().strftime('%Y-%m')
+
+        # 1. Shu guruhdagi to'lovni to'liq to'lagan o'quvchi
+        paid_up_student = Student.objects.create(
+            first_name='Alisher',
+            last_name='To\'laganov',
+            phone_1='+998931234567',
+            time_slot=self.ts,
+            payment_rate=450000,
+            student_type='paid',
+        )
+        MonthlyPayment.objects.create(
+            student=paid_up_student,
+            month=curr_month,
+            amount_paid='450000',
+            status='paid',
+        )
+
+        # 2. Boshqa (2-chi) guruhdagi qarzdor o'quvchi
+        group2 = Group.objects.create(name='Fizika Test', subject='Fizika', teacher=self.teacher)
+        ts2 = TimeSlot.objects.create(group=group2, days='Seshanba-Payshanba', start_time='14:00', end_time='16:00')
+        other_group_debtor = Student.objects.create(
+            first_name='Bobur',
+            last_name='Boshqayev',
+            phone_1='+998949876543',
+            time_slot=ts2,
+            payment_rate=400000,
+            student_type='paid',
+        )
+
+        # self.paid_student hali to'lamagan (qarzdor)
+        # self.mahalla_student - mahalla
+        # paid_up_student - to'lagan
+        # other_group_debtor - boshqa guruhda
+
+        summary = send_payment_reminders_to_paid_students(
+            month_str=curr_month,
+            group_id=self.group.id,
+            force=True,
+        )
+
+        # Faqat self.paid_student ga SMS borgan bo'lishi kerak
+        self.assertEqual(summary['sent'], 1)
+
+        # Qarzdor o'quvchiga SMS ketgan
+        self.assertTrue(SMSLog.objects.filter(student=self.paid_student).exists())
+        debtor_log = SMSLog.objects.filter(student=self.paid_student).last()
+        self.assertIn(self.paid_student.payment_url, debtor_log.message)
+
+        # To'lagan o'quvchiga SMS ketmagan
+        self.assertFalse(SMSLog.objects.filter(student=paid_up_student).exists())
+
+        # Mahalla o'quvchisiga SMS ketmagan
+        self.assertFalse(SMSLog.objects.filter(student=self.mahalla_student).exists())
+
+        # Boshqa guruh qarzdoriga SMS ketmagan
+        self.assertFalse(SMSLog.objects.filter(student=other_group_debtor).exists())
+
+    @override_settings(SMS_ENABLED=False)
+    def test_per_group_sms_via_admin_view(self):
+        """admin_send_payment_reminders view orqali group_id berilganda guruh qarzdorlariga yuborish."""
+        self.client.force_login(self.admin_user)
+        curr_month = timezone.now().strftime('%Y-%m')
+
+        resp = self.client.post(reverse('admin_send_payment_reminders'), {
+            'action': 'bulk',
+            'group_id': self.group.id,
+            'month': curr_month,
+            'force': '1',
+            'custom_message': "Hurmatli ota-ona! {student_name}ning to'lovi {amount} so'm.",
+        }, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data['success'])
+        self.assertIn('summary', data)
+        self.assertEqual(data['summary']['sent'], 1)
+
+    @override_settings(SMS_ENABLED=True)
+    def test_admin_send_payment_reminders_catches_exception_and_returns_json(self):
+        """Kutilmagan xatolik yuz berganda HTML 500 o'rniga toza JSON status='error' qaytishi kerak."""
+        self.client.force_login(self.admin_user)
+        with mock.patch('core.eskiz_service.send_payment_reminders_to_paid_students', side_effect=RuntimeError("Eskiz API ulanish uzildi")):
+            resp = self.client.post(reverse('admin_send_payment_reminders'), {
+                'action': 'bulk',
+                'group_id': self.group.id,
+                'ajax': '1',
+            }, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+            self.assertEqual(resp.status_code, 200)
+            data = resp.json()
+            self.assertFalse(data['success'])
+            self.assertEqual(data['status'], 'error')
+            self.assertIn('Eskiz API ulanish uzildi', data['message'])
+
+    @override_settings(SMS_ENABLED=True)
+    def test_admin_send_test_sms_catches_exception_and_returns_json(self):
+        """Sinov SMS da xatolik bo'lsa, toza JSON status='error' qaytadi."""
+        self.client.force_login(self.admin_user)
+        with mock.patch('core.eskiz_service.send_test_payment_reminder', return_value={'success': False, 'error': 'Eskiz token muddati tugagan'}):
+            resp = self.client.post(reverse('admin_send_payment_reminders'), {
+                'action': 'test',
+                'group_id': self.group.id,
+                'ajax': '1',
+            }, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+            self.assertEqual(resp.status_code, 200)
+            data = resp.json()
+            self.assertFalse(data['success'])
+            self.assertEqual(data['status'], 'error')
+            self.assertIn('Eskiz token muddati tugagan', data['message'])
+
+
+class CallCenterDebtorsModuleTests(TestCase):
+    def setUp(self):
+        self.manager_user = CustomUser.objects.create_user(
+            username='cc_manager',
+            password='ManagerPass123',
+            role='manager',
+            first_name='Dilnoza',
+            last_name='Menejerova',
+        )
+        self.manager = Manager.objects.create(
+            user=self.manager_user,
+            first_name='Dilnoza',
+            last_name='Menejerova',
+            phone='+998901112233',
+            generated_login='cc_manager',
+            generated_password='ManagerPass123',
+            monthly_salary=3500000,
+        )
+
+        self.teacher_user = CustomUser.objects.create_user(
+            username='cc_teacher',
+            password='TeacherPass123',
+            role='teacher',
+        )
+        self.teacher = Teacher.objects.create(
+            user=self.teacher_user,
+            first_name='Nodir',
+            last_name='Ustoz',
+            generated_login='cc_teacher',
+            generated_password='TeacherPass123',
+        )
+
+        self.group = Group.objects.create(
+            name='Fizika Guruh 1',
+            subject='Fizika',
+            teacher=self.teacher,
+        )
+        self.ts = TimeSlot.objects.create(
+            group=self.group,
+            days='Seshanba-Payshanba-Shanba',
+            start_time='14:00',
+            end_time='16:00',
+        )
+
+        # 1. Qarzdor to'lovli o'quvchi
+        self.unpaid_student = Student.objects.create(
+            first_name='Temur',
+            last_name='Bekov',
+            phone_1='+998 90 555 44 33',
+            time_slot=self.ts,
+            payment_rate=400000,
+            student_type='paid',
+        )
+
+        # 2. To'lovini to'liq qilgan o'quvchi
+        self.paid_student = Student.objects.create(
+            first_name='Sarvar',
+            last_name='To\'laganov',
+            phone_1='+998 90 777 88 99',
+            time_slot=self.ts,
+            payment_rate=400000,
+            student_type='paid',
+        )
+        self.curr_month = timezone.now().strftime('%Y-%m')
+        MonthlyPayment.objects.create(
+            student=self.paid_student,
+            month=self.curr_month,
+            amount_paid='400000',
+            status='paid',
+        )
+
+        # 3. Mahalla (imtiyozli) o'quvchi (qarzdorlar ro'yxatiga kirmasligi kerak)
+        self.mahalla_student = Student.objects.create(
+            first_name='Akbar',
+            last_name='Imtiyozov',
+            phone_1='+998 90 123 99 88',
+            time_slot=self.ts,
+            payment_rate=400000,
+            student_type='mahalla',
+            is_local=True,
+        )
+
+    def test_manager_can_access_debtors_call_center_page(self):
+        """Menejer /call-center/debtors/ sahifasiga 200 OK bilan kira olishi kerak."""
+        self.client.force_login(self.manager_user)
+        resp = self.client.get(reverse('call_center_debtors'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Call Center')
+        self.assertContains(resp, "Qarzdor O'quvchilarga Qo'ng'iroq Qilish")
+
+    def test_unauthenticated_and_teacher_access_restricted(self):
+        """Tizimga kirmagan foydalanuvchi va oddiy o'qituvchi kira olmasligi kerak."""
+        # Anonim foydalanuvchi
+        resp = self.client.get(reverse('call_center_debtors'))
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn('admin-login', resp.url)
+
+        # O'qituvchi teacher_dashboard ga yo'naltirilishi kerak
+        self.client.force_login(self.teacher_user)
+        resp_teacher = self.client.get(reverse('call_center_debtors'))
+        self.assertRedirects(resp_teacher, reverse('teacher_dashboard'))
+
+    def test_debtor_table_shows_unpaid_student_details_and_excludes_paid_and_mahalla(self):
+        """Qarzdorlar jadvalida faqat to'lamagan o'quvchi ma'lumotlari (ism, guruh, tel, qarz summasi) ko'rinishi kerak."""
+        self.client.force_login(self.manager_user)
+        resp = self.client.get(reverse('call_center_debtors'), {'month': self.curr_month})
+        self.assertEqual(resp.status_code, 200)
+
+        # Qarzdor o'quvchi ko'rinishi kerak
+        self.assertContains(resp, 'Temur Bekov')
+        self.assertContains(resp, 'Fizika Guruh 1')
+        self.assertContains(resp, '400 000')
+
+        # To'lagan va mahalla o'quvchisi chiqmasligi kerak
+        self.assertNotContains(resp, 'Sarvar To\'laganov')
+        self.assertNotContains(resp, 'Akbar Imtiyozov')
+
+    def test_click_to_call_tel_link_is_rendered(self):
+        """Telefon raqami HTML tel: havolasi sifatida to'g'ri render bo'lishi kerak."""
+        self.client.force_login(self.manager_user)
+        resp = self.client.get(reverse('call_center_debtors'), {'month': self.curr_month})
+        self.assertEqual(resp.status_code, 200)
+
+        # tel:+998905554433 formatidagi havola mavjud bo'lishi kerak
+        self.assertContains(resp, 'href="tel:+998905554433"')
+
+    def test_update_debtor_call_status_to_notified(self):
+        """'Xabar qilindi' bosilganda DebtorCallLog notified ga yangilanishi kerak."""
+        from core.models import DebtorCallLog
+
+        self.client.force_login(self.manager_user)
+        resp = self.client.post(reverse('update_debtor_call_status'), {
+            'student_id': self.unpaid_student.id,
+            'month': self.curr_month,
+            'status': 'notified',
+            'note': 'Ertaga to\'laydi',
+        }, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data['success'])
+        self.assertEqual(data['status'], 'notified')
+        self.assertEqual(data['status_display'], 'Xabar qilindi')
+        self.assertIn('counts', data)
+        self.assertEqual(data['counts']['notified'], 1)
+        self.assertEqual(data['counts']['pending'], 0)
+
+        log = DebtorCallLog.objects.filter(student=self.unpaid_student, month=self.curr_month).first()
+        self.assertIsNotNone(log)
+        self.assertEqual(log.status, 'notified')
+        self.assertEqual(log.called_by, self.manager_user)
+        self.assertEqual(log.note, 'Ertaga to\'laydi')
+
+    def test_update_debtor_call_status_to_no_answer(self):
+        """'Qayta chaqiruv' bosilganda DebtorCallLog no_answer ga yangilanishi kerak."""
+        from core.models import DebtorCallLog
+
+        self.client.force_login(self.manager_user)
+        resp = self.client.post(reverse('update_debtor_call_status'), {
+            'student_id': self.unpaid_student.id,
+            'month': self.curr_month,
+            'status': 'no_answer',
+        }, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data['success'])
+        self.assertEqual(data['status'], 'no_answer')
+        self.assertEqual(data['status_display'], 'Qayta chaqiruv')
+
+        log = DebtorCallLog.objects.filter(student=self.unpaid_student, month=self.curr_month).first()
+        self.assertIsNotNone(log)
+        self.assertEqual(log.status, 'no_answer')
+
+    def test_isolation_no_payment_records_altered(self):
+        """Qo'ng'iroq holati yangilanganda MonthlyPayment yoki Student stavkasiga mutlaqo tegilmasligi kerak."""
+        from core.models import MonthlyPayment
+
+        self.client.force_login(self.manager_user)
+        initial_payments_count = MonthlyPayment.objects.count()
+
+        resp = self.client.post(reverse('update_debtor_call_status'), {
+            'student_id': self.unpaid_student.id,
+            'month': self.curr_month,
+            'status': 'notified',
+        }, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        self.assertEqual(resp.status_code, 200)
+
+        # MonthlyPayment soni o'zgarmagan (yangi to'lov qo'shilmagan)
+        self.assertEqual(MonthlyPayment.objects.count(), initial_payments_count)
+        self.assertFalse(MonthlyPayment.objects.filter(student=self.unpaid_student, month=self.curr_month).exists())
+
+        # O'quvchining to'lov stavkasi o'zgarmagan
+        self.unpaid_student.refresh_from_db()
+        self.assertEqual(self.unpaid_student.payment_rate, 400000)
+
+    def test_debtor_with_zero_rate_is_included_in_debtors_list(self):
+        """To'lov stavkasi 0 bo'lgan lekin to'lamagan o'quvchi ham qarzdorlar ro'yxatida ko'rinishi kerak."""
+        zero_rate_student = Student.objects.create(
+            first_name='Zero',
+            last_name='Stavkov',
+            phone_1='+998 90 999 00 11',
+            time_slot=self.ts,
+            payment_rate=0,
+            student_type='paid',
+        )
+        self.client.force_login(self.manager_user)
+        resp = self.client.get(reverse('call_center_debtors'), {'month': self.curr_month})
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Zero Stavkov')
+
+
+
+
 
 
 

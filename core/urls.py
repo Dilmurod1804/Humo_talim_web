@@ -1,6 +1,6 @@
 from django.urls import path, re_path
 from django.views.generic import RedirectView
-from . import auth_views, student_views, payment_views, face_id_views, teacher_views
+from . import auth_views, student_views, payment_views, face_id_views, teacher_views, call_center_views
 
 urlpatterns = [
     # ── Home & Shared Auth ───────────────────────────────────────────────────
@@ -33,15 +33,21 @@ urlpatterns = [
     path('admin/chat/<int:teacher_id>/', student_views.admin_chat_detail, name='admin_chat_detail'),
 
     # ── To'lovlar va Excel Eksport (payment_views) ───────────────────────────
+    path('pay/<uuid:token>/', payment_views.public_student_payment, name='public_student_payment'),
     path('admin/payments/', payment_views.admin_payments_all, name='admin_payments_all'),
     path('admin/group/<int:group_id>/payments/', payment_views.admin_group_payments, name='admin_group_payments'),
     path('admin/payments/send-reminders/', payment_views.admin_send_payment_reminders, name='admin_send_payment_reminders'),
+    path('admin/payments/send-test-sms/', payment_views.admin_send_test_sms, name='admin_send_test_sms'),
     path('admin/payment/save/', payment_views.admin_payment_save, name='admin_payment_save'),
     path('admin/payment/', payment_views.payment_mark, name='payment_mark'),
     path('admin/payment/<int:id>/delete/', payment_views.admin_payment_delete, name='admin_payment_delete'),
     path('admin/payments/export/', payment_views.export_payments_excel, name='export_payments_excel'),
     path('admin/export/', payment_views.admin_export_excel, name='admin_export_excel'),
     path('admin/group/<int:group_id>/export/', payment_views.admin_group_export_excel, name='admin_group_export_excel'),
+
+    # ── Call Center & Qarzdorlar bilan ishlash (call_center_views) ───────────
+    path('call-center/debtors/', call_center_views.debtors_call_center, name='call_center_debtors'),
+    path('call-center/update-status/', call_center_views.update_debtor_call_status, name='update_debtor_call_status'),
 
     # ── Xodimlar, Face ID, Oylik, Bonus, Avans va Audit (face_id_views) ──────
     path('admin/teacher/create/', face_id_views.admin_teacher_create, name='admin_teacher_create'),

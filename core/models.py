@@ -1,3 +1,4 @@
+import uuid
 from datetime import date, time
 from django.db import models
 from django.contrib.auth.models import AbstractUser
@@ -418,12 +419,27 @@ class StudentManager(models.Manager):
 
 
 class Student(models.Model):
+    STUDENT_TYPE_PAID = 'paid'
+    STUDENT_TYPE_MAHALLA = 'mahalla'
+    STUDENT_TYPE_CHOICES = (
+        ('paid', "To'lovli"),
+        ('mahalla', "Mahalla / Imtiyozli"),
+    )
+
     first_name = models.CharField(max_length=100, validators=[validate_latin_only])
     last_name = models.CharField(max_length=100, validators=[validate_latin_only])
+    uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     age = models.IntegerField(blank=True, null=True)
     phone_1 = models.CharField(max_length=20)
     phone_2 = models.CharField(max_length=20, blank=True, null=True)
     payment_rate = models.IntegerField(default=0, help_text="Oylik to'lov summasi")
+    student_type = models.CharField(
+        max_length=20,
+        choices=STUDENT_TYPE_CHOICES,
+        default='paid',
+        verbose_name="O'quvchi turi",
+        help_text="To'lovli yoki Mahalla / Imtiyozli",
+    )
     time_slot = models.ForeignKey(TimeSlot, on_delete=models.SET_NULL, null=True, related_name='students')
     joined_date = models.DateField(default=date.today, help_text="Guruhga qo'shilgan sana")
     is_active = models.BooleanField(default=True)
@@ -504,6 +520,35 @@ class Student(models.Model):
     def get_monthly_attendance_percentage(self, year: int, month: int) -> float:
         """O'quvchining berilgan oy bo'yicha davomat foizini (0.0 - 100.0) qaytaradi."""
         return self.get_monthly_attendance_summary(year, month)['percentage']
+
+    @property
+    def is_mahalla(self):
+        """Mahalladan keladigan / imtiyozli o'quvchi belgisi."""
+        return self.student_type == self.STUDENT_TYPE_MAHALLA or bool(self.is_local)
+
+    @is_mahalla.setter
+    def is_mahalla(self, value):
+        self.is_local = bool(value)
+        if value:
+            self.student_type = self.STUDENT_TYPE_MAHALLA
+        elif self.student_type == self.STUDENT_TYPE_MAHALLA:
+            self.student_type = self.STUDENT_TYPE_PAID
+
+    @property
+    def payment_url(self) -> str:
+        """O'quvchining shaxsiy to'lov havolasi."""
+        from django.conf import settings
+        base_url = getattr(settings, 'PAYMENT_BASE_URL', 'https://hummokids.uz').rstrip('/')
+        return f"{base_url}/pay/{self.uuid}/"
+
+    def save(self, *args, **kwargs):
+        update_fields = kwargs.get('update_fields')
+        if update_fields is None:
+            if self.student_type == self.STUDENT_TYPE_MAHALLA:
+                self.is_local = True
+            elif self.is_local and self.student_type != self.STUDENT_TYPE_MAHALLA:
+                self.student_type = self.STUDENT_TYPE_MAHALLA
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.first_name} {self.last_name}"
@@ -765,5 +810,56 @@ class SMSLog(models.Model):
 
     def __str__(self):
         return f"SMS to {self.phone} [{self.status}] on {self.created_at.strftime('%Y-%m-%d %H:%M')}"
+
+
+class SystemSettings(models.Model):
+    allow_past_attendance = models.BooleanField(
+        default=True,
+        verbose_name="O'tgan sanalar davomatini kiritish/tahrirlashga ruxsat",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Tizim sozlamasi"
+        verbose_name_plural = "Tizim sozlamalari"
+
+    def __str__(self):
+        return f"Tizim sozlamalari (O'tgan davomat: {'Ruxsat' if self.allow_past_attendance else 'Taqiqlangan'})"
+
+    @classmethod
+    def get_settings(cls):
+        obj, _ = cls.objects.get_or_create(id=1, defaults={'allow_past_attendance': True})
+        return obj
+
+
+class DebtorCallLog(models.Model):
+    """
+    Call Center / Qarzdorlar bilan ishlash moduli:
+    Har bir qarzdor o'quvchining joriy oy bo'yicha qo'ng'iroq holatini saqlash.
+    Moliya va to'lov hisob-kitoblariga mutlaqo daxl qilmaydi.
+    """
+    STATUS_CHOICES = (
+        ('pending', "Kutilmoqda"),
+        ('notified', "Xabar qilindi"),
+        ('no_answer', "Qayta chaqiruv"),
+    )
+
+    student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name='debtor_call_logs', verbose_name="O'quvchi")
+    month = models.CharField(max_length=7, help_text="Yil va Oy (YYYY-MM)", db_index=True, verbose_name="Hisob oyi")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', verbose_name="Qo'ng'iroq holati")
+    called_by = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, blank=True, related_name='debtor_calls', verbose_name="Qo'ng'iroq qilgan xodim")
+    called_at = models.DateTimeField(auto_now=True, verbose_name="Oxirgi qo'ng'iroq vaqti")
+    note = models.CharField(max_length=255, blank=True, default='', verbose_name="Izoh")
+
+    class Meta:
+        unique_together = ('student', 'month')
+        ordering = ['-called_at']
+        verbose_name = "Qarzdor qo'ng'iroq qaydi"
+        verbose_name_plural = "Qarzdorlar qo'ng'iroq qaydlari"
+
+    def __str__(self):
+        return f"{self.student} - {self.month} ({self.get_status_display()})"
+
+
 
 

@@ -3,8 +3,11 @@ HUMO O'quv markazi — Payment Views & Services (payment_views.py)
 To'lovlar, qarzdorlar filtri, ORM yordamchi funksiyalar va Excel eksport.
 """
 import calendar
+import logging
 import re
 from datetime import date, datetime
+
+logger = logging.getLogger(__name__)
 
 try:
     from dateutil.relativedelta import relativedelta
@@ -14,6 +17,7 @@ except ImportError:
 import openpyxl
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
+from django.conf import settings
 from django.contrib import messages
 from django.db.models import Exists, OuterRef, Q
 from django.http import HttpResponse, JsonResponse
@@ -26,6 +30,7 @@ from .models import (
 )
 from .payment_excel import generate_payments_excel
 from .schedule_helper import count_scheduled_classes_in_month
+from .sms_service import get_month_name_uz
 from .teacher_views import _populate_excel_sheet, _student_visible_in_month
 
 
@@ -35,11 +40,14 @@ from .teacher_views import _populate_excel_sheet, _student_visible_in_month
 
 def _is_ajax(request) -> bool:
     """So'rov AJAX / Fetch orqali kelganligini tekshiradi."""
-    return (
+    return bool(
         request.headers.get('x-requested-with') == 'XMLHttpRequest'
-        or request.POST.get('ajax') == '1'
+        or request.META.get('HTTP_X_REQUESTED_WITH') == 'XMLHttpRequest'
+        or request.POST.get('ajax') in ('1', 'true', 'True')
         or request.POST.get('is_ajax') in ('1', 'true', 'True')
+        or request.GET.get('ajax') in ('1', 'true', 'True')
         or 'application/json' in request.headers.get('Accept', '')
+        or 'application/json' in request.META.get('HTTP_ACCEPT', '')
     )
 
 
@@ -1257,55 +1265,254 @@ def admin_group_export_excel(request, group_id):
     return response
 
 
+def public_student_payment(request, token):
+    """
+    Ochiq (public) sahifa: O'quvchining shaxsiy to'lov ma'lumotlarini ko'rish va to'lov qilish.
+    URL: /pay/<uuid:token>/
+    Har bir o'quvchiga unikal UUID orqali xavfsiz havola beriladi.
+    """
+    student = get_object_or_404(Student, uuid=token, is_deleted=False)
+
+    today = date.today()
+    current_month = today.strftime('%Y-%m')
+    curr_month_uz = f"{get_month_name_uz(today.month)} {today.year}"
+
+    group = student.time_slot.group if (student.time_slot and student.time_slot.group) else None
+    teacher = group.teacher if group else None
+
+    # Oylik to'lov holatini tekshirish
+    monthly_payment = MonthlyPayment.objects.filter(
+        student=student,
+        month=current_month,
+    ).first()
+
+    raw_paid, num_paid, has_text, is_paid = _payment_paid_info(monthly_payment)
+    is_mahalla = _is_mahalla_student(student, monthly_payment)
+
+    rate_val = student.payment_rate or 0
+    if is_mahalla:
+        due_amount = 0
+        status_label = "Imtiyozli (Mahalla)"
+        status_code = "mahalla"
+    elif is_paid:
+        due_amount = 0
+        status_label = "To'langan"
+        status_code = "paid"
+    else:
+        due_amount = max(0, rate_val - num_paid)
+        status_label = "To'lanmagan (Qarzdor)"
+        status_code = "unpaid"
+
+    context = {
+        'student': student,
+        'group': group,
+        'teacher': teacher,
+        'current_month': current_month,
+        'current_month_uz': curr_month_uz,
+        'rate_val': rate_val,
+        'rate_formatted': _fmt_money(rate_val),
+        'paid_amount': num_paid,
+        'paid_formatted': _fmt_money(num_paid),
+        'due_amount': due_amount,
+        'due_amount_formatted': _fmt_money(due_amount),
+        'status_code': status_code,
+        'status_label': status_label,
+        'is_paid': is_paid or is_mahalla or (due_amount == 0),
+        'is_mahalla': is_mahalla,
+        'center_name': getattr(settings, 'CENTER_NAME', "Humo Ta'lim o'quv markazi"),
+        'center_phone': getattr(settings, 'CENTER_PHONE', '+998 90 123 45 67'),
+    }
+    return render(request, 'public_payment.html', context)
+
+
+@admin_required
+def admin_send_test_sms(request):
+    """
+    Faqat .env dagi TEST_SMS_PHONE ga sinov to'lov eslatmasi (shaxsiy to'lov havolasi bilan) yuborish.
+    """
+    is_ajax_req = _is_ajax(request)
+
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'status': 'error', 'message': "Faqat POST so'rovi qabul qilinadi."}, status=405)
+
+    try:
+        month_str = request.POST.get('month', '').strip()
+        student_id = request.POST.get('student_id', '').strip()
+        group_id = request.POST.get('group_id', '').strip()
+        custom_message = request.POST.get('custom_message', '').strip()
+        if not month_str:
+            month_str = date.today().strftime('%Y-%m')
+
+        from .eskiz_service import send_test_payment_reminder
+        res = send_test_payment_reminder(
+            student_id=student_id if student_id.isdigit() else None,
+            month_str=month_str,
+            sent_by=request.user,
+            custom_message=custom_message or None,
+            group_id=int(group_id) if group_id.isdigit() else None,
+        )
+
+        if res.get('success'):
+            msg = (
+                f"Sinov SMS muvaffaqiyatli yuborildi! "
+                f"Test raqam: +{res['test_phone']}. "
+                f"O'quvchi: {res['student_name']}. "
+                f"To'lov havolasi: {res['payment_url']}"
+            )
+            if is_ajax_req:
+                return JsonResponse({'success': True, 'status': 'success', 'message': msg, 'result': res})
+            messages.success(request, msg)
+        else:
+            err_msg = res.get('error', 'Nomaʼlum xatolik')
+            msg = f"Sinov SMS yuborishda xatolik: {err_msg}"
+            if is_ajax_req:
+                return JsonResponse({'success': False, 'status': 'error', 'message': msg, 'error': err_msg, 'result': res})
+            messages.error(request, msg)
+
+        next_url = request.POST.get('next') or request.META.get('HTTP_REFERER') or '/admin/payments/'
+        return redirect(next_url)
+
+    except Exception as exc:
+        logger.exception("Sinov SMS yuborishda server xatoligi: %s", exc)
+        err_msg = f"Server xatoligi yuz berdi: {str(exc)}"
+        if is_ajax_req:
+            return JsonResponse({'success': False, 'status': 'error', 'message': err_msg, 'error': str(exc)})
+        messages.error(request, err_msg)
+        next_url = request.POST.get('next') or request.META.get('HTTP_REFERER') or '/admin/payments/'
+        return redirect(next_url)
+
+
 @admin_required
 def admin_send_payment_reminders(request):
     """
-    Admin yoki Menejer paneli orqali qarzdor o'quvchilarning ota-onalariga
-    to'lov eslatmasi SMS xabarlarini yuborish.
+    Admin yoki Menejer paneli orqali to'lov eslatmasi SMS xabarlarini yuborish:
+    1. action='test' -> Faqat .env dagi TEST_SMS_PHONE ga sinov SMS yuboradi.
+    2. action='bulk' (yoki standart) -> Barcha to'lovli faol o'quvchilarga ommaviy yuboradi,
+       Mahalla / Imtiyozli o'quvchilar mutlaqo chiqarib tashlanadi va ularga SMS yuborilmaydi.
     """
+    is_ajax_req = _is_ajax(request)
+
     if request.method != 'POST':
-        return JsonResponse({'success': False, 'message': "Faqat POST so'rovi qabul qilinadi."}, status=405)
+        return JsonResponse({'success': False, 'status': 'error', 'message': "Faqat POST so'rovi qabul qilinadi."}, status=405)
 
-    month_str = request.POST.get('month', '').strip()
-    group_id = request.POST.get('group_id', '').strip()
-    force = request.POST.get('force') in ('1', 'true', 'True')
-    dry_run = request.POST.get('dry_run') in ('1', 'true', 'True')
+    try:
+        action = request.POST.get('action', 'bulk').strip().lower()
+        month_str = request.POST.get('month', '').strip()
+        group_id = request.POST.get('group_id', '').strip()
+        student_id = request.POST.get('student_id', '').strip()
+        custom_message = request.POST.get('custom_message', '').strip()
+        force = request.POST.get('force') in ('1', 'true', 'True')
+        dry_run = request.POST.get('dry_run') in ('1', 'true', 'True')
 
-    if not month_str:
-        month_str = date.today().strftime('%Y-%m')
+        if not month_str:
+            month_str = date.today().strftime('%Y-%m')
 
-    from .sms_service import send_tuition_reminders_batch
-    summary = send_tuition_reminders_batch(
-        month_str=month_str,
-        group_id=int(group_id) if group_id.isdigit() else None,
-        sent_by=request.user,
-        force=force,
-        dry_run=dry_run,
-    )
+        from .eskiz_service import send_payment_reminders_to_paid_students, send_test_payment_reminder
 
-    total = summary['total_unpaid']
-    sent = summary['sent']
-    skipped = summary['skipped']
-    failed = summary['failed']
+        # 1. TEST REJIMI
+        if action in ('test', 'test_sms'):
+            res = send_test_payment_reminder(
+                student_id=student_id if student_id.isdigit() else None,
+                month_str=month_str,
+                sent_by=request.user,
+                custom_message=custom_message or None,
+                group_id=int(group_id) if group_id.isdigit() else None,
+            )
+            if res.get('success'):
+                msg = (
+                    f"Sinov SMS muvaffaqiyatli yuborildi! "
+                    f"Test raqam: +{res['test_phone']}. "
+                    f"O'quvchi: {res['student_name']}. "
+                    f"To'lov havolasi: {res['payment_url']}"
+                )
+                if is_ajax_req:
+                    return JsonResponse({'success': True, 'status': 'success', 'message': msg, 'result': res})
+                messages.success(request, msg)
+            else:
+                err_msg = res.get('error', 'Nomaʼlum xatolik')
+                msg = f"Sinov SMS yuborishda xatolik: {err_msg}"
+                if is_ajax_req:
+                    return JsonResponse({'success': False, 'status': 'error', 'message': msg, 'error': err_msg, 'result': res})
+                messages.error(request, msg)
 
-    msg = (
-        f"{summary['month']} oyi uchun jami {total} ta qarzdor aniqlandi. "
-        f"{sent} ta ota-onaga SMS eslatma yuborildi."
-    )
-    if skipped > 0:
-        msg += f" {skipped} ta o'quvchiga avval yuborilganligi uchun o'tkazib yuborildi."
-    if failed > 0:
-        msg += f" {failed} ta raqamga yuborishda xatolik yuz berdi."
+            next_url = request.POST.get('next') or request.META.get('HTTP_REFERER') or '/admin/payments/'
+            return redirect(next_url)
 
-    if _is_ajax(request):
-        return JsonResponse({
-            'success': True,
-            'message': msg,
-            'summary': summary,
-        })
+        # 2. BULK (OMMAVIY) REJIM: Faqat to'lovli qarzdor o'quvchilar (Mahalla o'quvchilari chiqarib tashlanadi)
+        summary = send_payment_reminders_to_paid_students(
+            month_str=month_str,
+            group_id=int(group_id) if group_id.isdigit() else None,
+            dry_run=dry_run,
+            force=force,
+            sent_by=request.user,
+            custom_message=custom_message or None,
+            debtors_only=True,
+        )
 
-    messages.success(request, msg)
-    next_url = request.POST.get('next') or request.META.get('HTTP_REFERER') or '/admin/payments/'
-    return redirect(next_url)
+        total = summary.get('total_paid_students', 0)
+        sent = summary.get('sent', 0)
+        skipped = summary.get('skipped', 0)
+        skipped_mahalla = summary.get('skipped_mahalla', 0)
+        failed = summary.get('failed', 0)
+
+        grp_obj = None
+        if group_id and group_id.isdigit():
+            from .models import Group
+            grp_obj = Group.objects.filter(id=int(group_id)).first()
+        grp_prefix = f"\"{grp_obj.name}\" guruhi bo'yicha: " if grp_obj else ""
+
+        msg = (
+            f"{grp_prefix}{summary['month']} oyi uchun jami {total} ta to'lovli qarzdor tekshirildi. "
+            f"{sent} ta ota-onaga shaxsiy to'lov havolasi bilan SMS eslatma yuborildi."
+        )
+        if skipped_mahalla > 0:
+            msg += f" {skipped_mahalla} ta mahalla/imtiyozli o'quvchi o'tkazib yuborildi."
+        if skipped > 0:
+            msg += f" {skipped} ta o'quvchiga avval yuborilganligi uchun o'tkazib yuborildi."
+        if failed > 0:
+            msg += f" {failed} ta raqamga yuborishda xatolik yuz berdi."
+
+        has_errors = (sent == 0 and total > 0 and failed > 0)
+        first_error = ""
+        for det in summary.get('details', []):
+            if det.get('error') and det.get('status') not in ('skipped', 'skipped_mahalla'):
+                first_error = det.get('error')
+                break
+
+        if has_errors and first_error:
+            msg += f" (Xatolik sababi: {first_error})"
+
+        is_successful = sent > 0 or (total == 0 and not failed)
+        if is_ajax_req:
+            return JsonResponse({
+                'success': is_successful,
+                'status': 'success' if is_successful else 'error',
+                'message': msg,
+                'summary': summary,
+                'error': first_error if has_errors else None,
+            })
+
+        if has_errors:
+            messages.warning(request, msg)
+        else:
+            messages.success(request, msg)
+
+        next_url = request.POST.get('next') or request.META.get('HTTP_REFERER') or '/admin/payments/'
+        return redirect(next_url)
+
+    except Exception as exc:
+        logger.exception("SMS eslatma yuborishda server xatoligi: %s", exc)
+        err_msg = f"Serverda xatolik yuz berdi: {str(exc)}"
+        if is_ajax_req:
+            return JsonResponse({
+                'success': False,
+                'status': 'error',
+                'message': err_msg,
+                'error': str(exc)
+            })
+        messages.error(request, err_msg)
+        next_url = request.POST.get('next') or request.META.get('HTTP_REFERER') or '/admin/payments/'
+        return redirect(next_url)
+
 
 

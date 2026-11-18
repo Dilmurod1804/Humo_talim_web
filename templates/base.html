@@ -154,9 +154,9 @@
             {% endif %}
 
             <a class="navbar-brand d-flex align-items-center gap-2 m-0 flex-nowrap text-decoration-none" href="{% if is_manager %}{% url 'manager_dashboard' %}{% elif is_admin %}{% url 'admin_dashboard' %}{% else %}{% url 'home' %}{% endif %}">
-                <img src="{% static 'img/humo_logo.jpg' %}" alt="HummoKids"
+                <img src="{% static 'img/humo_logo.jpg' %}" alt="Humo Ta'lim"
                      style="height:32px;width:auto;border-radius:8px;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.3);">
-                <span class="fw-bold fs-6 text-white">HummoKids <span class="d-none d-md-inline opacity-75">Bog'chasi</span></span>
+                <span class="fw-bold fs-6 text-white">Humo Ta'lim <span class="d-none d-md-inline opacity-75">Markazi</span></span>
             </a>
         </div>
 
@@ -232,6 +232,10 @@
 
                         <a href="{% url 'admin_payments_all' %}" class="quick-nav-link {% if 'payments' in request.path %}active{% endif %}">
                             <i class="bi bi-wallet2 me-1"></i><span>To'lovlar (Guruhlar)</span>
+                        </a>
+
+                        <a href="{% url 'call_center_debtors' %}" class="quick-nav-link {% if 'call-center' in request.path %}active{% endif %}" style="background:rgba(59,130,246,0.18); border-color:rgba(59,130,246,0.4);">
+                            <i class="bi bi-telephone-outbound text-primary me-1"></i><span>Call Center (Qarzdorlar)</span>
                         </a>
 
                         <a href="{% url 'admin_advance_list' %}" class="quick-nav-link {% if 'advances' in request.path %}active{% endif %}" style="background:rgba(245,158,11,0.18); border-color:rgba(245,158,11,0.4);">

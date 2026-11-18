@@ -335,9 +335,14 @@ def build_tuition_reminder_text(
     month_str: str | None = None,
     center_name: str | None = None,
     contact_phone: str | None = None,
+    custom_template: str | None = None,
 ) -> str:
     """
-    Ota-onalar uchun professional, xushmuomala o'zbekcha (lotin) to'lov eslatmasi matnini tuzadi.
+    Ota-onalar uchun professional to'lov eslatmasi matnini tuzadi.
+    Agar custom_template berilgan bo'lsa, undagi dinamik placeholderlar
+    ({student_name}, {course_name}, {amount}, {month} va boshqalar) almashtiriladi
+    hamda o'quvchining shaxsiy to'lov havolasi (https://hummokids.uz/pay/{student.uuid}/)
+    matn oxiriga avtomatik qo'shiladi.
     """
     if not month_str:
         month_str = timezone.now().strftime('%Y-%m')
@@ -362,11 +367,47 @@ def build_tuition_reminder_text(
     center = center_name or getattr(settings, 'CENTER_NAME', "Humo Ta'lim o'quv markazi")
     phone = contact_phone or getattr(settings, 'CENTER_PHONE', '+998 90 123 45 67')
 
+    pay_url = getattr(student, 'payment_url', '')
+
+    # Agar maxsus shablon yuborilgan bo'lsa
+    if custom_template and str(custom_template).strip():
+        text = str(custom_template).strip()
+        replacements = {
+            '{student_name}': student_name,
+            '{name}': student_name,
+            '{oquvchi}': student_name,
+            '{course_name}': group_name,
+            '{course}': group_name,
+            '{guruh}': group_name,
+            '{group}': group_name,
+            '{amount}': rate_formatted,
+            '{summa}': rate_formatted,
+            '{tolov}': rate_formatted,
+            '{month}': month_name,
+            '{oy}': month_name,
+            '{payment_url}': pay_url,
+            '{link}': pay_url,
+            '{havola}': pay_url,
+            '{center_name}': center,
+            '{center_phone}': phone,
+            '{phone}': phone,
+        }
+        for key, val in replacements.items():
+            text = text.replace(key, str(val))
+
+        # Agar to'lov havolasi matnda hali kiritilmagan bo'lsa, avtomatik biriktiriladi
+        if pay_url and pay_url not in text:
+            text = f"{text} To'lov havolasi: {pay_url}"
+
+        return text
+
+    pay_part = f" To'lov havolasi: {pay_url}" if pay_url else ""
+
     # Faqat GSM-7 (lotin) belgilar ishlatiladi — SMS bo'laklari soni kamroq bo'ladi
     msg = (
         f"Hurmatli ota-ona! Farzandingiz {student_name}ning {group_part}"
         f"{month_name} oyi uchun to'lov muddati keldi. "
-        f"Oylik to'lov: {rate_formatted} so'm. "
+        f"Oylik to'lov: {rate_formatted} so'm.{pay_part} "
         f"Iltimos, to'lovni o'z vaqtida amalga oshiring. "
         f"{center}. Tel: {phone}"
     )
@@ -387,8 +428,22 @@ def send_tuition_reminder(
     """
     Bitta o'quvchining ota-onasiga to'lov eslatmasi yuboradi va SMSLog ga qayd etadi.
     Agar shu oyda allaqachon eslatma yuborilgan bo'lsa (force=False bo'lsa) takroriy yuborilmaydi.
+    Mahalla va imtiyozli o'quvchilar mutlaqo o'tkazib yuboriladi.
     """
     from core.models import SMSLog
+
+    # Mahalla / Imtiyozli o'quvchilarga SMS yuborish qat'iyan man etiladi
+    if (
+        getattr(student, 'student_type', 'paid') != 'paid'
+        or getattr(student, 'is_mahalla', False)
+        or getattr(student, 'is_local', False)
+    ):
+        return {
+            'success': True,
+            'status': 'skipped_mahalla',
+            'message': f"{student.first_name} {student.last_name} — mahalla/imtiyozli o'quvchi, SMS taqiqlangan.",
+            'student_id': student.id,
+        }
 
     if not month_str:
         month_str = timezone.now().strftime('%Y-%m')
@@ -417,7 +472,7 @@ def send_tuition_reminder(
             'student_id': student.id,
         }
 
-    message_text = custom_message or build_tuition_reminder_text(student, month_str=month_str)
+    message_text = build_tuition_reminder_text(student, month_str=month_str, custom_template=custom_message)
     provider_name = getattr(settings, 'SMS_PROVIDER', 'eskiz')
 
     result = send_sms(phone_to_use, message_text, provider=provider_name)

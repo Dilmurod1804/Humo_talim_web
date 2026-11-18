@@ -1,6 +1,6 @@
-<!-- SMS Eslatma Yuborish Modali -->
+<!-- SMS Eslatma Yuborish Modali (Test va Ommaviy Rejim) -->
 <div class="modal fade" id="sendSmsReminderModal" tabindex="-1" aria-labelledby="sendSmsReminderModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
         <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
             <div class="modal-header border-0 text-white p-4" style="background: linear-gradient(135deg, #f59e0b, #d97706);">
                 <div class="d-flex align-items-center gap-3">
@@ -8,8 +8,8 @@
                         <i class="bi bi-chat-dots-fill fs-4 text-white"></i>
                     </div>
                     <div>
-                        <h5 class="modal-title fw-bold mb-0" id="sendSmsReminderModalLabel">Oylik To'lov Eslatmasi (SMS)</h5>
-                        <small class="text-white-50">Ota-onalarga avtomatik SMS eslatma yuborish</small>
+                        <h5 class="modal-title fw-bold mb-0" id="sendSmsReminderModalLabel">Oylik To'lov Eslatmasi (SMS & To'lov Havolasi)</h5>
+                        <small class="text-white-50">Eskiz.uz orqali to'lovli o'quvchilarga shaxsiy to'lov havolasi yuborish</small>
                     </div>
                 </div>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
@@ -18,67 +18,120 @@
             <form id="smsReminderForm" method="post" action="{% url 'admin_send_payment_reminders' %}">
                 {% csrf_token %}
                 <input type="hidden" name="month" value="{{ current_month }}">
-                {% if group %}
-                    <input type="hidden" name="group_id" value="{{ group.id }}">
-                {% elif selected_group_id %}
-                    <input type="hidden" name="group_id" value="{{ selected_group_id }}">
-                {% endif %}
+                <input type="hidden" name="action" id="smsFormAction" value="bulk">
+                <input type="hidden" name="ajax" value="1">
+                <input type="hidden" name="is_ajax" value="1">
+                <input type="hidden" name="group_id" id="smsFormGroupId" value="{% if group %}{{ group.id }}{% elif selected_group_id %}{{ selected_group_id }}{% endif %}">
                 <input type="hidden" name="next" value="{{ request.get_full_path }}">
 
                 <div class="modal-body p-4">
-                    <!-- Ma'lumot kartasi -->
+                    <!-- 1. Xavfsiz Sinov Rejimi Qutisi (Test Phone) -->
+                    <div class="p-3 rounded-3 mb-3 border d-flex flex-wrap align-items-center justify-content-between gap-2" style="background:#f0fdf4; border-color:#bbf7d0 !important;">
+                        <div class="d-flex align-items-center gap-3">
+                            <div style="width:40px;height:40px;border-radius:10px;background:#dcfce7;display:flex;align-items:center;justify-content:center;">
+                                <i class="bi bi-shield-check text-success fs-5"></i>
+                            </div>
+                            <div>
+                                <span class="fw-bold text-dark d-block small">Xavfsiz Sinov Telefoni (.env):</span>
+                                <code class="text-success fw-bold fs-6">{{ test_sms_phone|default:"+998901234567" }}</code>
+                            </div>
+                        </div>
+                        <span class="badge bg-success text-white px-3 py-2 rounded-pill small">
+                            <i class="bi bi-lock-fill me-1"></i> Sinov rejimi tayyor
+                        </span>
+                    </div>
+
+                    <!-- 2. Ma'lumot kartasi -->
                     <div class="p-3 rounded-3 mb-3" style="background:#fffbeb;border:1px solid #fde68a;">
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <span class="text-muted small fw-semibold">Davr (oy):</span>
-                            <span class="badge bg-warning text-dark fw-bold px-3 py-1">{{ current_month }}</span>
-                        </div>
-                        {% if group %}
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <span class="text-muted small fw-semibold">Guruh:</span>
-                            <span class="fw-bold text-dark">{{ group.name }}</span>
-                        </div>
-                        {% endif %}
-                        <div class="d-flex justify-content-between align-items-center">
-                            <span class="text-muted small fw-semibold">Qarzdor o'quvchilar soni:</span>
-                            <span class="badge bg-danger px-3 py-1 fs-6 fw-bold">{{ stats.unpaid_count|default:"0" }} ta</span>
+                        <div class="row g-2">
+                            <div class="col-sm-4 d-flex justify-content-between justify-content-sm-start flex-sm-column">
+                                <span class="text-muted small fw-semibold">Davr (oy):</span>
+                                <span class="badge bg-warning text-dark fw-bold px-2 py-1 align-self-sm-start mt-sm-1">{{ current_month }}</span>
+                            </div>
+                            <div id="smsModalGroupContainer" class="col-sm-4 {% if group %}d-flex{% else %}d-none{% endif %} justify-content-between justify-content-sm-start flex-sm-column">
+                                <span class="text-muted small fw-semibold">Tanlangan guruh:</span>
+                                <span id="smsModalGroupName" class="fw-bold text-dark mt-sm-1">{{ group.name|default:"" }}</span>
+                            </div>
+                            <div class="col-sm-4 d-flex justify-content-between justify-content-sm-start flex-sm-column">
+                                <span class="text-muted small fw-semibold">Qarzdor o'quvchilar:</span>
+                                <span id="smsModalDebtorsBadge" class="badge bg-danger px-2 py-1 fs-6 fw-bold align-self-sm-start mt-sm-1">{% if stats.unpaid_count %}{{ stats.unpaid_count }} ta{% else %}Faqat qarzdorlar{% endif %}</span>
+                            </div>
                         </div>
                     </div>
 
-                    <!-- SMS Xabar namunasi -->
+                    <!-- 3. Tahrirlanadigan SMS Xabar Shaboni (Textarea) -->
                     <div class="mb-3">
-                        <label class="form-label fw-bold text-muted small text-uppercase" style="letter-spacing:0.5px;">
-                            <i class="bi bi-eye-fill me-1 text-primary"></i> SMS matni namunasi:
-                        </label>
-                        <div class="p-3 rounded-3 bg-light border text-secondary" style="font-size:0.88rem; line-height:1.5;">
-                            "Hurmatli ota-ona! Farzandingiz <strong>Ali Valiyev</strong> ning <strong>Matematika</strong> kursi <strong>{{ current_month }}</strong> oyi uchun to'lov muddati keldi. Oylik to'lov summasi: <strong>350 000</strong> so'm. HUMO o'quv markazi. Murojaat uchun: +998..."
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <label class="form-label fw-bold text-dark small text-uppercase mb-0" style="letter-spacing:0.5px;">
+                                <i class="bi bi-pencil-square me-1 text-warning"></i> SMS xabari shabloni (Tahrirlash mumkin):
+                            </label>
+                            <span id="smsCharCounter" class="badge bg-light text-muted border small">0 belgi</span>
                         </div>
-                        <small class="text-muted mt-1 d-block" style="font-size:0.75rem;">
-                            <i class="bi bi-info-circle me-1"></i> Har bir o'quvchi uchun ism, guruh va oylik stavka summasi mos ravishda avtomatik to'ldiriladi.
-                        </small>
+                        
+                        <textarea name="custom_message" id="smsCustomMessage" class="form-control font-monospace border-warning-subtle shadow-sm p-3" rows="4" style="font-size:0.88rem; line-height:1.6; resize:vertical;" placeholder="SMS shablonini kiriting...">Hurmatli ota-ona! Farzandingiz {student_name}ning {course_name} kursi {month} oyi uchun to'lov muddati keldi. Oylik to'lov: {amount} so'm. Iltimos, to'lovni o'z vaqtida amalga oshiring. Humo Ta'lim. Tel: +998 90 123 45 67</textarea>
+
+                        <!-- Dinamik parametrlar (Tugmachalar) -->
+                        <div class="mt-2 p-2 rounded-2 bg-light border">
+                            <div class="d-flex flex-wrap align-items-center gap-1">
+                                <span class="small text-muted me-1 fw-semibold"><i class="bi bi-tags-fill me-1"></i>Dinamik parametrlar:</span>
+                                <button type="button" class="btn btn-sm btn-white bg-white border py-0 px-2 placeholder-chip shadow-xs" data-tag="{student_name}" title="O'quvchi ismi va familiyasi">
+                                    <code class="text-primary">{student_name}</code>
+                                </button>
+                                <button type="button" class="btn btn-sm btn-white bg-white border py-0 px-2 placeholder-chip shadow-xs" data-tag="{course_name}" title="Kurs yoki guruh nomi">
+                                    <code class="text-primary">{course_name}</code>
+                                </button>
+                                <button type="button" class="btn btn-sm btn-white bg-white border py-0 px-2 placeholder-chip shadow-xs" data-tag="{amount}" title="Oylik to'lov summasi">
+                                    <code class="text-primary">{amount}</code>
+                                </button>
+                                <button type="button" class="btn btn-sm btn-white bg-white border py-0 px-2 placeholder-chip shadow-xs" data-tag="{month}" title="Oy nomi (masalan: Noyabr)">
+                                    <code class="text-primary">{month}</code>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Eslatma to'lov havolasi va mahalla haqida -->
+                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-2">
+                            <small class="text-primary fw-semibold" style="font-size:0.78rem;">
+                                <i class="bi bi-link-45deg me-1"></i> Unikal to'lov havolasi (<code>{{ payment_base_url|default:"https://hummokids.uz" }}/pay/{uuid}/</code>) xabar oxiriga avtomatik qo'shiladi.
+                            </small>
+                            <small class="text-danger fw-semibold" style="font-size:0.78rem;">
+                                <i class="bi bi-slash-circle me-1"></i> Mahalla / Imtiyozli o'quvchilarga SMS yuborilmaydi.
+                            </small>
+                        </div>
                     </div>
 
-                    <!-- Parametrlar -->
-                    <div class="form-check form-switch p-3 rounded-3 bg-white border">
+                    <!-- 4. Parametrlar -->
+                    <div class="form-check form-switch p-3 rounded-3 bg-white border mb-2">
                         <input class="form-check-input ms-0 me-2" type="checkbox" id="smsForceCheck" name="force" value="1">
                         <label class="form-check-label fw-semibold text-dark" for="smsForceCheck">
-                            Avval eslatma olganlarga ham qayta yuborilsin
+                            Avval eslatma olganlarga ham qayta yuborilsin (Takroriy)
                         </label>
                         <small class="text-muted d-block mt-1" style="font-size:0.75rem;">
-                            Belgilanmasa, shu oyda SMS yuborilgan o'quvchilar takroran bezovta qilinmaydi.
+                            Belgilanmasa, shu oyda SMS yuborilgan to'lovli o'quvchilar takroran bezovta qilinmaydi.
                         </small>
                     </div>
 
-                    <!-- Alert / Status -->
+                    <!-- 5. Alert / Natija Qutisi -->
                     <div id="smsAlertBox" class="alert d-none mt-3 mb-0 py-2 px-3 small" role="alert"></div>
                 </div>
 
-                <div class="modal-footer border-0 p-4 pt-0 d-flex justify-content-between">
-                    <button type="button" class="btn btn-light rounded-3 px-4 fw-semibold" data-bs-dismiss="modal">Bekor qilish</button>
-                    <button type="submit" id="btnSubmitSmsReminder" class="btn btn-warning fw-bold px-4 rounded-3 d-flex align-items-center gap-2 text-dark shadow-sm"
-                            style="background:linear-gradient(135deg, #fbbf24, #f59e0b); border:none;">
-                        <i class="bi bi-send-fill"></i>
-                        <span id="btnSubmitText">Yuborishni boshlash</span>
-                    </button>
+                <div class="modal-footer border-0 p-4 pt-0 d-flex flex-wrap justify-content-between align-items-center gap-2">
+                    <button type="button" class="btn btn-light rounded-3 px-3 fw-semibold text-secondary" data-bs-dismiss="modal">Yopish</button>
+                    
+                    <div class="d-flex flex-wrap gap-2">
+                        <!-- a) SINOV SMS TUGMASI -->
+                        <button type="button" id="btnSubmitTestSms" class="btn btn-outline-warning fw-bold px-3 py-2 rounded-3 d-flex align-items-center gap-2 text-dark shadow-sm">
+                            <i class="bi bi-phone-vibrate text-warning"></i>
+                            <span id="btnTestText">Sinov SMS (Test: {{ test_sms_phone|default:"+998901234567" }})</span>
+                        </button>
+
+                        <!-- b) OMMAVIY SMS TUGMASI (EXISTING BULK) -->
+                        <button type="button" id="btnSubmitBulkSms" class="btn btn-warning fw-bold px-4 py-2 rounded-3 d-flex align-items-center gap-2 text-dark shadow-sm"
+                                style="background:linear-gradient(135deg, #fbbf24, #f59e0b); border:none;">
+                            <i class="bi bi-send-fill"></i>
+                            <span id="btnBulkText">Barchaga yuborish (Bulk SMS)</span>
+                        </button>
+                    </div>
                 </div>
             </form>
         </div>
@@ -88,20 +141,206 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const smsForm = document.getElementById('smsReminderForm');
-    if (!smsForm) return;
+    const btnTest = document.getElementById('btnSubmitTestSms');
+    const btnBulk = document.getElementById('btnSubmitBulkSms');
+    const actionInput = document.getElementById('smsFormAction');
+    const alertBox = document.getElementById('smsAlertBox');
+    const textarea = document.getElementById('smsCustomMessage');
+    const charCounter = document.getElementById('smsCharCounter');
 
-    smsForm.addEventListener('submit', function(e) {
-        const btn = document.getElementById('btnSubmitSmsReminder');
-        const btnText = document.getElementById('btnSubmitText');
-        const alertBox = document.getElementById('smsAlertBox');
+    if (!smsForm || !btnTest || !btnBulk) return;
 
-        if (btn) {
-            btn.disabled = true;
-            if (btnText) {
-                btnText.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span> Yuborilmoqda...';
+    function updateCounter() {
+        if (!textarea || !charCounter) return;
+        const len = textarea.value.length;
+        charCounter.textContent = `${len} belgi`;
+    }
+
+    if (textarea) {
+        textarea.addEventListener('input', updateCounter);
+        updateCounter();
+    }
+
+    // Dinamik placeholder chiplarini bosganda matnga kiritish
+    document.querySelectorAll('.placeholder-chip').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            const tag = this.getAttribute('data-tag');
+            if (!textarea || !tag) return;
+
+            const start = textarea.selectionStart;
+            const end = textarea.selectionEnd;
+            const text = textarea.value;
+
+            textarea.value = text.substring(0, start) + tag + text.substring(end);
+            textarea.selectionStart = textarea.selectionEnd = start + tag.length;
+            textarea.focus();
+            updateCounter();
+        });
+    });
+
+    function showAlert(type, message) {
+        if (!alertBox) return;
+        alertBox.className = `alert alert-${type} mt-3 mb-0 py-2 px-3 small`;
+        alertBox.innerHTML = message;
+        alertBox.classList.remove('d-none');
+    }
+
+    function setButtonsState(disabled, loadingAction) {
+        btnTest.disabled = disabled;
+        btnBulk.disabled = disabled;
+        if (disabled) {
+            if (loadingAction === 'test') {
+                btnTest.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span> Sinov SMS yuborilmoqda...';
+            } else {
+                btnBulk.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span> Ommaviy yuborilmoqda...';
             }
+        } else {
+            btnTest.innerHTML = '<i class="bi bi-phone-vibrate text-warning"></i> Sinov SMS (Test)';
+            btnBulk.innerHTML = '<i class="bi bi-send-fill"></i> Barchaga yuborish (Bulk SMS)';
         }
+    }
+
+    function sendSmsRequest(actionType) {
+        if (actionInput) {
+            actionInput.value = String(actionType);
+        }
+        setButtonsState(true, actionType);
+
+        if (actionType === 'test') {
+            showAlert('info', '<i class="bi bi-hourglass-split me-1"></i> Sinov SMS yuborilmoqda, kuting...');
+        } else {
+            showAlert('warning', '<i class="bi bi-hourglass-split me-1"></i> SMS yuborilmoqda, bu biroz vaqt olishi mumkin...');
+        }
+
+        const formData = new FormData(smsForm);
+        formData.set('action', String(actionType));
+        formData.set('ajax', '1');
+        formData.set('is_ajax', '1');
+
+        // Guruh ID va xabar matnini qat'iy string qiymat (.value) sifatida olish
+        const groupInput = document.getElementById('smsFormGroupId');
+        const groupIdValue = groupInput ? String(groupInput.value || '').trim() : '';
+        if (groupIdValue) {
+            formData.set('group_id', groupIdValue);
+        }
+
+        const messageInput = document.getElementById('smsCustomMessage');
+        const messageValue = messageInput ? String(messageInput.value || '').trim() : '';
+        if (messageValue) {
+            formData.set('custom_message', messageValue);
+        }
+
+        const csrfInput = smsForm.querySelector('[name=csrfmiddlewaretoken]');
+        const csrfToken = csrfInput ? String(csrfInput.value || '').trim() : '';
+        const headers = {
+            'X-Requested-With': 'XMLHttpRequest',
+            'Accept': 'application/json'
+        };
+        if (csrfToken) {
+            headers['X-CSRFToken'] = csrfToken;
+        }
+
+        // QAT'IY TO'G'RI URL: smsForm.action DOM input elementi bilan to'qnashmasligi uchun
+        // smsForm.getAttribute('action') yoki Django URL shabloni ishlatiladi.
+        const endpointUrl = smsForm.getAttribute('action') || "{% url 'admin_send_payment_reminders' %}";
+
+        fetch(endpointUrl, {
+            method: 'POST',
+            body: formData,
+            headers: headers
+        })
+        .then(async (response) => {
+            const text = await response.text();
+            let data;
+            try {
+                data = JSON.parse(text);
+            } catch (err) {
+                // Serverdan HTML xatolik sahifasi qaytgan bo'lsa, xatolikni toza ajratib olamiz
+                const cleanText = text.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
+                const errMsg = cleanText.substring(0, 160) || 'Serverdan kutilmagan javob qaytdi.';
+                return {
+                    ok: false,
+                    status: response.status,
+                    data: { success: false, status: 'error', message: errMsg, error: errMsg }
+                };
+            }
+            return { ok: response.ok, status: response.status, data: data };
+        })
+        .then(({ ok, status, data }) => {
+            setButtonsState(false);
+            if (data && (data.success || data.status === 'success')) {
+                showAlert('success', `<i class="bi bi-check-circle-fill me-1"></i> ${data.message}`);
+            } else {
+                const errText = (data && (data.message || data.error)) || 'SMS yuborishda xatolik yuz berdi.';
+                showAlert('danger', `<i class="bi bi-exclamation-triangle-fill me-1"></i> ${errText}`);
+            }
+        })
+        .catch(err => {
+            setButtonsState(false);
+            showAlert('danger', `<i class="bi bi-exclamation-circle me-1"></i> Ulanish xatosi: ${err.message}`);
+        });
+    }
+
+    // a) SINOV SMS BOSILGANDA
+    btnTest.addEventListener('click', function() {
+        sendSmsRequest('test');
+    });
+
+    // Guruhlar ro'yxatidagi tugmadan ochilganda ma'lumotlarni dinamik o'rnatish
+    const smsModalEl = document.getElementById('sendSmsReminderModal');
+    if (smsModalEl) {
+        smsModalEl.addEventListener('show.bs.modal', function(event) {
+            const button = event.relatedTarget;
+            if (!button) return;
+            const groupId = button.getAttribute('data-group-id');
+            const groupName = button.getAttribute('data-group-name');
+            const groupInput = document.getElementById('smsFormGroupId');
+            const groupContainer = document.getElementById('smsModalGroupContainer');
+            const groupNameSpan = document.getElementById('smsModalGroupName');
+            const modalTitle = document.getElementById('sendSmsReminderModalLabel');
+            const bulkBtnText = document.getElementById('btnBulkText');
+            const debtorsBadge = document.getElementById('smsModalDebtorsBadge');
+
+            if (groupId) {
+                if (groupInput) groupInput.value = groupId;
+                if (groupNameSpan) groupNameSpan.textContent = groupName || ('Guruh #' + groupId);
+                if (groupContainer) {
+                    groupContainer.classList.remove('d-none');
+                    groupContainer.classList.add('d-flex');
+                }
+                if (modalTitle) modalTitle.textContent = (groupName ? groupName + " — " : "") + "Qarzdorlarga SMS Eslatma";
+                if (bulkBtnText) bulkBtnText.textContent = "Guruh qarzdorlariga yuborish";
+                if (debtorsBadge) debtorsBadge.textContent = "Guruh qarzdorlari";
+            } else {
+                {% if not group %}
+                if (groupInput) groupInput.value = '';
+                if (groupContainer) {
+                    groupContainer.classList.add('d-none');
+                    groupContainer.classList.remove('d-flex');
+                }
+                if (modalTitle) modalTitle.textContent = "Oylik To'lov Eslatmasi (SMS & To'lov Havolasi)";
+                if (bulkBtnText) bulkBtnText.textContent = "Barchaga yuborish (Bulk SMS)";
+                if (debtorsBadge) debtorsBadge.textContent = "{% if stats.unpaid_count %}{{ stats.unpaid_count }} ta{% else %}Faqat qarzdorlar{% endif %}";
+                {% endif %}
+            }
+        });
+    }
+
+    // b) OMMAVIY (BULK) SMS BOSILGANDA
+    btnBulk.addEventListener('click', function() {
+        const groupInput = document.getElementById('smsFormGroupId');
+        const currentGroupId = groupInput ? String(groupInput.value || '').trim() : '';
+        const groupNameSpan = document.getElementById('smsModalGroupName');
+        const currentGroupName = groupNameSpan ? String(groupNameSpan.textContent || '').trim() : '';
+        const targetDesc = (currentGroupId && currentGroupName)
+            ? `"${currentGroupName}" guruhidagi qarzdor o'quvchilarning`
+            : (currentGroupId ? "ushbu guruhdagi qarzdor o'quvchilarning" : "barcha to'lovli qarzdor o'quvchilarning");
+
+        const confirmed = confirm(`Haqiqatan ham ${targetDesc} ota-onalariga to'lov eslatmasi SMS xabarini yubormoqchimisiz?\n\nEslatma: To'laganlar va Mahalla / Imtiyozli o'quvchilarga SMS yuborilmaydi.`);
+        if (!confirmed) return;
+
+        sendSmsRequest('bulk');
     });
 });
 </script>
-

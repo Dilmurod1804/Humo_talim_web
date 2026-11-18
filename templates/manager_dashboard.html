@@ -41,6 +41,9 @@
         <a href="{% url 'admin_payments_all' %}" class="btn btn-warning text-dark fw-bold rounded-pill px-3 shadow-sm">
             <i class="bi bi-wallet2 me-1"></i> To'lovlar
         </a>
+        <a href="{% url 'call_center_debtors' %}" class="btn btn-primary text-white fw-bold rounded-pill px-3 shadow-sm" style="background:linear-gradient(135deg, #3b82f6, #1d4ed8); border:none;">
+            <i class="bi bi-telephone-outbound-fill me-1"></i> Call Center
+        </a>
         <a href="{% url 'admin_advance_list' %}" class="btn btn-info text-white rounded-pill px-3 fw-semibold shadow-sm" style="background:linear-gradient(135deg, #0ea5e9, #0284c7); border:none;">
             <i class="bi bi-cash-coin me-1"></i> Avans So'rovlari
         </a>
@@ -245,6 +248,13 @@
                         <a href="{% url 'admin_group_payments' group.id %}" class="btn btn-sm btn-warning text-dark rounded-pill px-3 fw-semibold" style="font-size:0.8rem;">
                             <i class="bi bi-wallet2 me-1"></i>To'lovlar
                         </a>
+                        <button type="button"
+                            class="btn btn-sm btn-outline-warning text-dark fw-bold rounded-pill px-2.5 py-1 d-flex align-items-center gap-1 shadow-sm"
+                            data-bs-toggle="modal" data-bs-target="#sendSmsReminderModal"
+                            data-group-id="{{ group.id }}" data-group-name="{{ group.name }}"
+                            title="Ushbu guruhdagi qarzdorlarga SMS eslatma yuborish" style="font-size:0.8rem;">
+                            <i class="bi bi-chat-dots-fill text-warning"></i> <span>SMS</span>
+                        </button>
                         <a href="{% url 'admin_group_detail' group.id %}" class="btn btn-sm btn-primary rounded-pill px-3 fw-semibold" style="font-size:0.8rem;">
                             <i class="bi bi-journal-check me-1"></i>Jurnal
                         </a>
@@ -662,5 +672,6 @@ async function saveTeacherScheduleModal(e) {
 
 {% include '_absence_exemption_modal.html' %}
 {% include '_change_group_teacher_modal.html' %}
+{% include '_sms_reminder_modal.html' %}
 
 {% endblock %}

@@ -1,0 +1,509 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Call Center — Qarzdorlar Bilan Ishlash | HUMO{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-0 px-md-3 py-3">
+
+    <!-- 1. HEADER & SANA TANLASH (Yuqori kontrastli banner) -->
+    <div class="d-flex flex-column flex-lg-row align-items-start align-items-lg-center justify-content-between gap-3 mb-4">
+        <div class="d-flex align-items-center gap-3">
+            <div style="background:linear-gradient(135deg, #3b82f6, #1d4ed8); border-radius:16px; width:56px; height:56px; display:flex; align-items:center; justify-content:center; box-shadow:0 6px 20px rgba(59,130,246,0.35); flex-shrink:0;">
+                <i class="bi bi-headset text-white fs-3"></i>
+            </div>
+            <div>
+                <div class="d-flex align-items-center gap-2 mb-1">
+                    <span class="badge bg-primary text-white rounded-pill px-3 py-1 small">
+                        <i class="bi bi-telephone-outbound-fill me-1"></i> Call Center
+                    </span>
+                    <span class="badge bg-danger text-white rounded-pill px-2 py-1 small fw-bold">
+                        <span id="headerDebtorsCount">{{ counts.all }}</span> nafar qarzdor
+                    </span>
+                </div>
+                <h2 class="text-white fw-black mb-1 fs-3" style="letter-spacing:-0.5px; text-shadow:0 2px 8px rgba(0,0,0,0.3);">
+                    Qarzdor O'quvchilarga Qo'ng'iroq Qilish
+                </h2>
+                <div class="text-white-50 small d-flex align-items-center gap-2 flex-wrap">
+                    <span><i class="bi bi-calendar3 me-1"></i>Hisob oyi: <b class="text-white">{{ current_month }}</b></span>
+                    <span>•</span>
+                    <span>Click-to-call orqali tezkor qo'ng'iroq va natijalarni belgilash</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Oy tanlash formasi -->
+        <form method="get" class="d-flex align-items-center gap-2">
+            {% if selected_group_id %}<input type="hidden" name="group_id" value="{{ selected_group_id }}">{% endif %}
+            {% if selected_status and selected_status != 'all' %}<input type="hidden" name="status" value="{{ selected_status }}">{% endif %}
+            {% if search_query %}<input type="hidden" name="q" value="{{ search_query }}">{% endif %}
+
+            <div class="input-group input-group-sm" style="width: auto;">
+                <span class="input-group-text bg-white border-0 text-muted fw-semibold">
+                    <i class="bi bi-calendar-month text-primary"></i>
+                </span>
+                <input type="month" name="month" class="form-control border-0 shadow-sm fw-semibold"
+                       value="{{ current_month }}" onchange="this.form.submit()"
+                       style="border-radius:0 10px 10px 0; background:rgba(255,255,255,0.95); min-width:145px;">
+            </div>
+        </form>
+    </div>
+
+    <!-- 2. STATISTIKA KARTALARI -->
+    <div class="row g-3 mb-4">
+        <!-- Jami Qarzdorlar -->
+        <div class="col-6 col-md-3">
+            <a href="?month={{ current_month }}{% if selected_group_id %}&group_id={{ selected_group_id }}{% endif %}&status=all" class="text-decoration-none">
+                <div class="card border-0 shadow-sm rounded-4 p-3 h-100 transition-hover {% if selected_status == 'all' or not selected_status %}border-start border-4 border-primary bg-primary-subtle{% else %}bg-white{% endif %}">
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <span class="text-muted small fw-bold text-uppercase">Jami Qarzdorlar</span>
+                        <div style="width:36px;height:36px;border-radius:10px;background:#e0f2fe;display:flex;align-items:center;justify-content:center;">
+                            <i class="bi bi-people-fill text-primary"></i>
+                        </div>
+                    </div>
+                    <h3 class="fw-black text-dark mb-0" id="statCountAll">{{ counts.all }}</h3>
+                    <small class="text-muted" style="font-size:0.75rem;">Jami qarzdor o'quvchilar</small>
+                </div>
+            </a>
+        </div>
+
+        <!-- Kutilmoqda -->
+        <div class="col-6 col-md-3">
+            <a href="?month={{ current_month }}{% if selected_group_id %}&group_id={{ selected_group_id }}{% endif %}&status=pending" class="text-decoration-none">
+                <div class="card border-0 shadow-sm rounded-4 p-3 h-100 transition-hover {% if selected_status == 'pending' %}border-start border-4 border-secondary bg-light{% else %}bg-white{% endif %}">
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <span class="text-muted small fw-bold text-uppercase">Kutilmoqda</span>
+                        <div style="width:36px;height:36px;border-radius:10px;background:#f1f5f9;display:flex;align-items:center;justify-content:center;">
+                            <i class="bi bi-hourglass-split text-secondary"></i>
+                        </div>
+                    </div>
+                    <h3 class="fw-black text-secondary mb-0" id="statCountPending">{{ counts.pending }}</h3>
+                    <small class="text-muted" style="font-size:0.75rem;">Hali qo'ng'iroq qilinmagan</small>
+                </div>
+            </a>
+        </div>
+
+        <!-- Qayta chaqiruv -->
+        <div class="col-6 col-md-3">
+            <a href="?month={{ current_month }}{% if selected_group_id %}&group_id={{ selected_group_id }}{% endif %}&status=no_answer" class="text-decoration-none">
+                <div class="card border-0 shadow-sm rounded-4 p-3 h-100 transition-hover {% if selected_status == 'no_answer' %}border-start border-4 border-warning bg-warning-subtle{% else %}bg-white{% endif %}">
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <span class="text-muted small fw-bold text-uppercase">Qayta chaqiruv</span>
+                        <div style="width:36px;height:36px;border-radius:10px;background:#fef3c7;display:flex;align-items:center;justify-content:center;">
+                            <i class="bi bi-telephone-x-fill text-warning"></i>
+                        </div>
+                    </div>
+                    <h3 class="fw-black text-warning mb-0" id="statCountNoAnswer">{{ counts.no_answer }}</h3>
+                    <small class="text-muted" style="font-size:0.75rem;">Javob bermagan / qayta qo'ng'iroq</small>
+                </div>
+            </a>
+        </div>
+
+        <!-- Xabar qilindi -->
+        <div class="col-6 col-md-3">
+            <a href="?month={{ current_month }}{% if selected_group_id %}&group_id={{ selected_group_id }}{% endif %}&status=notified" class="text-decoration-none">
+                <div class="card border-0 shadow-sm rounded-4 p-3 h-100 transition-hover {% if selected_status == 'notified' %}border-start border-4 border-success bg-success-subtle{% else %}bg-white{% endif %}">
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <span class="text-muted small fw-bold text-uppercase">Xabar qilindi</span>
+                        <div style="width:36px;height:36px;border-radius:10px;background:#dcfce7;display:flex;align-items:center;justify-content:center;">
+                            <i class="bi bi-check-circle-fill text-success"></i>
+                        </div>
+                    </div>
+                    <h3 class="fw-black text-success mb-0" id="statCountNotified">{{ counts.notified }}</h3>
+                    <small class="text-muted" style="font-size:0.75rem;">Ota-onaga eslatildi</small>
+                </div>
+            </a>
+        </div>
+    </div>
+
+    <!-- 3. FILTRLAR VA QIDIRUV -->
+    <div class="card border-0 shadow-sm rounded-4 p-3 mb-4 bg-white">
+        <form method="get" class="row g-2 align-items-center">
+            <input type="hidden" name="month" value="{{ current_month }}">
+
+            <!-- Qidiruv -->
+            <div class="col-12 col-md-4">
+                <div class="input-group">
+                    <span class="input-group-text bg-light border-end-0 text-muted"><i class="bi bi-search"></i></span>
+                    <input type="text" name="q" value="{{ search_query }}" class="form-control border-start-0 bg-light" placeholder="Ism, familiya yoki telefon...">
+                </div>
+            </div>
+
+            <!-- Guruh filtri -->
+            <div class="col-12 col-md-3">
+                <select name="group_id" class="form-select bg-light" onchange="this.form.submit()">
+                    <option value="">Barcha guruhlar</option>
+                    {% for g in groups %}
+                        <option value="{{ g.id }}" {% if selected_group_id == g.id %}selected{% endif %}>{{ g.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Holat filtri -->
+            <div class="col-12 col-md-3">
+                <select name="status" class="form-select bg-light" onchange="this.form.submit()">
+                    <option value="all" {% if selected_status == 'all' or not selected_status %}selected{% endif %}>Barcha holatlar ({{ counts.all }})</option>
+                    <option value="pending" {% if selected_status == 'pending' %}selected{% endif %}>Kutilmoqda ({{ counts.pending }})</option>
+                    <option value="no_answer" {% if selected_status == 'no_answer' %}selected{% endif %}>Qayta chaqiruv ({{ counts.no_answer }})</option>
+                    <option value="notified" {% if selected_status == 'notified' %}selected{% endif %}>Xabar qilindi ({{ counts.notified }})</option>
+                </select>
+            </div>
+
+            <!-- Tugmalar -->
+            <div class="col-12 col-md-2 d-flex gap-2">
+                <button type="submit" class="btn btn-primary fw-semibold w-100 rounded-3">
+                    <i class="bi bi-filter me-1"></i> Filtrlash
+                </button>
+                {% if search_query or selected_group_id or selected_status != 'all' and selected_status %}
+                    <a href="?month={{ current_month }}" class="btn btn-light border text-muted px-3 rounded-3" title="Filtrni tozalash">
+                        <i class="bi bi-x-lg"></i>
+                    </a>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+
+    <!-- 4. QARZDORLAR JADVALI -->
+    <div class="card border-0 shadow-sm rounded-4 overflow-hidden bg-white">
+        <div class="card-header bg-white border-bottom p-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div class="d-flex align-items-center gap-2">
+                <h5 class="fw-bold text-dark mb-0">Qarzdorlar Ro'yxati</h5>
+                <span class="badge bg-danger rounded-pill px-2 py-1 small">{{ debtors|length }} nafar</span>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                <span class="small text-muted">Umumiy kutilayotgan summa:</span>
+                <span class="badge bg-danger px-3 py-1 fs-6 fw-bold">{{ total_debt_sum_formatted }} so'm</span>
+            </div>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0" id="debtorsTable">
+                <thead class="table-light text-muted small text-uppercase" style="letter-spacing:0.5px;">
+                    <tr>
+                        <th class="ps-3" style="width:40px;">#</th>
+                        <th>O'quvchi</th>
+                        <th>Guruh & O'qituvchi</th>
+                        <th>Telefon Raqami (Click-to-Call)</th>
+                        <th>Qarz Summasi</th>
+                        <th>Qo'ng'iroq Holati</th>
+                        <th class="text-end pe-3" style="min-width:260px;">Tezkor Amallar</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in debtors %}
+                    <tr id="row-student-{{ item.student_id }}" class="debtor-row {% if item.call_status == 'notified' %}table-success-subtle{% elif item.call_status == 'no_answer' %}table-warning-subtle{% endif %}">
+                        <td class="ps-3 text-muted small">{{ forloop.counter }}</td>
+                        
+                        <!-- O'quvchi ismi -->
+                        <td>
+                            <div class="d-flex align-items-center gap-2">
+                                <div style="width:36px;height:36px;border-radius:10px;background:#e2e8f0;display:flex;align-items:center;justify-content:center;font-weight:700;color:#475569;flex-shrink:0;">
+                                    {{ item.student.first_name|slice:":1" }}{{ item.student.last_name|slice:":1" }}
+                                </div>
+                                <div>
+                                    <div class="fw-bold text-dark">{{ item.student_name }}</div>
+                                    <small class="text-muted" style="font-size:0.75rem;">ID: #{{ item.student_id }}</small>
+                                </div>
+                            </div>
+                        </td>
+
+                        <!-- Guruh & O'qituvchi -->
+                        <td>
+                            <span class="badge bg-light text-dark border fw-bold mb-1 d-inline-block">
+                                {{ item.group_name }}
+                            </span>
+                            {% if item.teacher_name and item.teacher_name != "—" and item.teacher_name != "-" %}
+                            <div class="small text-muted" style="font-size:0.78rem;">
+                                <i class="bi bi-person-badge me-1"></i>{{ item.teacher_name }}
+                            </div>
+                            {% endif %}
+                        </td>
+
+                        <!-- Telefon Raqami (Click-to-Call) -->
+                        <td>
+                            {% if item.student.phone_1 %}
+                                <a href="tel:{{ item.student.phone_1_tel }}" class="btn btn-sm btn-outline-success fw-bold d-inline-flex align-items-center gap-1 shadow-2xs mb-1" title="Qo'ng'iroq qilish">
+                                    <i class="bi bi-telephone-fill"></i>
+                                    <span>{{ item.student.phone_1 }}</span>
+                                </a>
+                            {% endif %}
+                            {% if item.student.phone_2 %}
+                                <div class="mt-1">
+                                    <a href="tel:{{ item.student.phone_2_tel }}" class="btn btn-sm btn-outline-secondary fw-semibold d-inline-flex align-items-center gap-1 py-0 px-2" style="font-size:0.75rem;" title="2-telefon">
+                                        <i class="bi bi-telephone"></i>
+                                        <span>{{ item.student.phone_2 }}</span>
+                                    </a>
+                                </div>
+                            {% endif %}
+                            {% if not item.student.phone_1 and not item.student.phone_2 %}
+                                <span class="text-muted small fst-italic">Raqam kiritilmagan</span>
+                            {% endif %}
+                        </td>
+
+                        <!-- Qarz Summasi -->
+                        <td>
+                            {% if item.debt_amount > 0 %}
+                                <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-2 py-1 fs-6 fw-bold">
+                                    {{ item.debt_amount_formatted }} <small style="font-size:0.75rem;">so'm</small>
+                                </span>
+                            {% else %}
+                                <span class="badge bg-light text-secondary border px-2 py-1 small fw-semibold">
+                                    0 so'm
+                                </span>
+                            {% endif %}
+                            {% if item.is_overdue and item.delay_text %}
+                                <div class="small text-danger fw-semibold mt-1" style="font-size:0.73rem;">
+                                    <i class="bi bi-clock-history me-1"></i>{{ item.delay_text }}
+                                </div>
+                            {% endif %}
+                        </td>
+
+                        <!-- Qo'ng'iroq Holati -->
+                        <td>
+                            <div id="status-badge-{{ item.student_id }}">
+                                {% if item.call_status == 'notified' %}
+                                    <span class="badge bg-success text-white px-2 py-1">
+                                        <i class="bi bi-check-circle-fill me-1"></i> Xabar qilindi
+                                    </span>
+                                {% elif item.call_status == 'no_answer' %}
+                                    <span class="badge bg-warning text-dark px-2 py-1">
+                                        <i class="bi bi-telephone-x-fill me-1"></i> Qayta chaqiruv
+                                    </span>
+                                {% else %}
+                                    <span class="badge bg-secondary-subtle text-secondary border px-2 py-1">
+                                        <i class="bi bi-clock-history me-1"></i> Kutilmoqda
+                                    </span>
+                                {% endif %}
+                            </div>
+
+                            <!-- Izoh va vaqt -->
+                            <div id="status-info-{{ item.student_id }}" class="mt-1 small text-muted" style="font-size:0.75rem;">
+                                {% if item.called_at %}
+                                    <i class="bi bi-clock me-1"></i>{{ item.called_at|date:"H:i, d.m.Y" }}
+                                    {% if item.called_by_name %} ({{ item.called_by_name }}){% endif %}
+                                {% endif %}
+                                {% if item.note %}
+                                    <div class="text-dark fw-semibold mt-1 fst-italic">"{{ item.note }}"</div>
+                                {% endif %}
+                            </div>
+                        </td>
+
+                        <!-- Amallar -->
+                        <td class="text-end pe-3">
+                            <div class="d-inline-flex align-items-center gap-1">
+                                <!-- Tugma 1: Xabar qilindi -->
+                                <button type="button" class="btn btn-sm btn-success fw-bold d-inline-flex align-items-center gap-1 rounded-2 action-btn shadow-2xs"
+                                        onclick="updateCallStatus({{ item.student_id }}, 'notified')"
+                                        title="Ota-onaga to'lov eslatildi">
+                                    <i class="bi bi-check-lg"></i>
+                                    <span>Xabar qilindi</span>
+                                </button>
+
+                                <!-- Tugma 2: Qayta chaqiruv -->
+                                <button type="button" class="btn btn-sm btn-warning text-dark fw-bold d-inline-flex align-items-center gap-1 rounded-2 action-btn shadow-2xs"
+                                        onclick="updateCallStatus({{ item.student_id }}, 'no_answer')"
+                                        title="Javob bermadi, qayta qo'ng'iroq qilish kerak">
+                                    <i class="bi bi-arrow-repeat"></i>
+                                    <span>Qayta chaqiruv</span>
+                                </button>
+
+                                <!-- Tugma 3: Izoh qo'shish modal -->
+                                <button type="button" class="btn btn-sm btn-light border text-muted rounded-2"
+                                        onclick="openNoteModal({{ item.student_id }}, '{{ item.student_name|escapejs }}', '{{ item.note|escapejs }}')"
+                                        title="Izoh qoldirish">
+                                    <i class="bi bi-chat-left-text"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="7" class="text-center py-5 text-muted">
+                            <div style="font-size:3rem;" class="mb-2">🎉</div>
+                            <h5 class="fw-bold text-dark">Qarzdor o'quvchilar topilmadi!</h5>
+                            <p class="small text-muted mb-0">Ushbu oy ({{ current_month }}) uchun barcha o'quvchilar to'lovlarini to'liq amalga oshirgan yoki qidiruv bo'yicha ma'lumot yo'q.</p>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Izoh qoldirish -->
+<div class="modal fade" id="callNoteModal" tabindex="-1" aria-labelledby="callNoteModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+            <div class="modal-header bg-light border-bottom p-3">
+                <h6 class="modal-title fw-bold text-dark" id="callNoteModalLabel">
+                    <i class="bi bi-chat-left-text text-primary me-1"></i> Qo'ng'iroq Natijasi Bo'yicha Izoh
+                </h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-4">
+                <input type="hidden" id="modalStudentId">
+                <div class="mb-3">
+                    <label class="form-label small fw-bold text-muted text-uppercase">O'quvchi:</label>
+                    <div id="modalStudentName" class="fw-bold fs-6 text-dark"></div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small fw-bold text-muted text-uppercase">Holat:</label>
+                    <select id="modalCallStatus" class="form-select">
+                        <option value="notified">Xabar qilindi</option>
+                        <option value="no_answer">Qayta chaqiruv</option>
+                        <option value="pending">Kutilmoqda</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small fw-bold text-muted text-uppercase">Izoh matni (Ota-ona nima dedi):</label>
+                    <textarea id="modalCallNote" class="form-control" rows="3" placeholder="Masalan: Ertaga to'lashini aytdi yoki soat 18:00 dan keyin qo'ng'iroq qilish so'raldi..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer border-0 p-3 bg-light d-flex justify-content-between">
+                <button type="button" class="btn btn-light border px-3" data-bs-dismiss="modal">Bekor qilish</button>
+                <button type="button" class="btn btn-primary fw-bold px-4" onclick="saveNoteFromModal()">
+                    <i class="bi bi-check-lg me-1"></i> Saqlash
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Toast Container -->
+<div class="position-fixed bottom-0 end-0 p-3" style="z-index: 1080;">
+    <div id="statusToast" class="toast align-items-center text-white bg-dark border-0 shadow-lg rounded-3" role="alert" aria-live="assertive" aria-atomic="true">
+        <div class="d-flex">
+            <div class="toast-body" id="toastMessage">
+                Holat muvaffaqiyatli yangilandi.
+            </div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+        </div>
+    </div>
+</div>
+
+<script>
+const UPDATE_STATUS_URL = "{% url 'update_debtor_call_status' %}";
+const CURRENT_MONTH = "{{ current_month }}";
+const CSRF_TOKEN = "{{ csrf_token }}";
+
+function showToast(message, isSuccess = true) {
+    const toastEl = document.getElementById('statusToast');
+    const toastBody = document.getElementById('toastMessage');
+    if (!toastEl || !toastBody) return;
+
+    toastBody.innerHTML = (isSuccess ? '<i class="bi bi-check-circle-fill text-success me-1"></i> ' : '<i class="bi bi-exclamation-triangle-fill text-danger me-1"></i> ') + message;
+    toastEl.className = `toast align-items-center text-white ${isSuccess ? 'bg-dark' : 'bg-danger'} border-0 shadow-lg rounded-3`;
+    const toast = new bootstrap.Toast(toastEl, { delay: 3000 });
+    toast.show();
+}
+
+function updateCallStatus(studentId, newStatus, note = null) {
+    const formData = new FormData();
+    formData.append('student_id', studentId);
+    formData.append('month', CURRENT_MONTH);
+    formData.append('status', newStatus);
+    if (note !== null) {
+        formData.append('note', note);
+    }
+    formData.append('csrfmiddlewaretoken', CSRF_TOKEN);
+
+    fetch(UPDATE_STATUS_URL, {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-Requested-With': 'XMLHttpRequest'
+        }
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            // Qatordagi badge va ma'lumotlarni yangilash
+            const badgeEl = document.getElementById(`status-badge-${studentId}`);
+            const infoEl = document.getElementById(`status-info-${studentId}`);
+            const rowEl = document.getElementById(`row-student-${studentId}`);
+
+            if (badgeEl) {
+                if (data.status === 'notified') {
+                    badgeEl.innerHTML = '<span class="badge bg-success text-white px-2 py-1"><i class="bi bi-check-circle-fill me-1"></i> Xabar qilindi</span>';
+                    if (rowEl) {
+                        rowEl.className = 'debtor-row table-success-subtle';
+                    }
+                } else if (data.status === 'no_answer') {
+                    badgeEl.innerHTML = '<span class="badge bg-warning text-dark px-2 py-1"><i class="bi bi-telephone-x-fill me-1"></i> Qayta chaqiruv</span>';
+                    if (rowEl) {
+                        rowEl.className = 'debtor-row table-warning-subtle';
+                    }
+                } else {
+                    badgeEl.innerHTML = '<span class="badge bg-secondary-subtle text-secondary border px-2 py-1"><i class="bi bi-clock-history me-1"></i> Kutilmoqda</span>';
+                    if (rowEl) {
+                        rowEl.className = 'debtor-row';
+                    }
+                }
+            }
+
+            if (infoEl) {
+                let noteHtml = data.note ? `<div class="text-dark fw-semibold mt-1 fst-italic">"${data.note}"</div>` : '';
+                infoEl.innerHTML = `<i class="bi bi-clock me-1"></i>${data.called_at} (${data.called_by_name})${noteHtml}`;
+            }
+
+            // Yuqori statistika hisoblagichlarini dinamik yangilash
+            if (data.counts) {
+                const countAll = document.getElementById('statCountAll');
+                const countPending = document.getElementById('statCountPending');
+                const countNotified = document.getElementById('statCountNotified');
+                const countNoAnswer = document.getElementById('statCountNoAnswer');
+                const headerCount = document.getElementById('headerDebtorsCount');
+
+                if (countAll) countAll.textContent = data.counts.all;
+                if (countPending) countPending.textContent = data.counts.pending;
+                if (countNotified) countNotified.textContent = data.counts.notified;
+                if (countNoAnswer) countNoAnswer.textContent = data.counts.no_answer;
+                if (headerCount) headerCount.textContent = data.counts.all;
+            }
+
+            showToast(data.message, true);
+        } else {
+            showToast(data.message || 'Xatolik yuz berdi.', false);
+        }
+    })
+    .catch(err => {
+        showToast('Ulanish xatosi: ' + err.message, false);
+    });
+}
+
+// Izoh modalini ochish
+let noteModalInstance = null;
+function openNoteModal(studentId, studentName, existingNote) {
+    document.getElementById('modalStudentId').value = studentId;
+    document.getElementById('modalStudentName').textContent = studentName;
+    document.getElementById('modalCallNote').value = existingNote || '';
+    
+    // Mavjud holatni tanlash
+    const badgeEl = document.getElementById(`status-badge-${studentId}`);
+    let currentStatus = 'notified';
+    if (badgeEl) {
+        if (badgeEl.textContent.includes('Qayta chaqiruv')) currentStatus = 'no_answer';
+        else if (badgeEl.textContent.includes('Kutilmoqda')) currentStatus = 'pending';
+    }
+    document.getElementById('modalCallStatus').value = currentStatus;
+
+    const modalEl = document.getElementById('callNoteModal');
+    noteModalInstance = new bootstrap.Modal(modalEl);
+    noteModalInstance.show();
+}
+
+function saveNoteFromModal() {
+    const studentId = document.getElementById('modalStudentId').value;
+    const status = document.getElementById('modalCallStatus').value;
+    const note = document.getElementById('modalCallNote').value;
+
+    if (!studentId) return;
+
+    updateCallStatus(studentId, status, note);
+    if (noteModalInstance) {
+        noteModalInstance.hide();
+    }
+}
+</script>
+{% endblock %}
