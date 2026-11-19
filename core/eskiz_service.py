@@ -9,6 +9,8 @@ Talablar:
 import json
 import logging
 import re
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from django.conf import settings
 from django.core.cache import cache
@@ -19,14 +21,44 @@ logger = logging.getLogger(__name__)
 
 try:
     import requests
+    from requests.adapters import HTTPAdapter
+    from urllib3.util.retry import Retry
 except ImportError:
     requests = None
+    HTTPAdapter = None
+    Retry = None
+
+# Standart ulanish va o'qish timeouti: (connect_timeout, read_timeout)
+# Gunicorn worker abort bo'lishining oldini olish uchun connect timeout 5s, read 10s qilib belgilangan
+DEFAULT_TIMEOUT = getattr(settings, 'ESKIZ_TIMEOUT', (5, 10))
 
 # Eskiz.uz API doimiylari
 ESKIZ_AUTH_URL = "https://notify.eskiz.uz/api/auth/login"
 ESKIZ_USER_URL = "https://notify.eskiz.uz/api/auth/user"
 ESKIZ_SEND_URL = "https://notify.eskiz.uz/api/message/sms/send"
 ESKIZ_CACHE_KEY = "eskiz_sms_bearer_token"
+
+
+def create_eskiz_session(pool_size: int = 15) -> "requests.Session | None":
+    """
+    Eskiz API uchun ulanishlar puli (Keep-Alive) va qayta urinish (Retry) bilan
+    requests.Session obyektini yaratadi.
+    """
+    if requests is None:
+        return None
+    session = requests.Session()
+    if HTTPAdapter and Retry:
+        try:
+            adapter = HTTPAdapter(
+                pool_connections=pool_size,
+                pool_maxsize=pool_size,
+                max_retries=Retry(total=1, backoff_factor=0.2, status_forcelist=[502, 503, 504]),
+            )
+            session.mount('https://', adapter)
+            session.mount('http://', adapter)
+        except Exception as exc:
+            logger.warning("Eskiz session HTTPAdapter sozlashda ogohlantirish: %s", exc)
+    return session
 
 
 def clean_phone_number(phone_raw: str | None) -> str:
@@ -48,7 +80,12 @@ def clean_phone_number(phone_raw: str | None) -> str:
 # 1. ESKIZ.UZ AVTORIZATSIYA (BEARER TOKEN OLISH)
 # ─────────────────────────────────────────────────────────────
 
-def authenticate_eskiz(email: str | None = None, password: str | None = None) -> str | None:
+def authenticate_eskiz(
+    email: str | None = None,
+    password: str | None = None,
+    session: "requests.Session | None" = None,
+    timeout: tuple[int, int] | int | None = None,
+) -> str | None:
     """
     Eskiz.uz API bilan avtorizatsiyadan o'tib (`https://notify.eskiz.uz/api/auth/login`),
     yangi Bearer tokenni oladi va keshga saqlaydi.
@@ -64,11 +101,14 @@ def authenticate_eskiz(email: str | None = None, password: str | None = None) ->
         logger.error("'requests' kutubxonasi o'rnatilmagan (pip install requests).")
         return None
 
+    client = session if session is not None else requests
+    use_timeout = timeout or DEFAULT_TIMEOUT
+
     try:
-        resp = requests.post(
+        resp = client.post(
             ESKIZ_AUTH_URL,
             data={'email': req_email, 'password': req_pass},
-            timeout=10,
+            timeout=use_timeout,
         )
         if resp.status_code == 200:
             res_json = resp.json()
@@ -81,13 +121,22 @@ def authenticate_eskiz(email: str | None = None, password: str | None = None) ->
             logger.error("Eskiz auth javobida token topilmadi: %s", res_json)
         else:
             logger.error("Eskiz auth xatosi [%s]: %s", resp.status_code, resp.text)
+    except (requests.exceptions.ConnectTimeout, requests.exceptions.ReadTimeout, requests.exceptions.Timeout) as exc:
+        logger.warning("Eskiz avtorizatsiyasida ulanish vaqti tugadi (timeout): %s", exc)
+    except requests.exceptions.RequestException as exc:
+        logger.warning("Eskiz avtorizatsiyasida tarmoq xatosi: %s", exc)
     except Exception as exc:
-        logger.exception("Eskiz avtorizatsiyasida ulanish xatosi: %s", exc)
+        logger.exception("Eskiz avtorizatsiyasida kutilmagan ulanish xatosi: %s", exc)
 
     return None
 
 
-def get_bearer_token(force_refresh: bool = False, email: str | None = None, password: str | None = None) -> str | None:
+def get_bearer_token(
+    force_refresh: bool = False,
+    email: str | None = None,
+    password: str | None = None,
+    session: "requests.Session | None" = None,
+) -> str | None:
     """
     Eskiz uchun Bearer tokenni qaytaradi:
       1. force_refresh=True bo'lsa yangi token oladi
@@ -97,7 +146,7 @@ def get_bearer_token(force_refresh: bool = False, email: str | None = None, pass
     """
     if force_refresh:
         cache.delete(ESKIZ_CACHE_KEY)
-        return authenticate_eskiz(email=email, password=password)
+        return authenticate_eskiz(email=email, password=password, session=session)
 
     cached_token = cache.get(ESKIZ_CACHE_KEY)
     if cached_token:
@@ -107,7 +156,7 @@ def get_bearer_token(force_refresh: bool = False, email: str | None = None, pass
     if static_token:
         return static_token
 
-    return authenticate_eskiz(email=email, password=password)
+    return authenticate_eskiz(email=email, password=password, session=session)
 
 
 # Aliaslar
@@ -119,7 +168,14 @@ login_eskiz = authenticate_eskiz
 # 2. ESKIZ.UZ ORQALI SMS YUBORISH
 # ─────────────────────────────────────────────────────────────
 
-def send_eskiz_sms(phone: str, message: str, token: str | None = None, sender: str | None = None) -> dict:
+def send_eskiz_sms(
+    phone: str,
+    message: str,
+    token: str | None = None,
+    sender: str | None = None,
+    session: "requests.Session | None" = None,
+    timeout: tuple[int, int] | int | None = None,
+) -> dict:
     """
     Eskiz.uz API (`https://notify.eskiz.uz/api/message/sms/send`) orqali SMS yuboradi.
     
@@ -165,7 +221,7 @@ def send_eskiz_sms(phone: str, message: str, token: str | None = None, sender: s
             'response': {},
         }
 
-    active_token = token or get_bearer_token()
+    active_token = token or get_bearer_token(session=session)
     if not active_token:
         return {
             'success': False,
@@ -182,17 +238,19 @@ def send_eskiz_sms(phone: str, message: str, token: str | None = None, sender: s
         'from': from_header,
     }
     headers = {'Authorization': f'Bearer {active_token}'}
+    use_timeout = timeout or DEFAULT_TIMEOUT
+    client = session if session is not None else requests
 
     try:
-        resp = requests.post(ESKIZ_SEND_URL, data=payload, headers=headers, timeout=12)
+        resp = client.post(ESKIZ_SEND_URL, data=payload, headers=headers, timeout=use_timeout)
 
         # Token eskirgan bo'lsa (401 Unauthorized), yangilab qayta urinish
         if resp.status_code == 401:
             logger.warning("Eskiz 401 Unauthorized qaytardi. Token yangilanmoqda...")
-            refreshed_token = get_bearer_token(force_refresh=True)
+            refreshed_token = get_bearer_token(force_refresh=True, session=session)
             if refreshed_token:
                 headers['Authorization'] = f'Bearer {refreshed_token}'
-                resp = requests.post(ESKIZ_SEND_URL, data=payload, headers=headers, timeout=12)
+                resp = client.post(ESKIZ_SEND_URL, data=payload, headers=headers, timeout=use_timeout)
 
         try:
             res_json = resp.json()
@@ -217,8 +275,26 @@ def send_eskiz_sms(phone: str, message: str, token: str | None = None, sender: s
                 'error': str(err_msg),
                 'response': res_json,
             }
+    except (requests.exceptions.ConnectTimeout, requests.exceptions.ReadTimeout, requests.exceptions.Timeout) as exc:
+        logger.warning("Eskiz.uz ga SMS yuborishda ulanish vaqti tugadi (Timeout +%s): %s", cleaned_phone, exc)
+        return {
+            'success': False,
+            'status': 'failed',
+            'message_id': '',
+            'error': f"Eskiz.uz ulanish vaqti tugadi (Timeout: {exc})",
+            'response': {},
+        }
+    except requests.exceptions.RequestException as exc:
+        logger.warning("Eskiz.uz ga SMS yuborishda tarmoq xatosi (+%s): %s", cleaned_phone, exc)
+        return {
+            'success': False,
+            'status': 'failed',
+            'message_id': '',
+            'error': f"Eskiz.uz tarmoq xatosi ({type(exc).__name__}): {exc}",
+            'response': {},
+        }
     except Exception as exc:
-        logger.exception("Eskiz.uz ga SMS yuborishda xatolik: %s", exc)
+        logger.exception("Eskiz.uz ga SMS yuborishda kutilmagan xatolik: %s", exc)
         return {
             'success': False,
             'status': 'failed',
@@ -251,6 +327,8 @@ def send_payment_reminders_to_paid_students(
     2. Mahalla / Imtiyozli (student_type='mahalla', is_local=True, is_mahalla=True) o'quvchilar
        MUTLAQO O'TKAZIB YUBORILADI VA HECH QACHON SMS OLMAYDI.
     3. To'lovli o'quvchilarga Eskiz orqali eslatma SMS yuboriladi va SMSLog ga qayd etiladi.
+    4. requests.Session() ulanish havzasi (connection pooling) va ThreadPoolExecutor orqali
+       Gunicorn 30-soniyalik timeoutidan oshib ketmasligi kafolatlanadi.
     
     Qaytaradi:
       {
@@ -310,6 +388,19 @@ def send_payment_reminders_to_paid_students(
     skipped_mahalla_count = 0
     details = []
 
+    # 1. Bitta so'rov bilan avval yuborilgan o'quvchilarni olish (N+1 query muammosini oldini olish)
+    already_sent_student_ids = set()
+    if not force and paid_students:
+        already_sent_student_ids = set(
+            SMSLog.objects.filter(
+                student_id__in=[s.id for s in paid_students],
+                month=month_str,
+                status__in=['sent', 'mock'],
+            ).values_list('student_id', flat=True)
+        )
+
+    # 2. Saralash va filtrlash
+    items_to_send = []
     for student in paid_students:
         # QAT'IY XAVFSIZLIK TEKSHIRUVI: Agar o'quvchi mahalla yoki imtiyozli bo'lsa, mutlaqo o'tkazib yuboriladi
         if (
@@ -341,26 +432,18 @@ def send_payment_reminders_to_paid_students(
             })
             continue
 
-        # Avval yuborilganlik tekshiruvi (force=False bo'lsa qayta yubormaydi)
-        if not force:
-            already_sent = SMSLog.objects.filter(
-                student=student,
-                month=month_str,
-                status__in=['sent', 'mock'],
-            ).exists()
-            if already_sent:
-                skipped_count += 1
-                details.append({
-                    'student_id': student.id,
-                    'name': f"{student.first_name} {student.last_name}",
-                    'group': student.time_slot.group.name if student.time_slot and student.time_slot.group else "—",
-                    'phone': phone_to_use,
-                    'status': 'skipped',
-                    'error': f"{month_str} oyida allaqachon eslatma yuborilgan",
-                })
-                continue
+        if not force and student.id in already_sent_student_ids:
+            skipped_count += 1
+            details.append({
+                'student_id': student.id,
+                'name': f"{student.first_name} {student.last_name}",
+                'group': student.time_slot.group.name if student.time_slot and student.time_slot.group else "—",
+                'phone': phone_to_use,
+                'status': 'skipped',
+                'error': f"{month_str} oyida allaqachon eslatma yuborilgan",
+            })
+            continue
 
-        # Xabar matni: agar custom_message bo'lsa har bir o'quvchi uchun placeholderlar to'ldiriladi
         msg_text = build_tuition_reminder_text(student, month_str=month_str, custom_template=custom_message)
 
         if dry_run:
@@ -374,45 +457,129 @@ def send_payment_reminders_to_paid_students(
             })
             continue
 
-        # Haqiqiy yoki mock SMS yuborish
-        res = send_eskiz_sms(phone_to_use, msg_text)
-        log_status = res['status']
+        items_to_send.append((student, phone_to_use, msg_text))
 
-        # SMSLog ga qayd etish
-        log_payload = {
-            'message_id': res.get('message_id', ''),
-            'error': res.get('error', ''),
-            'response': res.get('response', {}),
+    if dry_run or not items_to_send:
+        return {
+            'month': month_str,
+            'total_paid_students': total_paid,
+            'sent': sent_count,
+            'failed': failed_count,
+            'skipped': skipped_count,
+            'skipped_mahalla': skipped_mahalla_count,
+            'dry_run': dry_run,
+            'details': details,
         }
-        resp_text = json.dumps(log_payload, ensure_ascii=False, default=str)
 
-        SMSLog.objects.create(
-            student=student,
-            phone=clean_phone_number(phone_to_use),
-            message=msg_text,
-            month=month_str,
-            provider='eskiz',
-            status=log_status,
-            response_data=resp_text,
-            sent_by=sent_by,
-        )
+    # 3. Parallel va Session orqali jo'natish (Gunicorn timeout va ulanishni optimallashtirish)
+    session = create_eskiz_session(pool_size=15)
+    logs_to_create = []
+    max_time_seconds = getattr(settings, 'SMS_MAX_EXECUTION_SECONDS', 22.0)
+    start_time = time.time()
 
-        details.append({
-            'student_id': student.id,
-            'name': f"{student.first_name} {student.last_name}",
-            'group': student.time_slot.group.name if student.time_slot and student.time_slot.group else "—",
-            'phone': phone_to_use,
-            'status': log_status,
-            'error': res.get('error', ''),
-            'message_id': res.get('message_id', ''),
-        })
+    try:
+        active_token = get_bearer_token(session=session)
+        num_workers = min(8, len(items_to_send))
 
-        if log_status in ('sent', 'mock'):
-            sent_count += 1
-        elif log_status == 'skipped':
-            skipped_count += 1
-        else:
-            failed_count += 1
+        def _send_worker(item):
+            std, ph, msg = item
+            res = send_eskiz_sms(
+                ph,
+                msg,
+                token=active_token,
+                session=session,
+                timeout=DEFAULT_TIMEOUT,
+            )
+            return std, ph, msg, res
+
+        with ThreadPoolExecutor(max_workers=num_workers) as executor:
+            future_to_item = {executor.submit(_send_worker, it): it for it in items_to_send}
+
+            for future in as_completed(future_to_item):
+                time_elapsed = time.time() - start_time
+                item = future_to_item[future]
+                std, ph, msg = item
+
+                # Gunicorn timeout himoyasi: vaqt tugasa qolgan vazifalarni bekor qilib tezda javob qaytarish
+                if time_elapsed > max_time_seconds and not future.done():
+                    future.cancel()
+                    failed_count += 1
+                    details.append({
+                        'student_id': std.id,
+                        'name': f"{std.first_name} {std.last_name}",
+                        'group': std.time_slot.group.name if std.time_slot and std.time_slot.group else "—",
+                        'phone': ph,
+                        'status': 'timeout_deferred',
+                        'error': f"Gunicorn timeout himoyasi ({max_time_seconds}s chegara): keyinroq qayta yuboring",
+                    })
+                    continue
+
+                try:
+                    std, ph, msg, res = future.result()
+                    log_status = res.get('status', 'failed')
+                    err_msg = res.get('error', '')
+                    msg_id = res.get('message_id', '')
+
+                    log_payload = {
+                        'message_id': msg_id,
+                        'error': err_msg,
+                        'response': res.get('response', {}),
+                    }
+                    resp_text = json.dumps(log_payload, ensure_ascii=False, default=str)
+
+                    logs_to_create.append(
+                        SMSLog(
+                            student=std,
+                            phone=clean_phone_number(ph),
+                            message=msg,
+                            month=month_str,
+                            provider='eskiz',
+                            status=log_status,
+                            response_data=resp_text,
+                            sent_by=sent_by,
+                        )
+                    )
+
+                    details.append({
+                        'student_id': std.id,
+                        'name': f"{std.first_name} {std.last_name}",
+                        'group': std.time_slot.group.name if std.time_slot and std.time_slot.group else "—",
+                        'phone': ph,
+                        'status': log_status,
+                        'error': err_msg,
+                        'message_id': msg_id,
+                    })
+
+                    if log_status in ('sent', 'mock'):
+                        sent_count += 1
+                    elif log_status == 'skipped':
+                        skipped_count += 1
+                    else:
+                        failed_count += 1
+
+                except Exception as exc:
+                    logger.exception("SMS yuborishda worker xatoligi (student=%s): %s", getattr(std, 'id', None), exc)
+                    failed_count += 1
+                    details.append({
+                        'student_id': std.id,
+                        'name': f"{std.first_name} {std.last_name}",
+                        'group': std.time_slot.group.name if std.time_slot and std.time_slot.group else "—",
+                        'phone': ph,
+                        'status': 'failed',
+                        'error': str(exc),
+                    })
+
+        # Asosiy oqimda (main thread) barcha loglarni yozish (DB lock xatolarini oldini olish)
+        if logs_to_create:
+            SMSLog.objects.bulk_create(logs_to_create)
+
+    except Exception as exc:
+        logger.exception("send_payment_reminders_to_paid_students xatoligi: %s", exc)
+    finally:
+        try:
+            session.close()
+        except Exception:
+            pass
 
     return {
         'month': month_str,
@@ -502,7 +669,7 @@ def send_test_payment_reminder(
 
         msg_text = build_tuition_reminder_text(student, month_str=month_str, custom_template=custom_message)
 
-        res = send_eskiz_sms(cleaned_phone, msg_text)
+        res = send_eskiz_sms(cleaned_phone, msg_text, timeout=DEFAULT_TIMEOUT)
         log_status = res['status']
 
         log_payload = {

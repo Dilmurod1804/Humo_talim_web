@@ -112,7 +112,7 @@ def _login_eskiz() -> str | None:
         resp = requests.post(
             ESKIZ_AUTH_URL,
             data={'email': email, 'password': password},
-            timeout=10,
+            timeout=(5, 10),
         )
         if resp.status_code == 200:
             res_json = resp.json()
@@ -124,6 +124,10 @@ def _login_eskiz() -> str | None:
             logger.error("Eskiz auth javobida token topilmadi: %s", res_json)
         else:
             logger.error("Eskiz auth xatosi [%s]: %s", resp.status_code, resp.text)
+    except (requests.exceptions.ConnectTimeout, requests.exceptions.ReadTimeout, requests.exceptions.Timeout) as exc:
+        logger.warning("Eskiz avtorizatsiyasida ulanish vaqti tugadi (timeout): %s", exc)
+    except requests.exceptions.RequestException as exc:
+        logger.warning("Eskiz avtorizatsiyasida tarmoq xatoligi: %s", exc)
     except Exception as exc:
         logger.exception("Eskiz avtorizatsiyasida ulanish xatoligi: %s", exc)
 
@@ -172,7 +176,7 @@ def check_eskiz_token() -> dict:
         result['error'] = "'requests' kutubxonasi o'rnatilmagan."
         return result
     try:
-        resp = requests.get(ESKIZ_USER_URL, headers={'Authorization': f'Bearer {token}'}, timeout=10)
+        resp = requests.get(ESKIZ_USER_URL, headers={'Authorization': f'Bearer {token}'}, timeout=(5, 10))
         result['status_code'] = resp.status_code
         try:
             result['data'] = resp.json()
@@ -268,7 +272,7 @@ def send_sms(phone: str, message: str, provider: str | None = None) -> dict:
                 return {'raw': resp.text}
 
         try:
-            resp = requests.post(ESKIZ_SEND_URL, headers=headers, data=data, timeout=12)
+            resp = requests.post(ESKIZ_SEND_URL, headers=headers, data=data, timeout=(5, 10))
             res_json = _parse(resp)
 
             # Token eskirgan bo'lsa (401) — login orqali yangilab, bir marta qayta urinamiz
@@ -286,7 +290,7 @@ def send_sms(phone: str, message: str, provider: str | None = None) -> dict:
                         'response': res_json,
                     }
                 headers['Authorization'] = f'Bearer {new_token}'
-                resp = requests.post(ESKIZ_SEND_URL, headers=headers, data=data, timeout=12)
+                resp = requests.post(ESKIZ_SEND_URL, headers=headers, data=data, timeout=(5, 10))
                 res_json = _parse(resp)
 
             if resp.status_code in (200, 201) and res_json.get('status') in ('waiting', 'success', 'success_send'):
@@ -306,6 +310,24 @@ def send_sms(phone: str, message: str, provider: str | None = None) -> dict:
                     'error': str(err_msg),
                     'response': res_json,
                 }
+        except (requests.exceptions.ConnectTimeout, requests.exceptions.ReadTimeout, requests.exceptions.Timeout) as exc:
+            logger.warning("Eskiz.uz timeout (+%s): %s", cleaned_phone, exc)
+            return {
+                'success': False,
+                'status': 'failed',
+                'message_id': '',
+                'error': f"Eskiz.uz ulanish vaqti tugadi (Timeout: {exc})",
+                'response': {},
+            }
+        except requests.exceptions.RequestException as exc:
+            logger.warning("Eskiz.uz tarmoq xatosi (+%s): %s", cleaned_phone, exc)
+            return {
+                'success': False,
+                'status': 'failed',
+                'message_id': '',
+                'error': f"Eskiz.uz tarmoq xatosi ({type(exc).__name__}): {exc}",
+                'response': {},
+            }
         except Exception as exc:
             logger.exception("Eskiz.uz ga SMS yuborishda ulanish xatosi: %s", exc)
             return {

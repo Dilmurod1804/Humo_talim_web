@@ -2728,6 +2728,66 @@ class SmsPaymentReminderAndPublicPaymentTests(TestCase):
             self.assertEqual(data['status'], 'error')
             self.assertIn('Eskiz token muddati tugagan', data['message'])
 
+    @override_settings(SMS_ENABLED=True, ESKIZ_API_TOKEN='test_token')
+    def test_send_eskiz_sms_timeout_handling(self):
+        """Eskiz API ulanish vaqti tugaganda (ConnectTimeout) tizim qulamasligi va xatoni xavfsiz qaytarishi kerak."""
+        from core.eskiz_service import send_eskiz_sms
+        import requests
+
+        with mock.patch('requests.post', side_effect=requests.exceptions.ConnectTimeout("Ulanish vaqti tugadi")):
+            res = send_eskiz_sms('+998901234567', 'Test xabar')
+            self.assertFalse(res['success'])
+            self.assertEqual(res['status'], 'failed')
+            self.assertIn('Timeout', res['error'])
+
+    @override_settings(SMS_ENABLED=True, ESKIZ_API_TOKEN='test_token')
+    def test_send_eskiz_sms_uses_session_and_timeout_tuple(self):
+        """send_eskiz_sms session ni qayta ishlatishi va timeout=(5, 10) uzatishi kerak."""
+        from core.eskiz_service import send_eskiz_sms, create_eskiz_session
+
+        session = create_eskiz_session(pool_size=5)
+        mock_resp = mock.MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {'id': '12345', 'message': 'Waiting'}
+
+        with mock.patch.object(session, 'post', return_value=mock_resp) as mock_post:
+            res = send_eskiz_sms('+998901234567', 'Test xabar', session=session, timeout=(5, 10))
+            self.assertTrue(res['success'])
+            self.assertEqual(res['status'], 'sent')
+            mock_post.assert_called_once()
+            _, kwargs = mock_post.call_args
+            self.assertEqual(kwargs.get('timeout'), (5, 10))
+        session.close()
+
+    @override_settings(SMS_ENABLED=True, ESKIZ_API_TOKEN='test_token')
+    def test_bulk_reminders_parallel_execution_and_bulk_create(self):
+        """Ko'p sonli qarzdorlar uchun ThreadPool va Session orqali tezkor jo'natilishi va SMSLog bulk yozilishi kerak."""
+        from core.eskiz_service import send_payment_reminders_to_paid_students
+        from core.models import SMSLog
+
+        # Yana 10 ta to'lovli o'quvchi yaratamiz
+        for i in range(10):
+            Student.objects.create(
+                first_name=f'Talaba_{i}',
+                last_name='Sinovchi',
+                phone_1=f'+9989000000{i:02d}',
+                time_slot=self.ts,
+                payment_rate=400000,
+                student_type='paid',
+            )
+
+        with mock.patch('core.eskiz_service.send_eskiz_sms', return_value={'success': True, 'status': 'sent', 'message_id': 'bulk_test'}):
+            summary = send_payment_reminders_to_paid_students(
+                month_str='2026-11',
+                group_id=self.group.id,
+                force=True,
+                debtors_only=False,
+            )
+            self.assertGreaterEqual(summary['sent'], 10)
+            self.assertEqual(summary['failed'], 0)
+            log_count = SMSLog.objects.filter(month='2026-11', status='sent').count()
+            self.assertGreaterEqual(log_count, 10)
+
 
 class CallCenterDebtorsModuleTests(TestCase):
     def setUp(self):
