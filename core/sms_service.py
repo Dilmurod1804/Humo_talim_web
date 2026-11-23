@@ -453,12 +453,17 @@ def send_tuition_reminder(
     Mahalla va imtiyozli o'quvchilar mutlaqo o'tkazib yuboriladi.
     """
     from core.models import SMSLog
+    from core.payment_views import _is_mahalla_student, _is_free_student
 
     # Mahalla / Imtiyozli o'quvchilarga SMS yuborish qat'iyan man etiladi
     if (
         getattr(student, 'student_type', 'paid') != 'paid'
         or getattr(student, 'is_mahalla', False)
         or getattr(student, 'is_local', False)
+        or getattr(student, 'is_privileged', False)
+        or getattr(student, 'is_free', False)
+        or _is_mahalla_student(student)
+        or _is_free_student(student)
     ):
         return {
             'success': True,
@@ -557,13 +562,19 @@ def send_tuition_reminders_batch(
       }
     """
     from core.models import Student
+    from django.db.models import Q
     from core.payment_views import filter_students_by_payment_status, get_active_students_qs
 
     if not month_str:
         month_str = timezone.now().strftime('%Y-%m')
 
-    # Faol o'quvchilar
-    students_qs = get_active_students_qs()
+    # Faol to'lovli o'quvchilar (mahalla / imtiyozli bazaviy darajada chiqarib tashlangan)
+    students_qs = get_active_students_qs().filter(
+        student_type='paid',
+        is_local=False,
+    ).exclude(
+        Q(student_type__iexact='mahalla') | Q(is_local=True)
+    )
     if group_id and str(group_id).isdigit():
         students_qs = students_qs.filter(time_slot__group_id=int(group_id))
 

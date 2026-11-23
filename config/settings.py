@@ -180,4 +180,5 @@ CENTER_NAME = os.getenv('CENTER_NAME', "Humo Ta'lim o'quv markazi")
 CENTER_PHONE = os.getenv('CENTER_PHONE', '+998901234567')
 TEST_SMS_PHONE = os.getenv('TEST_SMS_PHONE', '+998901234567').strip()
 PAYMENT_BASE_URL = os.getenv('PAYMENT_BASE_URL', 'https://hummokids.uz').rstrip('/')
+TELEGRAM_RECEIPT_URL = os.getenv('TELEGRAM_RECEIPT_URL', 'https://t.me/humo_admin').strip()
 

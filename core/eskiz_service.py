@@ -342,29 +342,62 @@ def send_payment_reminders_to_paid_students(
           'details': list,
       }
     """
-    from core.models import Student, SMSLog
+    from core.models import Student, SMSLog, MonthlyPayment
+    from core.payment_views import _is_mahalla_student, _is_free_student, get_active_students_qs, _build_payments_data
     from core.sms_service import build_tuition_reminder_text
+    from django.db.models import Exists, OuterRef, Q
 
     if not month_str:
         month_str = timezone.now().strftime('%Y-%m')
 
-    # Faqat to'lovli va faol o'quvchilarni bazadan so'raymiz
+    # 1. BAZA (ORM) DARAJASIDA: Faqat to'lovli, mahalladan bo'lmagan, faol o'quvchilarni olamiz
     paid_students_qs = Student.objects.filter(
         student_type='paid',
+        is_local=False,
         is_active=True,
         is_deleted=False,
         left_date__isnull=True,
+    ).exclude(
+        Q(student_type__iexact='mahalla') | Q(is_local=True)
     )
 
     if group_id and str(group_id).isdigit():
         paid_students_qs = paid_students_qs.filter(time_slot__group_id=int(group_id))
 
-    # Qat'iy qarzdorlar (faqat shu oyda to'lov qilmaganlar) bo'yicha saralash
+    # Shu oy uchun to'lov yozuvlarida mahalla yoki bepul/imtiyoz deb belgilanganlarni ham DB darajasida mutlaqo chiqarib tashlaymiz
+    mahalla_pay_subquery = MonthlyPayment.objects.filter(
+        student_id=OuterRef('pk'),
+        month=month_str,
+    ).filter(
+        Q(amount_paid__icontains='mahalla')
+        | Q(notes__icontains='mahalla')
+        | Q(amount_paid__icontains='imtiyoz')
+        | Q(notes__icontains='imtiyoz')
+        | Q(amount_paid__icontains='bepul')
+        | Q(notes__icontains='bepul')
+        | Q(amount_paid__icontains='tekin')
+        | Q(notes__icontains='tekin')
+        | Q(amount_paid__icontains='free')
+        | Q(notes__icontains='free')
+        | Q(amount_paid__icontains='grant')
+        | Q(notes__icontains='grant')
+    )
+    paid_students_qs = paid_students_qs.annotate(
+        _has_mahalla_pay=Exists(mahalla_pay_subquery)
+    ).filter(
+        _has_mahalla_pay=False
+    )
+
+    # Qat'iy qarzdorlar (faqat shu oyda to'lov qilmagan to'lovli o'quvchilar) bo'yicha saralash
     if debtors_only:
         try:
-            from core.payment_views import get_active_students_qs, _build_payments_data
             base_qs = get_active_students_qs(
                 group_id=int(group_id) if group_id and str(group_id).isdigit() else None
+            ).filter(
+                student_type='paid',
+                is_local=False,
+            ).exclude(
+                Q(student_type__iexact='mahalla') | Q(is_local=True)
             )
             rows, _ = _build_payments_data(
                 base_qs,
@@ -372,10 +405,14 @@ def send_payment_reminders_to_paid_students(
                 status_filter='unpaid',
                 is_group_specific=bool(group_id and str(group_id).isdigit()),
             )
-            unpaid_student_ids = {r['student_id'] for r in rows}
+            unpaid_student_ids = {
+                r['student_id'] for r in rows
+                if not r.get('is_mahalla') and not r.get('is_free') and not r.get('is_paid') and r.get('status_code') == 'unpaid'
+            }
             paid_students_qs = paid_students_qs.filter(id__in=unpaid_student_ids)
         except Exception as e:
             logger.warning("debtors_only filtrlashda ogohlantirish: %s", e)
+            paid_students_qs = paid_students_qs.none()
 
     paid_students = list(
         paid_students_qs.select_related('time_slot__group').order_by('first_name', 'last_name')
@@ -407,6 +444,10 @@ def send_payment_reminders_to_paid_students(
             student.student_type != 'paid'
             or getattr(student, 'is_local', False)
             or getattr(student, 'is_mahalla', False)
+            or getattr(student, 'is_privileged', False)
+            or getattr(student, 'is_free', False)
+            or _is_mahalla_student(student)
+            or _is_free_student(student)
         ):
             skipped_mahalla_count += 1
             details.append({
@@ -634,27 +675,24 @@ def send_test_payment_reminder(
             student = Student.objects.filter(
                 time_slot__group_id=int(group_id),
                 student_type='paid',
+                is_local=False,
                 is_active=True,
                 is_deleted=False,
                 left_date__isnull=True,
+            ).exclude(
+                Q(student_type__iexact='mahalla') | Q(is_local=True)
             ).first()
-            if not student:
-                student = Student.objects.filter(
-                    time_slot__group_id=int(group_id),
-                    is_active=True,
-                    is_deleted=False,
-                ).first()
 
         if not student:
             student = Student.objects.filter(
                 student_type='paid',
+                is_local=False,
                 is_active=True,
                 is_deleted=False,
                 left_date__isnull=True,
+            ).exclude(
+                Q(student_type__iexact='mahalla') | Q(is_local=True)
             ).first()
-
-        if not student:
-            student = Student.objects.filter(is_active=True, is_deleted=False).first()
 
         if not student:
             return {

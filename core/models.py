@@ -495,15 +495,6 @@ class Student(models.Model):
         return ''
 
     @property
-    def is_mahalla(self):
-        """Mahalladan keladigan o'quvchi belgisi (is_local uchun qulay alias)."""
-        return self.is_local
-
-    @is_mahalla.setter
-    def is_mahalla(self, value):
-        self.is_local = bool(value)
-
-    @property
     def is_archived(self):
         """Arxivlanganlik holati (is_active=False bo'lsa True)."""
         return not self.is_active
@@ -535,19 +526,46 @@ class Student(models.Model):
             self.student_type = self.STUDENT_TYPE_PAID
 
     @property
+    def is_privileged(self):
+        """Imtiyozli o'quvchi belgisi (is_mahalla uchun alias)."""
+        return self.is_mahalla
+
+    @property
+    def is_free(self):
+        """Bepul / imtiyozli o'quvchi belgisi."""
+        return self.is_mahalla
+
+    @property
     def payment_url(self) -> str:
         """O'quvchining shaxsiy to'lov havolasi."""
         from django.conf import settings
+        if not getattr(self, 'uuid', None):
+            import uuid
+            self.uuid = uuid.uuid4()
+            try:
+                self.save(update_fields=['uuid'])
+            except Exception:
+                pass
         base_url = getattr(settings, 'PAYMENT_BASE_URL', 'https://hummokids.uz').rstrip('/')
         return f"{base_url}/pay/{self.uuid}/"
 
     def save(self, *args, **kwargs):
+        # Always synchronize student_type and is_local
+        if self.student_type == self.STUDENT_TYPE_MAHALLA:
+            self.is_local = True
+        elif self.is_local:
+            self.student_type = self.STUDENT_TYPE_MAHALLA
+        elif not self.student_type:
+            self.student_type = self.STUDENT_TYPE_PAID
+
         update_fields = kwargs.get('update_fields')
-        if update_fields is None:
-            if self.student_type == self.STUDENT_TYPE_MAHALLA:
-                self.is_local = True
-            elif self.is_local and self.student_type != self.STUDENT_TYPE_MAHALLA:
-                self.student_type = self.STUDENT_TYPE_MAHALLA
+        if update_fields is not None:
+            update_fields_set = set(update_fields)
+            if 'is_local' in update_fields_set or 'student_type' in update_fields_set:
+                update_fields_set.add('is_local')
+                update_fields_set.add('student_type')
+                kwargs['update_fields'] = list(update_fields_set)
+
         super().save(*args, **kwargs)
 
     def __str__(self):
@@ -673,6 +691,88 @@ class MonthlyPayment(models.Model):
 
     def __str__(self):
         return f"{self.student} - {self.month} ({self.amount_paid})"
+
+
+class PaymentRequest(models.Model):
+    """
+    Onlayn to'lov so'rovi va unikal to'lov havolasi modeli:
+    Har bir havola (/pay/<uuid>/) unikal UUIDField ga ega, taxmin qilib bo'lmaydi (guess-resistant),
+    va faqat o'sha o'quvchi/oy bo'yicha ma'lumotlarni ko'rsatadi.
+    Ota-ona kiritgan summa, to'lov usuli va Telegram chek yuborish bosqichlari monitoring qilinadi.
+    """
+    STATUS_CHOICES = (
+        ('pending', "Kutilmoqda"),
+        ('awaiting_receipt', "Chek kutilmoqda"),
+        ('submitted', "To'lov topshirildi"),
+        ('confirmed', "Tasdiqlandi"),
+        ('rejected', "Rad etildi"),
+    )
+    uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False, db_index=True)
+    student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name='payment_requests')
+    month = models.CharField(max_length=7, help_text="Yil va Oy (YYYY-MM). Masalan: 2026-11")
+    amount = models.IntegerField(default=0, help_text="Kutilayotgan yoki kurs oylik to'lovi (so'm)")
+    amount_paid = models.IntegerField(default=0, help_text="Ota-ona tomonidan kiritilgan/to'langan summa (so'm)")
+    payment_type = models.CharField(
+        max_length=20,
+        choices=MonthlyPayment.PAYMENT_TYPE_CHOICES,
+        default='click',
+        verbose_name="To'lov turi",
+    )
+    status = models.CharField(
+        max_length=25,
+        choices=STATUS_CHOICES,
+        default='pending',
+        db_index=True,
+        verbose_name="Holati",
+    )
+    parent_phone = models.CharField(max_length=25, blank=True, default='', verbose_name="Ota-ona telefoni")
+    receipt_note = models.CharField(max_length=255, blank=True, default='', help_text="To'lov yoki chek bo'yicha izoh")
+    submitted_at = models.DateTimeField(null=True, blank=True, help_text="To'lov topshirilgan vaqt")
+    confirmed_at = models.DateTimeField(null=True, blank=True, help_text="Tasdiqlangan vaqt")
+    confirmed_by = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='confirmed_payment_requests',
+        verbose_name="Tasdiqlovchi xodim",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = "To'lov so'rovi (Onlayn)"
+        verbose_name_plural = "To'lov so'rovlari (Onlayn)"
+
+    def __str__(self):
+        return f"{self.student} — {self.month} ({self.amount_paid or self.amount} so'm) [{self.get_status_display()}]"
+
+    @property
+    def payment_url(self) -> str:
+        """Ushbu so'rov uchun unikal shaxsiy to'lov havolasi."""
+        from django.conf import settings
+        base_url = getattr(settings, 'PAYMENT_BASE_URL', 'https://hummokids.uz').rstrip('/')
+        return f"{base_url}/pay/{self.uuid}/"
+
+    @classmethod
+    def get_or_create_for_student(cls, student, month_str=None, amount=None):
+        """O'quvchi va oy bo'yicha PaymentRequest oladi yoki yangi yaratadi."""
+        if not month_str:
+            month_str = timezone.now().strftime('%Y-%m')
+        rate = amount if amount is not None else (student.payment_rate or 0)
+        phone = student.phone_1 or student.phone_2 or ''
+
+        obj = cls.objects.filter(student=student, month=month_str).first()
+        if not obj:
+            obj = cls.objects.create(
+                student=student,
+                month=month_str,
+                amount=rate,
+                parent_phone=phone,
+                status='pending',
+            )
+        return obj
 
 class Message(models.Model):
     sender = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='sent_messages')

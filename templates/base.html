@@ -40,36 +40,38 @@
 
         /* Nav scroll container */
         .nav-scroll-container {
+            width: 100%;
             overflow-x: auto;
-            overflow-y: hidden;
             scrollbar-width: none;
             -ms-overflow-style: none;
-            white-space: nowrap;
             -webkit-overflow-scrolling: touch;
         }
         .nav-scroll-container::-webkit-scrollbar { display: none; }
 
         .quick-nav-pills {
-            display: inline-flex;
+            display: flex;
+            flex-wrap: wrap;
             align-items: center;
             gap: 6px;
             padding: 3px 0;
+            width: 100%;
         }
 
         .quick-nav-link {
             display: inline-flex;
             align-items: center;
             gap: 5px;
-            padding: 5px 12px;
+            padding: 5px 11px;
             border-radius: 50px;
-            font-size: 0.8rem;
+            font-size: 0.77rem;
             font-weight: 600;
-            color: rgba(255, 255, 255, 0.85);
+            color: rgba(255, 255, 255, 0.9);
             background: rgba(255, 255, 255, 0.08);
             border: 1px solid rgba(255, 255, 255, 0.14);
             text-decoration: none;
             transition: all 0.2s ease;
             white-space: nowrap;
+            line-height: 1.25;
         }
         .quick-nav-link:hover {
             color: #fff;
@@ -230,8 +232,12 @@
                             <i class="bi bi-grid-1x2-fill me-1"></i><span>Guruhlar & Xodimlar</span>
                         </a>
 
-                        <a href="{% url 'admin_payments_all' %}" class="quick-nav-link {% if 'payments' in request.path %}active{% endif %}">
+                        <a href="{% url 'admin_payments_all' %}" class="quick-nav-link {% if 'payments' in request.path and 'monitoring' not in request.path %}active{% endif %}">
                             <i class="bi bi-wallet2 me-1"></i><span>To'lovlar (Guruhlar)</span>
+                        </a>
+
+                        <a href="{% url 'admin_payment_requests_monitoring' %}" class="quick-nav-link {% if 'monitoring' in request.path %}active{% endif %}" style="background:rgba(245,158,11,0.18); border-color:rgba(245,158,11,0.4);">
+                            <i class="bi bi-receipt text-warning me-1"></i><span>Onlayn To'lovlar (Cheklar)</span>
                         </a>
 
                         <a href="{% url 'call_center_debtors' %}" class="quick-nav-link {% if 'call-center' in request.path %}active{% endif %}" style="background:rgba(59,130,246,0.18); border-color:rgba(59,130,246,0.4);">
@@ -245,14 +251,6 @@
 
                     <!-- 3. FAQAT VA FAQAT ADMIN UCHUN RUXSAT ETILGAN BO'LIMLAR (Menejer va O'qituvchiga MUTLAQO KO'RINMAYDI) -->
                     {% if is_admin %}
-                        <a href="{% url 'admin_face_id_logs' %}" class="quick-nav-link {% if '/admin/face-id/logs' in request.path %}active{% endif %}" style="background:rgba(6,182,212,0.18); border-color:rgba(6,182,212,0.4);">
-                            <i class="bi bi-person-bounding-box text-info me-1"></i><span>Face ID Jurnali</span>
-                        </a>
-
-                        <a href="{% url 'admin_face_id_settings' %}" class="quick-nav-link {% if '/admin/face-id/settings' in request.path %}active{% endif %}" style="background:rgba(99,102,241,0.18); border-color:rgba(99,102,241,0.4);">
-                            <i class="bi bi-sliders text-primary me-1"></i><span>Face ID Boshqaruvi</span>
-                        </a>
-
                         <a href="{% url 'admin_salary_report' %}" class="quick-nav-link {% if '/admin/salary' in request.path %}active{% endif %}" style="background:rgba(16,185,129,0.18); border-color:rgba(16,185,129,0.4);">
                             <i class="bi bi-cash-stack text-success me-1"></i><span>Oyliklar & Bonuslar</span>
                         </a>
@@ -282,11 +280,6 @@
                             <i class="bi bi-person-badge-fill text-warning me-1"></i><span>Xodimlar Paneli (Shaxsiy & Avans)</span>
                         </a>
                     {% endif %}
-
-                    <!-- Face ID Skaner Terminali (Alohida tabda to'liq ochiladi) -->
-                    <a href="{% url 'face_id_terminal' %}" class="quick-nav-link" target="_blank" style="background:rgba(14,165,233,0.18);border-color:rgba(14,165,233,0.4);">
-                        <i class="bi bi-qr-code-scan text-cyan me-1"></i><span>Face ID Skaner</span>
-                    </a>
                 </div>
             </div>
         </div>

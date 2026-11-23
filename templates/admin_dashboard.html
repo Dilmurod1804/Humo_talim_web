@@ -2,6 +2,35 @@
 {% block title %}Boshqaruv Paneli - HUMO Talim Admin{% endblock %}
 
 {% block content %}
+<style>
+    .header-actions-wrap {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+    }
+    .header-action-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        height: 38px;
+        padding: 0 13px;
+        font-size: 0.82rem;
+        font-weight: 600;
+        border-radius: 10px;
+        border: 1px solid rgba(255,255,255,0.3);
+        backdrop-filter: blur(8px);
+        box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+        white-space: nowrap;
+        text-decoration: none;
+        transition: all 0.2s ease;
+    }
+    .header-action-btn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        color: #fff;
+    }
+</style>
 <!-- Page Header -->
 <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3 mb-4">
     <div class="header-title-block">
@@ -11,41 +40,35 @@
         <p class="text-white mb-0" style="opacity:0.85;">Guruhlar, o'qituvchilar va o'quvchilarni boshqaring</p>
     </div>
 
-    <div class="d-flex gap-2 header-actions-wrap flex-wrap">
+    <div class="header-actions-wrap">
         {% if is_admin %}
-        <a href="{% url 'admin_face_id_logs' %}" class="btn fw-semibold px-3 py-2 shadow-sm text-white"
-            style="background:linear-gradient(135deg, #06b6d4, #0891b2); border:1px solid rgba(255,255,255,0.3); backdrop-filter:blur(8px);">
+        <a href="{% url 'admin_face_id_logs' %}" class="btn header-action-btn text-white"
+            style="background:linear-gradient(135deg, #06b6d4, #0891b2);">
             <i class="bi bi-person-bounding-box me-1"></i> Face ID Jurnali
             {% if face_stats.total_scans %}
             <span class="badge bg-white text-dark rounded-pill ms-1" style="font-size:0.72rem;">{{ face_stats.total_scans }}</span>
             {% endif %}
         </a>
-        <a href="{% url 'admin_face_id_settings' %}" class="btn fw-semibold px-3 py-2 shadow-sm text-white"
-            style="background:linear-gradient(135deg, #6366f1, #8b5cf6); border:1px solid rgba(255,255,255,0.3); backdrop-filter:blur(8px);">
+        <a href="{% url 'admin_face_id_settings' %}" class="btn header-action-btn text-white"
+            style="background:linear-gradient(135deg, #6366f1, #8b5cf6);">
             <i class="bi bi-sliders me-1"></i> Face ID Boshqaruvi
         </a>
         {% endif %}
-        {% if is_admin %}
-        <a href="{% url 'admin_salary_report' %}" class="btn fw-semibold px-3 py-2 shadow-sm text-white"
-            style="background:linear-gradient(135deg, #10b981, #059669); border:1px solid rgba(255,255,255,0.3); backdrop-filter:blur(8px);">
-            <i class="bi bi-cash-stack me-1"></i> Oylik & Jarimalar
-        </a>
-        {% endif %}
-        <a href="{% url 'face_id_terminal' %}" target="_blank" class="btn fw-semibold px-3 py-2 shadow-sm text-white"
-            style="background:rgba(14,165,233,0.9); border:1px solid rgba(255,255,255,0.3); backdrop-filter:blur(8px);">
+        <a href="{% url 'face_id_terminal' %}" target="_blank" class="btn header-action-btn text-white"
+            style="background:rgba(14,165,233,0.9);">
             <i class="bi bi-qr-code-scan me-1"></i> Terminal
         </a>
-        <a href="{% url 'admin_export_excel' %}" class="btn fw-semibold px-3 py-2 btn-export shadow-sm text-white"
-            style="background:linear-gradient(135deg,#10b981,#059669); border:1px solid rgba(255,255,255,0.3); backdrop-filter:blur(8px);">
+        <a href="{% url 'admin_export_excel' %}" class="btn header-action-btn btn-export text-white"
+            style="background:linear-gradient(135deg,#10b981,#059669);">
             <i class="bi bi-file-earmark-excel-fill me-1"></i> Excel
         </a>
-        <a href="{% url 'admin_temp_students' %}" class="btn fw-semibold px-3 py-2 shadow-sm text-white"
-            style="background:rgba(245,158,11,0.9); border:1px solid rgba(255,255,255,0.3); backdrop-filter:blur(8px);">
-            <i class="bi bi-hourglass-split"></i> Vaqtinchalik
+        <a href="{% url 'admin_temp_students' %}" class="btn header-action-btn text-white"
+            style="background:rgba(245,158,11,0.9);">
+            <i class="bi bi-hourglass-split me-1"></i> Vaqtinchalik
         </a>
-        <a href="{% url 'admin_deleted_students' %}" class="btn fw-semibold px-3 py-2 shadow-sm text-white"
-            style="background:rgba(100,116,139,0.85); border:1px solid rgba(255,255,255,0.3); backdrop-filter:blur(8px);">
-            <i class="bi bi-archive-fill"></i> Arxiv
+        <a href="{% url 'admin_deleted_students' %}" class="btn header-action-btn text-white"
+            style="background:rgba(100,116,139,0.85);">
+            <i class="bi bi-archive-fill me-1"></i> Arxiv
         </a>
     </div>
 </div>

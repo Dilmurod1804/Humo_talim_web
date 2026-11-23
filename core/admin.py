@@ -6,7 +6,7 @@ import os
 
 from .models import (
     CustomUser, Teacher, TeacherSchedule, Manager, Group, TimeSlot,
-    Student, Attendance, DeletedStudent, MonthlyPayment,
+    Student, Attendance, DeletedStudent, MonthlyPayment, PaymentRequest,
     FaceIDSettings, FaceIDLog, SMSLog
 )
 try:
@@ -308,3 +308,60 @@ class SMSLogAdmin(admin.ModelAdmin):
     list_filter = ('status', 'month', 'provider', 'created_at')
     search_fields = ('phone', 'message', 'student__first_name', 'student__last_name')
     readonly_fields = ('created_at',)
+
+
+@admin.register(PaymentRequest)
+class PaymentRequestAdmin(admin.ModelAdmin):
+    list_display = (
+        'student',
+        'month',
+        'amount',
+        'amount_paid',
+        'payment_type',
+        'status',
+        'submitted_at',
+        'confirmed_at',
+        'created_at',
+    )
+    list_filter = ('status', 'payment_type', 'month', 'created_at')
+    search_fields = (
+        'student__first_name',
+        'student__last_name',
+        'student__phone_1',
+        'parent_phone',
+        'uuid',
+        'receipt_note',
+    )
+    readonly_fields = ('uuid', 'created_at', 'updated_at', 'submitted_at', 'confirmed_at')
+    ordering = ('-submitted_at', '-created_at')
+    actions = ['mark_as_confirmed', 'mark_as_rejected']
+
+    @admin.action(description="Tanlangan to'lov so'rovlarini tasdiqlash")
+    def mark_as_confirmed(self, request, queryset):
+        from django.utils import timezone
+        from datetime import date
+        count = 0
+        for pr in queryset:
+            pr.status = 'confirmed'
+            pr.confirmed_at = timezone.now()
+            pr.confirmed_by = request.user
+            pr.save()
+            paid_val = str(pr.amount_paid or pr.amount)
+            MonthlyPayment.objects.update_or_create(
+                student=pr.student,
+                month=pr.month,
+                defaults={
+                    'amount_paid': paid_val,
+                    'payment_type': pr.payment_type,
+                    'payment_date': date.today(),
+                    'status': 'paid',
+                    'notes': f"Admin orqali tasdiqlandi: {paid_val} so'm",
+                }
+            )
+            count += 1
+        self.message_user(request, f"{count} ta to'lov so'rovi muvaffaqiyatli tasdiqlandi.")
+
+    @admin.action(description="Tanlangan to'lov so'rovlarini rad etish")
+    def mark_as_rejected(self, request, queryset):
+        updated = queryset.update(status='rejected')
+        self.message_user(request, f"{updated} ta to'lov so'rovi rad etildi.")

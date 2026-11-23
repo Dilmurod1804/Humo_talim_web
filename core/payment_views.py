@@ -17,11 +17,14 @@ except ImportError:
 import openpyxl
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
+from urllib.parse import quote_plus
 from django.conf import settings
 from django.contrib import messages
 from django.db.models import Exists, OuterRef, Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
+from django.views.decorators.csrf import csrf_exempt
 
 from .attendance_service import compute_student_attendance_stats
 from .auth_views import _admin_only, admin_required, is_admin_or_manager, is_manager_user
@@ -112,27 +115,31 @@ def _is_text_payment(val) -> bool:
 def _is_mahalla_student(student, pay=None) -> bool:
     """
     O'quvchi mahalla toifasiga kirishini tekshiradi:
-      1. Student.is_local == True yoki Student.is_mahalla == True
-      2. To'lov summasiga (amount_paid) yoki izohiga (notes) 'mahalla' yozilgan
+      1. Student.student_type == 'mahalla' yoki student.student_type != 'paid'
+      2. Student.is_local == True yoki Student.is_mahalla == True
+      3. To'lov summasiga (amount_paid) yoki izohiga (notes) 'mahalla' yoki 'imtiyoz' yozilgan
     """
+    st_type = str(getattr(student, 'student_type', 'paid') or '').strip().lower()
+    if st_type in ('mahalla', 'imtiyoz', 'imtiyozli') or (st_type and st_type != 'paid'):
+        return True
     if getattr(student, 'is_local', False) or getattr(student, 'is_mahalla', False):
         return True
     if pay:
         raw_amt = str(getattr(pay, 'amount_paid', '') or '').strip().lower()
         raw_notes = str(getattr(pay, 'notes', '') or '').strip().lower()
-        if 'mahalla' in raw_amt or 'mahalla' in raw_notes:
+        if any(w in raw_amt or w in raw_notes for w in ('mahalla', 'imtiyoz', 'imtiyozli')):
             return True
     return False
 
 
 def _is_free_student(student, pay=None) -> bool:
-    """O'quvchi bepul / imtiyozli ('bepul', 'tekin', 'free', 'grant') ekanligini tekshiradi."""
-    if getattr(student, 'is_free', False):
+    """O'quvchi bepul / imtiyozli ('bepul', 'tekin', 'free', 'grant', 'imtiyoz') ekanligini tekshiradi."""
+    if getattr(student, 'is_free', False) or getattr(student, 'is_privileged', False):
         return True
     if pay:
         raw_amt = str(getattr(pay, 'amount_paid', '') or '').strip().lower()
         raw_notes = str(getattr(pay, 'notes', '') or '').strip().lower()
-        free_keywords = ('bepul', 'tekin', 'free', 'grant')
+        free_keywords = ('bepul', 'tekin', 'free', 'grant', 'imtiyoz', 'imtiyozli')
         if any(k in raw_amt or k in raw_notes for k in free_keywords):
             return True
     return False
@@ -294,7 +301,10 @@ def filter_students_by_payment_status(students_qs, req_month: str, status_filter
         student_id=OuterRef('pk'),
         month=req_month,
     ).filter(
-        Q(amount_paid__icontains='mahalla') | Q(notes__icontains='mahalla')
+        Q(amount_paid__icontains='mahalla')
+        | Q(notes__icontains='mahalla')
+        | Q(amount_paid__icontains='imtiyoz')
+        | Q(notes__icontains='imtiyoz')
     )
 
     free_payment_qs = MonthlyPayment.objects.filter(
@@ -304,8 +314,11 @@ def filter_students_by_payment_status(students_qs, req_month: str, status_filter
         Q(amount_paid__icontains='bepul')
         | Q(amount_paid__icontains='tekin')
         | Q(amount_paid__icontains='free')
+        | Q(amount_paid__icontains='grant')
         | Q(notes__icontains='bepul')
         | Q(notes__icontains='tekin')
+        | Q(notes__icontains='free')
+        | Q(notes__icontains='grant')
     )
 
     qs = students_qs.annotate(
@@ -319,12 +332,20 @@ def filter_students_by_payment_status(students_qs, req_month: str, status_filter
     if status_filter == 'unpaid':
         return qs.filter(
             _has_paid=False,
+            student_type='paid',
             is_local=False,
             _has_mahalla_pay=False,
             _has_free_pay=False,
+        ).exclude(
+            Q(student_type__iexact='mahalla') | Q(is_local=True)
         )
     if status_filter == 'local':
-        return qs.filter(Q(is_local=True) | Q(_has_mahalla_pay=True))
+        return qs.filter(
+            Q(is_local=True)
+            | Q(student_type__iexact='mahalla')
+            | ~Q(student_type='paid')
+            | Q(_has_mahalla_pay=True)
+        )
     return qs
 
 
@@ -355,16 +376,24 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
 
     _enforce_archive_exclusions()
     deleted_subquery = DeletedStudent.objects.filter(student_id=OuterRef('pk'))
-    students_list = list(
-        students_qs.annotate(_is_deleted=Exists(deleted_subquery))
-        .filter(
-            _is_deleted=False,
-            is_active=True,
-            left_date__isnull=True,
-            time_slot__isnull=False,
-            time_slot__group__isnull=False,
-            joined_date__lte=month_end_date,
+    base_students_filter = students_qs.annotate(_is_deleted=Exists(deleted_subquery)).filter(
+        _is_deleted=False,
+        is_active=True,
+        left_date__isnull=True,
+        time_slot__isnull=False,
+        time_slot__group__isnull=False,
+        joined_date__lte=month_end_date,
+    )
+    if status_filter == 'unpaid':
+        base_students_filter = base_students_filter.filter(
+            student_type='paid',
+            is_local=False,
+        ).exclude(
+            Q(student_type__iexact='mahalla') | Q(is_local=True)
         )
+
+    students_list = list(
+        base_students_filter
         .select_related('time_slot__group__teacher', 'time_slot__group')
         .distinct()
         .order_by('first_name', 'last_name', 'id')
@@ -515,6 +544,8 @@ def _build_payments_data(students_qs, req_month, status_filter='all', is_group_s
             and not r['is_paid']
             and not r['is_mahalla']
             and not r['is_free']
+            and getattr(r['student'], 'student_type', 'paid') == 'paid'
+            and not getattr(r['student'], 'is_local', False)
         )
         if status_filter == 'unpaid' and not is_truly_unpaid:
             continue
@@ -1265,17 +1296,38 @@ def admin_group_export_excel(request, group_id):
     return response
 
 
+@csrf_exempt
 def public_student_payment(request, token):
     """
     Ochiq (public) sahifa: O'quvchining shaxsiy to'lov ma'lumotlarini ko'rish va to'lov qilish.
     URL: /pay/<uuid:token>/
-    Har bir o'quvchiga unikal UUID orqali xavfsiz havola beriladi.
+    Har bir havola unikal UUIDField ga ega bo'lib, guess-resistant hisoblanadi.
+    1. Avval PaymentRequest modeli orqali tekshiriladi.
+    2. Agar topilmasa, Student.uuid orqali topilib, o'sha oy uchun PaymentRequest ulanadi.
     """
-    student = get_object_or_404(Student, uuid=token, is_deleted=False)
+    from .models import PaymentRequest
 
     today = date.today()
     current_month = today.strftime('%Y-%m')
-    curr_month_uz = f"{get_month_name_uz(today.month)} {today.year}"
+
+    # 1. Avval PaymentRequest bo'yicha tekshirish (unikal to'lov so'rovi)
+    payment_request = PaymentRequest.objects.filter(uuid=token).select_related(
+        'student__time_slot__group__teacher'
+    ).first()
+
+    if payment_request:
+        student = payment_request.student
+        current_month = payment_request.month or current_month
+    else:
+        # 2. Agar Student.uuid bo'lsa (orqaga moslik uchun)
+        student = get_object_or_404(Student, uuid=token, is_deleted=False)
+        payment_request = PaymentRequest.get_or_create_for_student(student, month_str=current_month)
+
+    try:
+        y, m = map(int, current_month.split('-'))
+        curr_month_uz = f"{get_month_name_uz(m)} {y}"
+    except Exception:
+        curr_month_uz = f"{get_month_name_uz(today.month)} {today.year}"
 
     group = student.time_slot.group if (student.time_slot and student.time_slot.group) else None
     teacher = group.teacher if group else None
@@ -1289,7 +1341,7 @@ def public_student_payment(request, token):
     raw_paid, num_paid, has_text, is_paid = _payment_paid_info(monthly_payment)
     is_mahalla = _is_mahalla_student(student, monthly_payment)
 
-    rate_val = student.payment_rate or 0
+    rate_val = payment_request.amount or student.payment_rate or 0
     if is_mahalla:
         due_amount = 0
         status_label = "Imtiyozli (Mahalla)"
@@ -1303,8 +1355,134 @@ def public_student_payment(request, token):
         status_label = "To'lanmagan (Qarzdor)"
         status_code = "unpaid"
 
+    # Telegram chek havolasini shakllantirish (.env dagi TELEGRAM_RECEIPT_URL asosida)
+    raw_tg = getattr(settings, 'TELEGRAM_RECEIPT_URL', 'https://t.me/humo_admin').strip()
+    if raw_tg.startswith('@'):
+        tg_base = f"https://t.me/{raw_tg[1:]}"
+    elif not raw_tg.startswith('http'):
+        tg_base = f"https://t.me/{raw_tg}"
+    else:
+        tg_base = raw_tg
+
+    tg_msg = (
+        f"Assalomu alaykum! {student.first_name} {student.last_name} "
+        f"({curr_month_uz}) oyi uchun to'lov cheki."
+    )
+    if '?' in tg_base:
+        telegram_url = tg_base
+    else:
+        telegram_url = f"{tg_base}?text={quote_plus(tg_msg)}"
+
+    is_ajax_req = _is_ajax(request)
+
+    # ─────────────────────────────────────────────────────────────
+    # POST: Ota-ona yoki foydalanuvchi to'lovni tasdiqlaganda/yuborganda
+    # ─────────────────────────────────────────────────────────────
+    if request.method == 'POST':
+        amount_raw = str(request.POST.get('amount') or request.POST.get('amount_paid') or '').strip()
+        payment_type = request.POST.get('payment_type', 'click').strip().lower()
+        if payment_type not in ('payme', 'click', 'terminal', 'cash'):
+            payment_type = 'click'
+
+        amount_num = _clean_amount(amount_raw)
+        if amount_num <= 0:
+            amount_num = due_amount if due_amount > 0 else rate_val
+
+        # 1. PaymentRequest holatini saqlash (status: awaiting_receipt / submitted)
+        notes_text = f"Onlayn to'lov ({payment_type.upper()}): {amount_num} so'm. Chek kutilmoqda."
+        payment_request.amount_paid = amount_num
+        payment_request.payment_type = payment_type
+        payment_request.status = 'awaiting_receipt'
+        payment_request.submitted_at = timezone.now()
+        payment_request.receipt_note = notes_text
+        payment_request.parent_phone = student.phone_1 or student.phone_2 or payment_request.parent_phone
+        payment_request.save()
+
+        # 2. MonthlyPayment holatini belgilash va saqlash
+        new_status = 'paid' if (not rate_val or amount_num >= rate_val) else 'partial'
+        mp, created = MonthlyPayment.objects.update_or_create(
+            student=student,
+            month=current_month,
+            defaults={
+                'amount_paid': str(amount_num),
+                'payment_type': payment_type,
+                'payment_date': today,
+                'status': new_status,
+                'notes': notes_text,
+            }
+        )
+
+        # 3. AuditLog ga qayd etish
+        try:
+            AuditLog.objects.create(
+                action_type='payment',
+                actor_name=f"Ota-ona ({student.first_name} {student.last_name})",
+                title=f"Onlayn to'lov topshirildi: {student.first_name} {student.last_name} ({_fmt_money(amount_num)} so'm)",
+                details=f"Guruh: {group.name if group else '-'}, Oy: {current_month}, Turi: {payment_type.upper()}, So'rov UUID: {payment_request.uuid}",
+            )
+        except Exception:
+            pass
+
+        if is_ajax_req:
+            return JsonResponse({
+                'success': True,
+                'status': 'submitted',
+                'payment_request_status': 'awaiting_receipt',
+                'amount': amount_num,
+                'amount_formatted': _fmt_money(amount_num),
+                'payment_type': payment_type,
+                'telegram_receipt_url': telegram_url,
+                'telegram_url': telegram_url,
+                'message': "To'lov muvaffaqiyatli qabul qilindi!",
+            })
+
+        # Oddiy POST bo'lsa
+        context = {
+            'student': student,
+            'payment_request': payment_request,
+            'group': group,
+            'teacher': teacher,
+            'current_month': current_month,
+            'current_month_uz': curr_month_uz,
+            'rate_val': rate_val,
+            'rate_formatted': _fmt_money(rate_val),
+            'paid_amount': amount_num,
+            'paid_formatted': _fmt_money(amount_num),
+            'due_amount': max(0, rate_val - amount_num),
+            'due_amount_formatted': _fmt_money(max(0, rate_val - amount_num)),
+            'half_amount': max(1000, (due_amount or rate_val) // 2),
+            'status_code': new_status,
+            'status_label': "To'langan" if new_status == 'paid' else "Qisman to'langan",
+            'is_paid': new_status == 'paid',
+            'is_mahalla': is_mahalla,
+            'is_submitted': True,
+            'submitted_amount': amount_num,
+            'submitted_amount_formatted': _fmt_money(amount_num),
+            'submitted_type': payment_type,
+            'telegram_receipt_url': telegram_url,
+            'telegram_url': telegram_url,
+            'telegram_base': tg_base,
+            'center_name': getattr(settings, 'CENTER_NAME', "Humo Ta'lim o'quv markazi"),
+            'center_phone': getattr(settings, 'CENTER_PHONE', '+998 90 123 45 67'),
+        }
+        return render(request, 'public_payment.html', context)
+
+    # ─────────────────────────────────────────────────────────────
+    # GET: Sahifani yuklash
+    # ─────────────────────────────────────────────────────────────
+    half_amount = max(1000, (due_amount or rate_val) // 2)
+    has_submitted = bool(
+        payment_request.status in ('awaiting_receipt', 'submitted', 'confirmed')
+        or num_paid > 0
+        or is_paid
+    )
+    submitted_amt = payment_request.amount_paid if payment_request.amount_paid > 0 else (
+        num_paid if num_paid > 0 else (rate_val if is_paid else due_amount)
+    )
+
     context = {
         'student': student,
+        'payment_request': payment_request,
         'group': group,
         'teacher': teacher,
         'current_month': current_month,
@@ -1315,14 +1493,185 @@ def public_student_payment(request, token):
         'paid_formatted': _fmt_money(num_paid),
         'due_amount': due_amount,
         'due_amount_formatted': _fmt_money(due_amount),
+        'half_amount': half_amount,
         'status_code': status_code,
         'status_label': status_label,
-        'is_paid': is_paid or is_mahalla or (due_amount == 0),
+        'is_paid': is_paid or is_mahalla or (due_amount == 0 and num_paid > 0),
         'is_mahalla': is_mahalla,
+        'is_submitted': has_submitted,
+        'submitted_amount': submitted_amt,
+        'submitted_amount_formatted': _fmt_money(submitted_amt),
+        'submitted_type': payment_request.payment_type if payment_request else (monthly_payment.payment_type if monthly_payment else 'click'),
+        'telegram_receipt_url': telegram_url,
+        'telegram_url': telegram_url,
+        'telegram_base': tg_base,
         'center_name': getattr(settings, 'CENTER_NAME', "Humo Ta'lim o'quv markazi"),
         'center_phone': getattr(settings, 'CENTER_PHONE', '+998 90 123 45 67'),
     }
     return render(request, 'public_payment.html', context)
+
+
+@admin_required
+def admin_payment_requests_monitoring(request):
+    """
+    Admin va Menejerlar uchun onlayn to'lov so'rovlari va Telegram cheklarini tekshirish sahifasi.
+    Ko'rsatadi:
+      - O'quvchi ismi, guruhi, hisob oyi
+      - Kiritilgan to'lov summasi
+      - Joriy holat va topshirilgan vaqt
+      - Telegram orqali kelayotgan cheklarni kiritilgan summalar bilan oson solishtirish va tasdiqlash.
+    """
+    from .models import PaymentRequest, Group
+    from django.db.models import Sum
+
+    if not is_admin_or_manager(request):
+        messages.error(request, "Ushbu sahifaga kirish uchun ruxsat yo'q!")
+        return redirect('home')
+
+    today = date.today()
+    selected_month = request.GET.get('month', '').strip()
+    selected_status = request.GET.get('status', '').strip()
+    selected_group = request.GET.get('group_id', '').strip()
+    search_q = request.GET.get('q', '').strip()
+
+    qs = PaymentRequest.objects.select_related(
+        'student__time_slot__group__teacher',
+        'confirmed_by'
+    ).order_by('-submitted_at', '-created_at')
+
+    if selected_month:
+        qs = qs.filter(month=selected_month)
+    if selected_status and selected_status != 'all':
+        qs = qs.filter(status=selected_status)
+    if selected_group and selected_group.isdigit():
+        qs = qs.filter(student__time_slot__group_id=int(selected_group))
+    if search_q:
+        qs = qs.filter(
+            Q(student__first_name__icontains=search_q) |
+            Q(student__last_name__icontains=search_q) |
+            Q(student__phone_1__icontains=search_q) |
+            Q(parent_phone__icontains=search_q) |
+            Q(receipt_note__icontains=search_q) |
+            Q(uuid__icontains=search_q)
+        )
+
+    # Statistika hisoblash
+    all_requests = PaymentRequest.objects.all()
+    if selected_month:
+        all_requests = all_requests.filter(month=selected_month)
+
+    total_count = all_requests.count()
+    awaiting_count = all_requests.filter(status__in=['awaiting_receipt', 'submitted']).count()
+    confirmed_count = all_requests.filter(status='confirmed').count()
+    total_sum_val = all_requests.filter(status__in=['awaiting_receipt', 'submitted', 'confirmed']).aggregate(
+        total=Sum('amount_paid')
+    )['total'] or 0
+
+    # Mavjud oylar ro'yxati (oxirgi 12 oy)
+    months_list = []
+    for i in range(12):
+        if relativedelta:
+            m_date = today - relativedelta(months=i)
+        else:
+            yr = today.year
+            mn = today.month - i
+            while mn <= 0:
+                mn += 12
+                yr -= 1
+            m_date = date(yr, mn, 1)
+        m_str = m_date.strftime('%Y-%m')
+        m_name = f"{get_month_name_uz(m_date.month)} {m_date.year}"
+        months_list.append({'val': m_str, 'name': m_name})
+
+    groups = Group.objects.all().order_by('name')
+
+    context = {
+        'payment_requests': qs[:200],
+        'total_count': total_count,
+        'awaiting_count': awaiting_count,
+        'confirmed_count': confirmed_count,
+        'total_sum_formatted': _fmt_money(total_sum_val),
+        'selected_month': selected_month,
+        'selected_status': selected_status,
+        'selected_group': int(selected_group) if selected_group.isdigit() else None,
+        'search_q': search_q,
+        'months_list': months_list,
+        'groups': groups,
+        'status_choices': PaymentRequest.STATUS_CHOICES,
+    }
+    return render(request, 'admin_payment_monitoring.html', context)
+
+
+@admin_required
+def admin_confirm_payment_request(request, request_id):
+    """Menejer yoki Admin tomonidan to'lov chekini tasdiqlash."""
+    from .models import PaymentRequest
+    if not is_admin_or_manager(request):
+        return JsonResponse({'status': 'error', 'message': "Ruxsat yo'q"}, status=403)
+
+    pr = get_object_or_404(PaymentRequest, id=request_id)
+    pr.status = 'confirmed'
+    pr.confirmed_at = timezone.now()
+    pr.confirmed_by = request.user
+    pr.save(update_fields=['status', 'confirmed_at', 'confirmed_by'])
+
+    # MonthlyPayment ni ham to'langan qilish
+    paid_val = str(pr.amount_paid or pr.amount)
+    MonthlyPayment.objects.update_or_create(
+        student=pr.student,
+        month=pr.month,
+        defaults={
+            'amount_paid': paid_val,
+            'payment_type': pr.payment_type,
+            'payment_date': date.today(),
+            'status': 'paid',
+            'notes': f"Onlayn to'lov ({pr.payment_type.upper()}) tasdiqlandi: {paid_val} so'm",
+        }
+    )
+
+    try:
+        AuditLog.objects.create(
+            action_type='payment',
+            actor=request.user,
+            actor_name=f"Xodim ({request.user.get_full_name() or request.user.username})",
+            title=f"Onlayn to'lov cheki tasdiqlandi: {pr.student.first_name} {pr.student.last_name} ({paid_val} so'm)",
+            details=f"Oy: {pr.month}, Turi: {pr.payment_type}, UUID: {pr.uuid}",
+        )
+    except Exception:
+        pass
+
+    if _is_ajax(request):
+        return JsonResponse({'status': 'success', 'message': "To'lov cheki muvaffaqiyatli tasdiqlandi!"})
+    messages.success(request, f"{pr.student.first_name} {pr.student.last_name} to'lovi muvaffaqiyatli tasdiqlandi!")
+    return redirect(request.META.get('HTTP_REFERER') or 'admin_payment_requests_monitoring')
+
+
+@admin_required
+def admin_reject_payment_request(request, request_id):
+    """Menejer yoki Admin tomonidan to'lov chekini rad etish."""
+    from .models import PaymentRequest
+    if not is_admin_or_manager(request):
+        return JsonResponse({'status': 'error', 'message': "Ruxsat yo'q"}, status=403)
+
+    pr = get_object_or_404(PaymentRequest, id=request_id)
+    pr.status = 'rejected'
+    pr.save(update_fields=['status'])
+
+    try:
+        AuditLog.objects.create(
+            action_type='payment',
+            actor=request.user,
+            actor_name=f"Xodim ({request.user.get_full_name() or request.user.username})",
+            title=f"Onlayn to'lov cheki rad etildi: {pr.student.first_name} {pr.student.last_name}",
+            details=f"Oy: {pr.month}, UUID: {pr.uuid}",
+        )
+    except Exception:
+        pass
+
+    if _is_ajax(request):
+        return JsonResponse({'status': 'success', 'message': "To'lov rad etildi!"})
+    messages.warning(request, f"{pr.student.first_name} {pr.student.last_name} to'lovi rad etildi.")
+    return redirect(request.META.get('HTTP_REFERER') or 'admin_payment_requests_monitoring')
 
 
 @admin_required

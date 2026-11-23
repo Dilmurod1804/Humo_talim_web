@@ -16,6 +16,8 @@
             --brand-primary-dark: #d97706;
             --brand-bg: #0f172a;
             --card-bg: #ffffff;
+            --telegram-blue: #0088cc;
+            --telegram-dark: #0077b5;
         }
         body {
             font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
@@ -28,39 +30,39 @@
         }
         .payment-wrapper {
             max-width: 540px;
-            margin: 40px auto;
+            margin: 30px auto;
             padding: 0 16px;
         }
         .payment-card {
             background: var(--card-bg);
             border-radius: 24px;
-            box-shadow: 0 20px 40px -15px rgba(0,0,0,0.3);
+            box-shadow: 0 20px 45px -15px rgba(0,0,0,0.35);
             overflow: hidden;
             border: 1px solid rgba(255,255,255,0.1);
         }
         .header-gradient {
             background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
             color: #ffffff;
-            padding: 28px 24px;
+            padding: 28px 24px 34px;
             text-align: center;
             position: relative;
         }
         .header-gradient::after {
             content: '';
             position: absolute;
-            bottom: -10px;
+            bottom: -1px;
             left: 0;
             right: 0;
-            height: 20px;
+            height: 22px;
             background: var(--card-bg);
-            border-top-left-radius: 20px;
-            border-top-right-radius: 20px;
+            border-top-left-radius: 24px;
+            border-top-right-radius: 24px;
         }
         .brand-badge {
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            background: rgba(255, 255, 255, 0.2);
+            background: rgba(255, 255, 255, 0.22);
             padding: 6px 14px;
             border-radius: 50px;
             font-size: 0.85rem;
@@ -70,19 +72,19 @@
             margin-bottom: 12px;
         }
         .student-avatar {
-            width: 72px;
-            height: 72px;
-            border-radius: 20px;
+            width: 76px;
+            height: 76px;
+            border-radius: 22px;
             background: linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%);
             color: #334155;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 1.8rem;
+            font-size: 2rem;
             font-weight: 700;
-            margin: -40px auto 16px;
+            margin: -42px auto 16px;
             border: 4px solid #ffffff;
-            box-shadow: 0 8px 16px rgba(0,0,0,0.1);
+            box-shadow: 0 8px 18px rgba(0,0,0,0.12);
             position: relative;
             z-index: 2;
         }
@@ -90,9 +92,9 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 12px 0;
+            padding: 10px 0;
             border-bottom: 1px dashed #e2e8f0;
-            font-size: 0.95rem;
+            font-size: 0.92rem;
         }
         .info-row:last-child {
             border-bottom: none;
@@ -100,14 +102,55 @@
         .amount-box {
             background: #fffbeb;
             border: 2px solid #fde68a;
-            border-radius: 16px;
+            border-radius: 18px;
             padding: 20px;
             text-align: center;
             margin: 20px 0;
         }
-        .amount-box.paid {
-            background: #f0fdf4;
-            border-color: #bbf7d0;
+        .amount-input-group {
+            max-width: 340px;
+            margin: 8px auto 10px;
+        }
+        .amount-input-group .form-control {
+            font-size: 1.8rem;
+            font-weight: 800;
+            color: #1e293b;
+            text-align: center;
+            border: 2px solid #f59e0b;
+            border-radius: 14px 0 0 14px;
+            padding: 8px 12px;
+            box-shadow: none !important;
+        }
+        .amount-input-group .input-group-text {
+            background: #f59e0b;
+            color: #ffffff;
+            font-weight: 700;
+            border: 2px solid #f59e0b;
+            border-radius: 0 14px 14px 0;
+            font-size: 1.1rem;
+            padding: 0 16px;
+        }
+        .quick-amounts {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .quick-btn {
+            font-size: 0.8rem;
+            font-weight: 600;
+            padding: 5px 12px;
+            border-radius: 50px;
+            border: 1px solid #cbd5e1;
+            background: #ffffff;
+            color: #475569;
+            transition: all 0.15s ease;
+            cursor: pointer;
+        }
+        .quick-btn:hover {
+            border-color: #f59e0b;
+            background: #fffbeb;
+            color: #d97706;
         }
         .btn-pay {
             background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
@@ -124,6 +167,7 @@
             gap: 10px;
             box-shadow: 0 10px 20px rgba(217, 119, 6, 0.3);
             transition: all 0.2s ease;
+            cursor: pointer;
         }
         .btn-pay:hover {
             transform: translateY(-2px);
@@ -138,12 +182,12 @@
         }
         .method-card {
             border: 1px solid #e2e8f0;
-            border-radius: 12px;
-            padding: 10px;
+            border-radius: 14px;
+            padding: 12px 8px;
             text-align: center;
-            font-size: 0.82rem;
-            font-weight: 600;
-            color: #475569;
+            font-size: 0.84rem;
+            font-weight: 700;
+            color: #334155;
             background: #f8fafc;
             cursor: pointer;
             transition: all 0.15s ease;
@@ -152,13 +196,63 @@
             border-color: #f59e0b;
             background: #fffbeb;
             color: #d97706;
+            transform: translateY(-2px);
+        }
+        .submitted-card {
+            background: #f0fdf4;
+            border: 2px solid #bbf7d0;
+            border-radius: 20px;
+            padding: 24px 20px;
+            text-align: center;
+            margin: 16px 0;
+            animation: fadeIn 0.4s ease;
+        }
+        .telegram-box {
+            background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+            border: 2px solid #bae6fd;
+            border-radius: 20px;
+            padding: 22px 18px;
+            text-align: center;
+            margin: 20px 0;
+            box-shadow: 0 10px 25px -10px rgba(0, 136, 204, 0.25);
+            animation: slideUp 0.35s ease;
+        }
+        .btn-telegram {
+            background: linear-gradient(135deg, var(--telegram-blue) 0%, var(--telegram-dark) 100%);
+            color: #ffffff !important;
+            border: none;
+            padding: 15px 22px;
+            border-radius: 14px;
+            font-weight: 700;
+            font-size: 1.05rem;
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            box-shadow: 0 10px 22px rgba(0, 136, 204, 0.35);
+            transition: all 0.2s ease;
+            text-decoration: none;
+        }
+        .btn-telegram:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 14px 26px rgba(0, 136, 204, 0.45);
+            color: #ffffff;
         }
         .footer-note {
             text-align: center;
             color: #94a3b8;
             font-size: 0.82rem;
-            margin-top: 24px;
+            margin-top: 20px;
             padding-bottom: 24px;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.96); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(12px); }
+            to { opacity: 1; transform: translateY(0); }
         }
     </style>
 </head>
@@ -182,7 +276,7 @@
                     <i class="bi bi-person-fill text-secondary"></i>
                 </div>
 
-                <div class="text-center mb-4">
+                <div class="text-center mb-3">
                     <h4 class="fw-bold text-dark mb-1">{{ student.first_name }} {{ student.last_name }}</h4>
                     <span class="badge bg-light text-secondary border px-3 py-1">
                         <i class="bi bi-book-half me-1 text-warning"></i>
@@ -213,57 +307,126 @@
                     {% endif %}
                     <div class="info-row">
                         <span class="text-muted"><i class="bi bi-info-circle me-1"></i> To'lov holati:</span>
-                        {% if is_paid %}
-                            <span class="badge bg-success px-2 py-1"><i class="bi bi-check-circle me-1"></i> {{ status_label }}</span>
-                        {% elif is_mahalla %}
-                            <span class="badge bg-info text-dark px-2 py-1"><i class="bi bi-award me-1"></i> {{ status_label }}</span>
-                        {% else %}
-                            <span class="badge bg-danger px-2 py-1"><i class="bi bi-exclamation-circle me-1"></i> {{ status_label }}</span>
-                        {% endif %}
+                        <span id="statusBadgeContainer">
+                            {% if is_submitted or is_paid %}
+                                <span class="badge bg-success px-2 py-1"><i class="bi bi-check-circle me-1"></i> {{ status_label }}</span>
+                            {% elif is_mahalla %}
+                                <span class="badge bg-info text-dark px-2 py-1"><i class="bi bi-award me-1"></i> {{ status_label }}</span>
+                            {% else %}
+                                <span class="badge bg-danger px-2 py-1"><i class="bi bi-exclamation-circle me-1"></i> {{ status_label }}</span>
+                            {% endif %}
+                        </span>
                     </div>
                 </div>
 
-                <!-- Amount Box -->
-                {% if is_paid %}
-                    <div class="amount-box paid">
-                        <i class="bi bi-check-circle-fill text-success" style="font-size:2.4rem;"></i>
-                        <h5 class="fw-bold text-success mt-2 mb-1">To'lov to'liq qabul qilingan!</h5>
-                        <p class="text-muted small mb-0">{{ current_month_uz }} oyi uchun to'lov amalga oshirilgan. Rahmat!</p>
+                <!-- ═══════════════════════════════════════════════════════════ -->
+                <!-- HOLAT 1: TO'LANGAN / YUBORILGAN (SUBMITTED / PAID STATE)     -->
+                <!-- ═══════════════════════════════════════════════════════════ -->
+                <div id="submittedStateSection" class="{% if not is_submitted and not is_paid %}d-none{% endif %}">
+                    <div class="submitted-card">
+                        <i class="bi bi-patch-check-fill text-success" style="font-size: 2.8rem;"></i>
+                        <h5 class="fw-bold text-success mt-2 mb-1">To'lov muvaffaqiyatli qabul qilindi!</h5>
+                        <p class="text-muted small mb-2">{{ current_month_uz }} oyi uchun to'lov topshirildi.</p>
+                        <div class="fw-black text-dark fs-3">
+                            <span id="submittedAmountDisplay">{{ submitted_amount_formatted }}</span> <small class="fs-6 text-muted">so'm</small>
+                        </div>
                     </div>
-                {% elif is_mahalla %}
+
+                    <!-- TELEGRAM RECEIPT LINK (CHEKNI YUBORISH) -->
+                    <div class="telegram-box">
+                        <div class="d-inline-flex align-items-center justify-content-center bg-white text-primary rounded-circle shadow-sm mb-2" style="width:48px; height:48px;">
+                            <i class="bi bi-telegram fs-3 text-primary" style="color: #0088cc !important;"></i>
+                        </div>
+                        <h5 class="fw-bold text-dark mb-1">To'lov Chekini Tasdiqlash</h5>
+                        <p class="text-muted small mb-3">
+                            To'lov to'liq hisobga olinishi uchun to'lov kvitansiyasi (chek skrinshoti)ni Telegram orqali markazimizga yuboring.
+                        </p>
+                        <a href="{{ telegram_receipt_url|default:telegram_url }}" id="telegramReceiptLink" target="_blank" rel="noopener noreferrer" class="btn-telegram">
+                            <i class="bi bi-telegram fs-5"></i>
+                            <span>Chekni Telegram'ga yuborish</span>
+                        </a>
+                        <small class="text-muted d-block mt-2" style="font-size:0.78rem;">
+                            <i class="bi bi-info-circle me-1"></i> Telegram ochilganda xabar avtomatik to'ldiriladi, faqat chek rasmini biriktiring.
+                        </small>
+                    </div>
+
+                    <div class="text-center mt-3">
+                        <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3" onclick="togglePaymentInput(true)">
+                            <i class="bi bi-arrow-repeat me-1"></i> Boshqa summa yoki qayta to'lov qilish
+                        </button>
+                    </div>
+                </div>
+
+                <!-- ═══════════════════════════════════════════════════════════ -->
+                <!-- HOLAT 2: TO'LOV KUTILMOQDA (UNPAID / FORM STATE)             -->
+                <!-- ═══════════════════════════════════════════════════════════ -->
+                {% if is_mahalla %}
                     <div class="amount-box" style="background:#f0f9ff; border-color:#bae6fd;">
                         <i class="bi bi-star-fill text-primary" style="font-size:2.4rem;"></i>
                         <h5 class="fw-bold text-primary mt-2 mb-1">Imtiyozli (Mahalla) o'quvchi</h5>
                         <p class="text-muted small mb-0">Ushbu o'quvchi uchun to'lov talab etilmaydi.</p>
                     </div>
                 {% else %}
-                    <div class="amount-box">
-                        <small class="text-uppercase fw-bold text-muted" style="letter-spacing:1px;">To'lanishi kerak bo'lgan summa</small>
-                        <h2 class="fw-black text-danger mt-1 mb-0" style="font-size:2.2rem;">
-                            {{ due_amount_formatted }} <small style="font-size:1.1rem; font-weight:600;">so'm</small>
-                        </h2>
-                    </div>
+                    <div id="unpaidStateSection" class="{% if is_submitted or is_paid %}d-none{% endif %}">
+                        <form id="paymentForm" method="POST" action="{% url 'public_student_payment' student.uuid %}" onsubmit="handlePaymentSubmit(event)">
+                            {% csrf_token %}
+                            <input type="hidden" name="payment_type" id="selectedPaymentType" value="click">
 
-                    <!-- Payment Action Button -->
-                    <button type="button" class="btn-pay" data-bs-toggle="modal" data-bs-target="#paymentChoiceModal">
-                        <i class="bi bi-shield-lock-fill"></i>
-                        <span>To'lov qilish (Onlayn)</span>
-                    </button>
+                            <!-- Editable Amount Box -->
+                            <div class="amount-box">
+                                <label for="paymentAmountInput" class="text-uppercase fw-bold text-muted small d-block mb-1" style="letter-spacing:0.8px;">
+                                    <i class="bi bi-pencil-square me-1 text-warning"></i> To'lanadigan summa (so'm)
+                                </label>
+                                <p class="text-muted small mb-2">Kerakli to'lov summasini kiritishingiz yoki o'zgartirishingiz mumkin:</p>
 
-                    <!-- Fast Payment Providers -->
-                    <div class="payment-methods">
-                        <div class="method-card" data-bs-toggle="modal" data-bs-target="#paymentChoiceModal">
-                            <i class="bi bi-credit-card-2-front d-block fs-5 text-primary mb-1"></i>
-                            Payme
-                        </div>
-                        <div class="method-card" data-bs-toggle="modal" data-bs-target="#paymentChoiceModal">
-                            <i class="bi bi-cursor-fill d-block fs-5 text-primary mb-1"></i>
-                            Click
-                        </div>
-                        <div class="method-card" data-bs-toggle="modal" data-bs-target="#paymentChoiceModal">
-                            <i class="bi bi-bank d-block fs-5 text-primary mb-1"></i>
-                            Uzum Bank
-                        </div>
+                                <div class="input-group amount-input-group">
+                                    <input type="number" 
+                                           id="paymentAmountInput" 
+                                           name="amount" 
+                                           class="form-control" 
+                                           value="{{ due_amount|default:rate_val }}" 
+                                           min="1000" 
+                                           step="1000" 
+                                           placeholder="0" 
+                                           required 
+                                           oninput="onAmountChanged()">
+                                    <span class="input-group-text">so'm</span>
+                                </div>
+
+                                <div class="quick-amounts">
+                                    <button type="button" class="quick-btn" onclick="setQuickAmount({{ due_amount|default:rate_val }})">
+                                        To'liq summa ({{ due_amount_formatted }} so'm)
+                                    </button>
+                                    {% if due_amount > 100000 %}
+                                    <button type="button" class="quick-btn" onclick="setQuickAmount({{ half_amount }})">
+                                        50% qisman
+                                    </button>
+                                    {% endif %}
+                                </div>
+                            </div>
+
+                            <!-- Payment Action Button -->
+                            <button type="button" class="btn-pay" data-bs-toggle="modal" data-bs-target="#paymentChoiceModal" onclick="syncModalAmount()">
+                                <i class="bi bi-shield-lock-fill"></i>
+                                <span>To'lov qilish (Onlayn)</span>
+                            </button>
+
+                            <!-- Fast Payment Providers -->
+                            <div class="payment-methods">
+                                <div class="method-card" onclick="openProviderModal('payme')">
+                                    <i class="bi bi-credit-card-2-front d-block fs-5 text-primary mb-1"></i>
+                                    Payme
+                                </div>
+                                <div class="method-card" onclick="openProviderModal('click')">
+                                    <i class="bi bi-cursor-fill d-block fs-5 text-primary mb-1"></i>
+                                    Click
+                                </div>
+                                <div class="method-card" onclick="openProviderModal('uzum')">
+                                    <i class="bi bi-bank d-block fs-5 text-primary mb-1"></i>
+                                    Uzum Bank
+                                </div>
+                            </div>
+                        </form>
                     </div>
                 {% endif %}
 
@@ -283,61 +446,61 @@
         </div>
     </div>
 
-    <!-- Modal: To'lov tizimini tanlash -->
+    <!-- Modal: To'lov tizimini tanlash va tasdiqlash -->
     <div class="modal fade" id="paymentChoiceModal" tabindex="-1" aria-labelledby="paymentChoiceModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
                 <div class="modal-header border-0 text-white p-4" style="background: linear-gradient(135deg, #f59e0b, #d97706);">
                     <div class="d-flex align-items-center gap-3">
-                        <div style="width:44px;height:44px;background:rgba(255,255,255,0.2);border-radius:12px;display:flex;align-items:center;justify-content:center;">
+                        <div style="width:44px;height:44px;background:rgba(255,255,255,0.22);border-radius:12px;display:flex;align-items:center;justify-content:center;">
                             <i class="bi bi-credit-card-fill fs-4 text-white"></i>
                         </div>
                         <div>
-                            <h5 class="modal-title fw-bold mb-0" id="paymentChoiceModalLabel">To'lov Tizimini Tanlang</h5>
-                            <small class="text-white-50">Summa: {{ due_amount_formatted }} so'm</small>
+                            <h5 class="modal-title fw-bold mb-0" id="paymentChoiceModalLabel">To'lov Usulini Tanlang</h5>
+                            <small class="text-white-50">To'lanadigan summa: <strong id="modalAmountDisplay" class="text-white">{{ due_amount_formatted }} so'm</strong></small>
                         </div>
                     </div>
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body p-4">
-                    <div class="list-group gap-2">
-                        <a href="#" onclick="alert('Payme integratsiyasi: to\'lov tizimiga yo\'naltirilmoqda...'); return false;" class="list-group-item list-group-item-action p-3 rounded-3 border d-flex align-items-center justify-content-between">
+                    <div class="list-group gap-2 mb-3">
+                        <button type="button" onclick="submitPaymentWithProvider('payme')" class="list-group-item list-group-item-action p-3 rounded-3 border d-flex align-items-center justify-content-between">
                             <div class="d-flex align-items-center gap-3">
-                                <span class="badge bg-primary-subtle text-primary p-2 fs-6 rounded-3"><i class="bi bi-credit-card-2-front"></i></span>
-                                <div>
+                                <span class="badge bg-primary-subtle text-primary p-2 fs-5 rounded-3"><i class="bi bi-credit-card-2-front"></i></span>
+                                <div class="text-start">
                                     <div class="fw-bold text-dark">Payme</div>
                                     <small class="text-muted">Uzcard / Humo orqali to'lov</small>
                                 </div>
                             </div>
                             <i class="bi bi-chevron-right text-muted"></i>
-                        </a>
+                        </button>
 
-                        <a href="#" onclick="alert('Click integratsiyasi: to\'lov tizimiga yo\'naltirilmoqda...'); return false;" class="list-group-item list-group-item-action p-3 rounded-3 border d-flex align-items-center justify-content-between">
+                        <button type="button" onclick="submitPaymentWithProvider('click')" class="list-group-item list-group-item-action p-3 rounded-3 border d-flex align-items-center justify-content-between">
                             <div class="d-flex align-items-center gap-3">
-                                <span class="badge bg-info-subtle text-info p-2 fs-6 rounded-3"><i class="bi bi-cursor-fill"></i></span>
-                                <div>
+                                <span class="badge bg-info-subtle text-info p-2 fs-5 rounded-3"><i class="bi bi-cursor-fill"></i></span>
+                                <div class="text-start">
                                     <div class="fw-bold text-dark">Click Up</div>
                                     <small class="text-muted">Click orqali tezkor to'lov</small>
                                 </div>
                             </div>
                             <i class="bi bi-chevron-right text-muted"></i>
-                        </a>
+                        </button>
 
-                        <a href="#" onclick="alert('Uzum Bank integratsiyasi: to\'lov tizimiga yo\'naltirilmoqda...'); return false;" class="list-group-item list-group-item-action p-3 rounded-3 border d-flex align-items-center justify-content-between">
+                        <button type="button" onclick="submitPaymentWithProvider('terminal')" class="list-group-item list-group-item-action p-3 rounded-3 border d-flex align-items-center justify-content-between">
                             <div class="d-flex align-items-center gap-3">
-                                <span class="badge bg-purple-subtle text-dark p-2 fs-6 rounded-3" style="background:#f3e8ff;"><i class="bi bi-bank text-purple"></i></span>
-                                <div>
-                                    <div class="fw-bold text-dark">Uzum Bank</div>
-                                    <small class="text-muted">Uzum ilovasi orqali to'lov</small>
+                                <span class="badge bg-purple-subtle text-dark p-2 fs-5 rounded-3" style="background:#f3e8ff;"><i class="bi bi-bank text-purple"></i></span>
+                                <div class="text-start">
+                                    <div class="fw-bold text-dark">Uzum Bank / Karta o'tkazmasi</div>
+                                    <small class="text-muted">Ilova yoki karta raqamiga to'lov</small>
                                 </div>
                             </div>
                             <i class="bi bi-chevron-right text-muted"></i>
-                        </a>
+                        </button>
                     </div>
 
-                    <div class="alert alert-light border mt-3 mb-0 small text-muted">
-                        <i class="bi bi-info-circle me-1 text-primary"></i>
-                        To'lov amalga oshirilgandan so'ng, markaz administratorining tizimida to'lov avtomatik ravishda tasdiqlanadi.
+                    <div class="alert alert-light border mt-2 mb-0 small text-muted">
+                        <i class="bi bi-shield-check me-1 text-success"></i>
+                        To'lov qayd etilgandan so'ng, to'lov chekini Telegram orqali yuborish sahifasi ko'rsatiladi.
                     </div>
                 </div>
             </div>
@@ -346,5 +509,139 @@
 
     <!-- Bootstrap 5 JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        function formatNumber(num) {
+            return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+        }
+
+        function setQuickAmount(val) {
+            const input = document.getElementById('paymentAmountInput');
+            if (input) {
+                input.value = val;
+                syncModalAmount();
+            }
+        }
+
+        function onAmountChanged() {
+            syncModalAmount();
+        }
+
+        function syncModalAmount() {
+            const input = document.getElementById('paymentAmountInput');
+            const display = document.getElementById('modalAmountDisplay');
+            if (input && display) {
+                const val = parseInt(input.value, 10) || 0;
+                display.textContent = formatNumber(val) + " so'm";
+            }
+        }
+
+        function openProviderModal(provider) {
+            document.getElementById('selectedPaymentType').value = provider;
+            syncModalAmount();
+            const modalEl = document.getElementById('paymentChoiceModal');
+            const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+            modal.show();
+        }
+
+        function submitPaymentWithProvider(provider) {
+            document.getElementById('selectedPaymentType').value = provider;
+            const modalEl = document.getElementById('paymentChoiceModal');
+            const modal = bootstrap.Modal.getInstance(modalEl);
+            if (modal) modal.hide();
+
+            executePaymentSubmission();
+        }
+
+        function handlePaymentSubmit(e) {
+            e.preventDefault();
+            executePaymentSubmission();
+        }
+
+        function executePaymentSubmission() {
+            const form = document.getElementById('paymentForm');
+            if (!form) return;
+
+            const input = document.getElementById('paymentAmountInput');
+            const amountVal = input ? input.value : '';
+            const paymentType = document.getElementById('selectedPaymentType').value || 'click';
+            const actionUrl = form.getAttribute('action') || window.location.pathname;
+
+            const formData = new FormData();
+            formData.append('amount', amountVal);
+            formData.append('payment_type', paymentType);
+            formData.append('ajax', '1');
+
+            const csrfInput = form.querySelector('[name=csrfmiddlewaretoken]');
+            if (csrfInput) {
+                formData.append('csrfmiddlewaretoken', csrfInput.value);
+            }
+
+            // Tugmalarni faolsizlantirish va kutish
+            const payBtns = document.querySelectorAll('.btn-pay, .method-card');
+            payBtns.forEach(btn => {
+                btn.style.opacity = '0.6';
+                btn.style.pointerEvents = 'none';
+            });
+
+            fetch(actionUrl, {
+                method: 'POST',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: formData
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success || data.status === 'submitted') {
+                    // 1. Ekrandagi summani yangilash
+                    const displayEl = document.getElementById('submittedAmountDisplay');
+                    if (displayEl) {
+                        displayEl.textContent = data.amount_formatted || formatNumber(data.amount);
+                    }
+
+                    // 2. Telegram havolasini yangilash
+                    const tgUrl = data.telegram_receipt_url || data.telegram_url;
+                    if (tgUrl) {
+                        const tgLink = document.getElementById('telegramReceiptLink');
+                        if (tgLink) tgLink.setAttribute('href', tgUrl);
+                    }
+
+                    // 3. Status belgisini yangilash
+                    const statusCont = document.getElementById('statusBadgeContainer');
+                    if (statusCont) {
+                        statusCont.innerHTML = '<span class="badge bg-success px-2 py-1"><i class="bi bi-check-circle me-1"></i> To\'langan</span>';
+                    }
+
+                    // 4. "Submitted" holatiga o'tkazish
+                    togglePaymentInput(false);
+                } else {
+                    alert(data.message || "To'lovni qayd etishda xatolik yuz berdi. Iltimos qayta urinib ko'ring.");
+                    payBtns.forEach(btn => {
+                        btn.style.opacity = '1';
+                        btn.style.pointerEvents = 'auto';
+                    });
+                }
+            })
+            .catch(err => {
+                console.error("Payment submission error:", err);
+                // Agar tarmoq xatosi bo'lsa, formani to'g'ridan-to'g'ri submit qilamiz
+                form.submit();
+            });
+        }
+
+        function togglePaymentInput(showInput) {
+            const unpaidSec = document.getElementById('unpaidStateSection');
+            const submittedSec = document.getElementById('submittedStateSection');
+            if (showInput) {
+                if (unpaidSec) unpaidSec.classList.remove('d-none');
+                if (submittedSec) submittedSec.classList.add('d-none');
+            } else {
+                if (unpaidSec) unpaidSec.classList.add('d-none');
+                if (submittedSec) submittedSec.classList.remove('d-none');
+                submittedSec.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }
+    </script>
 </body>
 </html>

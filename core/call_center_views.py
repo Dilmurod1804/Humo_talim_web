@@ -38,10 +38,15 @@ def debtors_call_center(request):
     # Guruhlar ro'yxati filtrlash uchun
     groups = Group.objects.select_related('teacher').order_by('name')
 
-    # Faol o'quvchilarni olish
+    # Faol to'lovli o'quvchilarni olish (mahalla / imtiyozli ORM darajasida chiqarib tashlanadi)
     students_qs = get_active_students_qs(
         group_id=int(group_id) if group_id.isdigit() else None,
         search_q=search_q,
+    ).filter(
+        student_type='paid',
+        is_local=False,
+    ).exclude(
+        Q(student_type__iexact='mahalla') | Q(is_local=True)
     )
 
     # Asosiy to'lovlar paneli bilan 100% bir xil logikada qarzdorlarni olish
@@ -173,8 +178,14 @@ def update_debtor_call_status(request):
 
     msg = f"{student.first_name} {student.last_name} qo'ng'iroq holati: \"{status_display}\" deb belgilandi."
 
-    # Yangilangan hisoblagichlarni qaytarish
-    all_debtors, _ = _build_payments_data(get_active_students_qs(), month_str, status_filter='unpaid')
+    # Yangilangan hisoblagichlarni qaytarish (faqat to'lovli qarzdorlar)
+    base_active_qs = get_active_students_qs().filter(
+        student_type='paid',
+        is_local=False,
+    ).exclude(
+        Q(student_type__iexact='mahalla') | Q(is_local=True)
+    )
+    all_debtors, _ = _build_payments_data(base_active_qs, month_str, status_filter='unpaid')
     debtor_ids = [d['student_id'] for d in all_debtors]
     logs = DebtorCallLog.objects.filter(student_id__in=debtor_ids, month=month_str)
     status_map = {l.student_id: l.status for l in logs}

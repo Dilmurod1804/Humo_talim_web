@@ -2450,16 +2450,18 @@ class SmsPaymentReminderAndPublicPaymentTests(TestCase):
         self.assertTrue(self.paid_student.payment_url.startswith('https://hummokids.uz/pay/'))
 
     def test_public_payment_view_unpaid_student(self):
-        """To'lanmagan o'quvchi uchun public to'lov sahifasi 200 qaytaradi va summani ko'rsatadi."""
+        """To'lanmagan o'quvchi uchun public to'lov sahifasi 200 qaytaradi va tahrirlanadigan summa maydoni ko'rsatiladi."""
         url = reverse('public_student_payment', args=[self.paid_student.uuid])
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'Jasur Toshev')
         self.assertContains(resp, 'Matematika Test')
         self.assertContains(resp, '450 000')
+        self.assertContains(resp, 'id="paymentAmountInput"')
+        self.assertContains(resp, 'name="amount"')
 
     def test_public_payment_view_paid_student(self):
-        """To'lagan o'quvchi uchun to'liq to'langanligi ko'rsatiladi."""
+        """To'lagan o'quvchi uchun to'lov qabul qilinganligi va Telegram chek havolasi ko'rsatiladi."""
         curr_month = timezone.now().strftime('%Y-%m')
         MonthlyPayment.objects.create(
             student=self.paid_student,
@@ -2470,7 +2472,32 @@ class SmsPaymentReminderAndPublicPaymentTests(TestCase):
         url = reverse('public_student_payment', args=[self.paid_student.uuid])
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, "To'lov to'liq qabul qilingan")
+        self.assertContains(resp, "To'lov muvaffaqiyatli qabul qilindi")
+        self.assertContains(resp, "Chekni Telegram'ga yuborish")
+        self.assertContains(resp, 'target="_blank"')
+        self.assertContains(resp, 'rel="noopener noreferrer"')
+        self.assertIn('telegram_receipt_url', resp.context)
+
+    def test_public_payment_post_submission_and_telegram_link(self):
+        """To'lov sahifasida ota-ona to'lovni yuborganda MonthlyPayment saqlanadi va Telegram chek havolasi beriladi."""
+        url = reverse('public_student_payment', args=[self.paid_student.uuid])
+        resp = self.client.post(url, {
+            'amount': '350000',
+            'payment_type': 'click',
+        }, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data['success'])
+        self.assertEqual(data['status'], 'submitted')
+        self.assertEqual(data['amount'], 350000)
+        self.assertIn('telegram_receipt_url', data)
+        self.assertIn('t.me', data['telegram_receipt_url'])
+
+        # Bazada MonthlyPayment yaratilganini tekshirish
+        curr_month = timezone.now().strftime('%Y-%m')
+        mp = MonthlyPayment.objects.get(student=self.paid_student, month=curr_month)
+        self.assertEqual(mp.amount_paid, '350000')
+        self.assertEqual(mp.payment_type, 'click')
 
     def test_public_payment_view_mahalla_student(self):
         """Mahalla o'quvchisi uchun imtiyozli ekanligi va to'lov talab etilmasligi ko'rsatiladi."""
@@ -2788,6 +2815,100 @@ class SmsPaymentReminderAndPublicPaymentTests(TestCase):
             log_count = SMSLog.objects.filter(month='2026-11', status='sent').count()
             self.assertGreaterEqual(log_count, 10)
 
+    @override_settings(SMS_ENABLED=False)
+    def test_all_variants_of_mahalla_and_privileged_students_excluded_strictly(self):
+        """Mahalla va imtiyozli o'quvchilar barcha variantlarda (is_local, student_type, to'lovdagi mahalla/imtiyoz)
+        qarzdorlar va SMS yuborishdan (hatto force=True bo'lsa ham) mutlaqo chiqarib tashlanishi shart."""
+        from core.eskiz_service import send_payment_reminders_to_paid_students
+        from core.payment_views import _build_payments_data, filter_students_by_payment_status, get_active_students_qs
+        from core.sms_service import send_tuition_reminders_batch
+        from core.models import SMSLog, MonthlyPayment, Student
+
+        curr_month = '2026-11'
+
+        # 1. is_local=True lekin student_type='paid'
+        st_local = Student.objects.create(
+            first_name='Local',
+            last_name='Mahallayev',
+            phone_1='+998901110001',
+            time_slot=self.ts,
+            payment_rate=450000,
+            student_type='paid',
+            is_local=True,
+        )
+
+        # 2. student_type='mahalla' lekin is_local=False
+        st_type_mahalla = Student.objects.create(
+            first_name='Type',
+            last_name='Imtiyozov',
+            phone_1='+998901110002',
+            time_slot=self.ts,
+            payment_rate=450000,
+            student_type='mahalla',
+            is_local=False,
+        )
+
+        # 3. MonthlyPayment izohida yoki summasida 'mahalla' yozilgan
+        st_pay_mahalla = Student.objects.create(
+            first_name='Pay',
+            last_name='Mahallayevich',
+            phone_1='+998901110003',
+            time_slot=self.ts,
+            payment_rate=450000,
+            student_type='paid',
+            is_local=False,
+        )
+        MonthlyPayment.objects.create(
+            student=st_pay_mahalla,
+            month=curr_month,
+            amount_paid='mahalla',
+            notes="Mahalla komissiyasi qarori",
+        )
+
+        # 4. MonthlyPayment izohida 'imtiyoz' yozilgan
+        st_pay_imtiyoz = Student.objects.create(
+            first_name='Imtiyoz',
+            last_name='Hakimov',
+            phone_1='+998901110004',
+            time_slot=self.ts,
+            payment_rate=450000,
+            student_type='paid',
+            is_local=False,
+        )
+        MonthlyPayment.objects.create(
+            student=st_pay_imtiyoz,
+            month=curr_month,
+            amount_paid='0',
+            notes="Imtiyozli ro'yxatda",
+        )
+
+        # A) _build_payments_data da qarzdorlar (unpaid) ro'yxatiga kirmasligini tekshirish
+        rows, stats = _build_payments_data(get_active_students_qs(group=self.group), curr_month, status_filter='unpaid')
+        unpaid_ids = [r['student_id'] for r in rows]
+        for st in (st_local, st_type_mahalla, st_pay_mahalla, st_pay_imtiyoz):
+            self.assertNotIn(st.id, unpaid_ids, f"{st.first_name} qarzdorlar ro'yxatida bo'lmasligi kerak!")
+
+        # B) filter_students_by_payment_status da ham kirmasligi
+        unpaid_qs = filter_students_by_payment_status(get_active_students_qs(group=self.group), curr_month, status_filter='unpaid')
+        unpaid_qs_ids = list(unpaid_qs.values_list('id', flat=True))
+        for st in (st_local, st_type_mahalla, st_pay_mahalla, st_pay_imtiyoz):
+            self.assertNotIn(st.id, unpaid_qs_ids, f"{st.first_name} filter_students_by_payment_status(unpaid) ga kirmasligi kerak!")
+
+        # C) send_payment_reminders_to_paid_students da (force=True bo'lsa ham) SMS yuborilmasligi
+        summary = send_payment_reminders_to_paid_students(
+            month_str=curr_month,
+            group_id=self.group.id,
+            force=True,
+            debtors_only=True,
+        )
+        for st in (st_local, st_type_mahalla, st_pay_mahalla, st_pay_imtiyoz):
+            self.assertFalse(SMSLog.objects.filter(student=st).exists(), f"{st.first_name} ga SMSLog yozilmasligi kerak!")
+
+        # D) send_tuition_reminders_batch orqali ham SMS bormasligi
+        summary_batch = send_tuition_reminders_batch(month_str=curr_month, group_id=self.group.id, force=True)
+        for st in (st_local, st_type_mahalla, st_pay_mahalla, st_pay_imtiyoz):
+            self.assertFalse(SMSLog.objects.filter(student=st).exists())
+
 
 class CallCenterDebtorsModuleTests(TestCase):
     def setUp(self):
@@ -2999,6 +3120,177 @@ class CallCenterDebtorsModuleTests(TestCase):
         resp = self.client.get(reverse('call_center_debtors'), {'month': self.curr_month})
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'Zero Stavkov')
+
+
+class PaymentRequestAndMonitoringTests(TestCase):
+    def setUp(self):
+        self.admin_user = CustomUser.objects.create_superuser(
+            username='pay_admin',
+            password='AdminPass123',
+            role='admin',
+        )
+        self.manager_user = CustomUser.objects.create_user(
+            username='pay_manager',
+            password='ManagerPass123',
+            role='manager',
+        )
+        self.teacher_user = CustomUser.objects.create_user(
+            username='pay_teacher',
+            password='TeacherPass123',
+            role='teacher',
+        )
+        self.teacher = Teacher.objects.create(
+            user=self.teacher_user,
+            first_name='Dilshod',
+            last_name='Muallim',
+            generated_login='pay_teacher',
+            generated_password='TeacherPass123',
+        )
+        self.group = Group.objects.create(
+            name='Ingliz tili B2',
+            subject='Ingliz tili',
+            teacher=self.teacher,
+        )
+        self.ts = TimeSlot.objects.create(
+            group=self.group,
+            days='Seshanba-Payshanba-Shanba',
+            start_time='14:00',
+            end_time='16:00',
+        )
+        self.student = Student.objects.create(
+            first_name='Alisher',
+            last_name='Navoiy',
+            phone_1='+998901234567',
+            time_slot=self.ts,
+            payment_rate=500000,
+            student_type='paid',
+        )
+        self.curr_month = timezone.now().strftime('%Y-%m')
+
+    def test_payment_request_model_unique_uuid(self):
+        """PaymentRequest modeli unikal UUIDField ga ega va shaxsiy havola to'g'ri shakllanadi."""
+        from core.models import PaymentRequest
+        pr1 = PaymentRequest.objects.create(
+            student=self.student,
+            month=self.curr_month,
+            amount=500000,
+        )
+        pr2 = PaymentRequest.objects.create(
+            student=self.student,
+            month='2026-10',
+            amount=500000,
+        )
+        self.assertIsNotNone(pr1.uuid)
+        self.assertIsNotNone(pr2.uuid)
+        self.assertNotEqual(pr1.uuid, pr2.uuid)
+        self.assertTrue(pr1.payment_url.startswith('https://hummokids.uz/pay/'))
+        self.assertIn(str(pr1.uuid), pr1.payment_url)
+
+    def test_public_payment_via_payment_request_uuid(self):
+        """Unikal PaymentRequest.uuid orqali ochilgan sahifada o'quvchi ma'lumotlari va tahrirlanadigan summa chiqishi kerak."""
+        from core.models import PaymentRequest
+        pr = PaymentRequest.objects.create(
+            student=self.student,
+            month=self.curr_month,
+            amount=500000,
+        )
+        url = reverse('public_student_payment', args=[pr.uuid])
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Alisher Navoiy')
+        self.assertContains(resp, 'Ingliz tili B2')
+        self.assertContains(resp, 'id="paymentAmountInput"')
+        self.assertContains(resp, '500 000')
+
+    def test_payment_submission_updates_status_and_telegram_link(self):
+        """Ota-ona to'lov summasini kiritib submit qilganda status awaiting_receipt bo'ladi va Telegram havolasi beriladi."""
+        from core.models import PaymentRequest
+        pr = PaymentRequest.objects.create(
+            student=self.student,
+            month=self.curr_month,
+            amount=500000,
+            status='pending',
+        )
+        url = reverse('public_student_payment', args=[pr.uuid])
+        resp = self.client.post(url, {
+            'amount': '350000',
+            'payment_type': 'payme',
+        }, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data['success'])
+        self.assertEqual(data['status'], 'submitted')
+        self.assertEqual(data['amount'], 350000)
+        self.assertIn('telegram_url', data)
+
+        # PaymentRequest yangilanganini tekshirish
+        pr.refresh_from_db()
+        self.assertEqual(pr.amount_paid, 350000)
+        self.assertEqual(pr.payment_type, 'payme')
+        self.assertEqual(pr.status, 'awaiting_receipt')
+        self.assertIsNotNone(pr.submitted_at)
+
+        # MonthlyPayment ham yaratilgan/yangilangan
+        mp = MonthlyPayment.objects.get(student=self.student, month=self.curr_month)
+        self.assertEqual(mp.amount_paid, '350000')
+        self.assertEqual(mp.payment_type, 'payme')
+
+    def test_admin_monitoring_page_access_and_filters(self):
+        """Admin va Menejer monitoring sahifasiga kirishi, qidiruv va filtrlardan foydalanishi mumkin."""
+        from core.models import PaymentRequest
+        pr = PaymentRequest.objects.create(
+            student=self.student,
+            month=self.curr_month,
+            amount=500000,
+            amount_paid=500000,
+            status='awaiting_receipt',
+            submitted_at=timezone.now(),
+        )
+
+        # Menejer kabineti orqali kirish
+        self.client.force_login(self.manager_user)
+        url = reverse('admin_payment_requests_monitoring')
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Alisher Navoiy')
+        self.assertContains(resp, 'Chek kutilmoqda')
+        self.assertContains(resp, '500 000')
+
+        # Status bo'yicha filter
+        resp_filter = self.client.get(url, {'status': 'awaiting_receipt'})
+        self.assertEqual(resp_filter.status_code, 200)
+        self.assertContains(resp_filter, 'Alisher Navoiy')
+
+        # Qidiruv
+        resp_search = self.client.get(url, {'q': 'Alisher'})
+        self.assertEqual(resp_search.status_code, 200)
+        self.assertContains(resp_search, 'Alisher Navoiy')
+
+    def test_admin_confirm_payment_request(self):
+        """Menejer yoki Admin chekni tasdiqlaganda PaymentRequest.status='confirmed' va MonthlyPayment.status='paid' bo'ladi."""
+        from core.models import PaymentRequest
+        pr = PaymentRequest.objects.create(
+            student=self.student,
+            month=self.curr_month,
+            amount=500000,
+            amount_paid=500000,
+            status='awaiting_receipt',
+            submitted_at=timezone.now(),
+        )
+        self.client.force_login(self.admin_user)
+        confirm_url = reverse('admin_confirm_payment_request', args=[pr.id])
+        resp = self.client.post(confirm_url, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()['status'], 'success')
+
+        pr.refresh_from_db()
+        self.assertEqual(pr.status, 'confirmed')
+        self.assertIsNotNone(pr.confirmed_at)
+        self.assertEqual(pr.confirmed_by, self.admin_user)
+
+        mp = MonthlyPayment.objects.get(student=self.student, month=self.curr_month)
+        self.assertEqual(mp.status, 'paid')
 
 
 
