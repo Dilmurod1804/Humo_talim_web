@@ -368,7 +368,7 @@
                     </div>
                 {% else %}
                     <div id="unpaidStateSection" class="{% if is_submitted or is_paid %}d-none{% endif %}">
-                        <form id="paymentForm" method="POST" action="{% url 'public_student_payment' student.uuid %}" onsubmit="handlePaymentSubmit(event)">
+                        <form id="paymentForm" method="POST" action="{% url 'public_student_payment' payment_request.uuid %}" onsubmit="handlePaymentSubmit(event)">
                             {% csrf_token %}
                             <input type="hidden" name="payment_type" id="selectedPaymentType" value="click">
 

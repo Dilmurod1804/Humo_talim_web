@@ -414,11 +414,12 @@ def build_tuition_reminder_text(
             '{center_phone}': phone,
             '{phone}': phone,
         }
+        has_url_tag = any(k in text for k in ('{payment_url}', '{link}', '{havola}'))
         for key, val in replacements.items():
             text = text.replace(key, str(val))
 
-        # Agar to'lov havolasi matnda hali kiritilmagan bo'lsa, avtomatik biriktiriladi
-        if pay_url and pay_url not in text:
+        # Agar to'lov havolasi matnda hali kiritilmagan bo'lsa va shablonda maxsus havola tegi bo'lmagan bo'lsa, avtomatik biriktiriladi (takroriy URL lar Eskiz moderatsiyasidan o'tmasligining oldini olish)
+        if pay_url and not has_url_tag and pay_url not in text and '/pay/' not in text and 'http://' not in text and 'https://' not in text:
             text = f"{text} To'lov havolasi: {pay_url}"
 
         return text

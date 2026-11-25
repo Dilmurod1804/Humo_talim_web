@@ -709,8 +709,21 @@ class PaymentRequest(models.Model):
     )
     uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False, db_index=True)
     student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name='payment_requests')
+    group = models.ForeignKey(
+        Group,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='payment_requests',
+        verbose_name="Guruh / Kurs",
+    )
     month = models.CharField(max_length=7, help_text="Yil va Oy (YYYY-MM). Masalan: 2026-11")
     amount = models.IntegerField(default=0, help_text="Kutilayotgan yoki kurs oylik to'lovi (so'm)")
+    submitted_amount = models.IntegerField(
+        default=0,
+        verbose_name="Kiritilgan to'lov summasi (so'm)",
+        help_text="Ota-ona tomonidan kiritilgan summa",
+    )
     amount_paid = models.IntegerField(default=0, help_text="Ota-ona tomonidan kiritilgan/to'langan summa (so'm)")
     payment_type = models.CharField(
         max_length=20,
@@ -746,7 +759,21 @@ class PaymentRequest(models.Model):
         verbose_name_plural = "To'lov so'rovlari (Onlayn)"
 
     def __str__(self):
-        return f"{self.student} — {self.month} ({self.amount_paid or self.amount} so'm) [{self.get_status_display()}]"
+        paid_val = self.submitted_amount or self.amount_paid or self.amount
+        return f"{self.student} — {self.month} ({paid_val} so'm) [{self.get_status_display()}]"
+
+    def save(self, *args, **kwargs):
+        # Guruhni o'quvchi ma'lumotlaridan avtomatik to'ldirish
+        if not self.group and self.student and self.student.time_slot and self.student.time_slot.group:
+            self.group = self.student.time_slot.group
+
+        # submitted_amount va amount_paid ni sinxronlashtirish
+        if self.submitted_amount and not self.amount_paid:
+            self.amount_paid = self.submitted_amount
+        elif self.amount_paid and not self.submitted_amount:
+            self.submitted_amount = self.amount_paid
+
+        super().save(*args, **kwargs)
 
     @property
     def payment_url(self) -> str:
@@ -762,16 +789,21 @@ class PaymentRequest(models.Model):
             month_str = timezone.now().strftime('%Y-%m')
         rate = amount if amount is not None else (student.payment_rate or 0)
         phone = student.phone_1 or student.phone_2 or ''
+        grp = student.time_slot.group if (student.time_slot and student.time_slot.group) else None
 
         obj = cls.objects.filter(student=student, month=month_str).first()
         if not obj:
             obj = cls.objects.create(
                 student=student,
+                group=grp,
                 month=month_str,
                 amount=rate,
                 parent_phone=phone,
                 status='pending',
             )
+        elif not obj.group and grp:
+            obj.group = grp
+            obj.save(update_fields=['group'])
         return obj
 
 class Message(models.Model):

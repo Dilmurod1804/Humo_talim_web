@@ -314,16 +314,17 @@ class SMSLogAdmin(admin.ModelAdmin):
 class PaymentRequestAdmin(admin.ModelAdmin):
     list_display = (
         'student',
+        'group',
         'month',
         'amount',
-        'amount_paid',
+        'submitted_amount',
         'payment_type',
         'status',
         'submitted_at',
         'confirmed_at',
-        'created_at',
+        'uuid',
     )
-    list_filter = ('status', 'payment_type', 'month', 'created_at')
+    list_filter = ('status', 'group', 'payment_type', 'month', 'created_at')
     search_fields = (
         'student__first_name',
         'student__last_name',

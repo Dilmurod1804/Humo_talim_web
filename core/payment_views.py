@@ -1388,14 +1388,17 @@ def public_student_payment(request, token):
         if amount_num <= 0:
             amount_num = due_amount if due_amount > 0 else rate_val
 
-        # 1. PaymentRequest holatini saqlash (status: awaiting_receipt / submitted)
+        # 1. PaymentRequest holatini saqlash (status: submitted)
         notes_text = f"Onlayn to'lov ({payment_type.upper()}): {amount_num} so'm. Chek kutilmoqda."
+        payment_request.submitted_amount = amount_num
         payment_request.amount_paid = amount_num
         payment_request.payment_type = payment_type
-        payment_request.status = 'awaiting_receipt'
+        payment_request.status = 'submitted'
         payment_request.submitted_at = timezone.now()
         payment_request.receipt_note = notes_text
         payment_request.parent_phone = student.phone_1 or student.phone_2 or payment_request.parent_phone
+        if not payment_request.group and group:
+            payment_request.group = group
         payment_request.save()
 
         # 2. MonthlyPayment holatini belgilash va saqlash
@@ -1536,6 +1539,7 @@ def admin_payment_requests_monitoring(request):
 
     qs = PaymentRequest.objects.select_related(
         'student__time_slot__group__teacher',
+        'group__teacher',
         'confirmed_by'
     ).order_by('-submitted_at', '-created_at')
 
@@ -1544,7 +1548,7 @@ def admin_payment_requests_monitoring(request):
     if selected_status and selected_status != 'all':
         qs = qs.filter(status=selected_status)
     if selected_group and selected_group.isdigit():
-        qs = qs.filter(student__time_slot__group_id=int(selected_group))
+        qs = qs.filter(Q(group_id=int(selected_group)) | Q(student__time_slot__group_id=int(selected_group)))
     if search_q:
         qs = qs.filter(
             Q(student__first_name__icontains=search_q) |

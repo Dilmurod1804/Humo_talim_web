@@ -201,8 +201,8 @@
 
                         <!-- Guruh -->
                         <td>
-                            <div class="fw-semibold text-dark">{{ item.student.time_slot.group.name|default:"—" }}</div>
-                            <small class="text-muted">{{ item.student.time_slot.group.teacher.first_name|default:"" }} {{ item.student.time_slot.group.teacher.last_name|default:"" }}</small>
+                            <div class="fw-semibold text-dark">{{ item.group.name|default:item.student.time_slot.group.name|default:"—" }}</div>
+                            <small class="text-muted">{{ item.group.teacher.first_name|default:item.student.time_slot.group.teacher.first_name|default:"" }} {{ item.group.teacher.last_name|default:item.student.time_slot.group.teacher.last_name|default:"" }}</small>
                         </td>
 
                         <!-- Oy -->
@@ -217,8 +217,8 @@
 
                         <!-- Kiritilgan Summa -->
                         <td>
-                            {% if item.amount_paid > 0 %}
-                                <span class="fw-black text-success fs-6">{{ item.amount_paid }} so'm</span>
+                            {% if item.submitted_amount > 0 or item.amount_paid > 0 %}
+                                <span class="fw-black text-success fs-6">{{ item.submitted_amount|default:item.amount_paid }} so'm</span>
                             {% else %}
                                 <span class="text-muted small">Kiritilmagan</span>
                             {% endif %}

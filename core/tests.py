@@ -3203,10 +3203,11 @@ class PaymentRequestAndMonitoringTests(TestCase):
         self.assertContains(resp, '500 000')
 
     def test_payment_submission_updates_status_and_telegram_link(self):
-        """Ota-ona to'lov summasini kiritib submit qilganda status awaiting_receipt bo'ladi va Telegram havolasi beriladi."""
+        """Ota-ona to'lov summasini kiritib submit qilganda status submitted bo'ladi, submitted_amount saqlanadi va Telegram havolasi beriladi."""
         from core.models import PaymentRequest
         pr = PaymentRequest.objects.create(
             student=self.student,
+            group=self.group,
             month=self.curr_month,
             amount=500000,
             status='pending',
@@ -3226,10 +3227,12 @@ class PaymentRequestAndMonitoringTests(TestCase):
 
         # PaymentRequest yangilanganini tekshirish
         pr.refresh_from_db()
+        self.assertEqual(pr.submitted_amount, 350000)
         self.assertEqual(pr.amount_paid, 350000)
         self.assertEqual(pr.payment_type, 'payme')
-        self.assertEqual(pr.status, 'awaiting_receipt')
+        self.assertEqual(pr.status, 'submitted')
         self.assertIsNotNone(pr.submitted_at)
+        self.assertEqual(pr.group, self.group)
 
         # MonthlyPayment ham yaratilgan/yangilangan
         mp = MonthlyPayment.objects.get(student=self.student, month=self.curr_month)
@@ -3241,10 +3244,11 @@ class PaymentRequestAndMonitoringTests(TestCase):
         from core.models import PaymentRequest
         pr = PaymentRequest.objects.create(
             student=self.student,
+            group=self.group,
             month=self.curr_month,
             amount=500000,
-            amount_paid=500000,
-            status='awaiting_receipt',
+            submitted_amount=500000,
+            status='submitted',
             submitted_at=timezone.now(),
         )
 
@@ -3254,11 +3258,11 @@ class PaymentRequestAndMonitoringTests(TestCase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'Alisher Navoiy')
-        self.assertContains(resp, 'Chek kutilmoqda')
+        self.assertContains(resp, 'Topshirildi')
         self.assertContains(resp, '500 000')
 
         # Status bo'yicha filter
-        resp_filter = self.client.get(url, {'status': 'awaiting_receipt'})
+        resp_filter = self.client.get(url, {'status': 'submitted'})
         self.assertEqual(resp_filter.status_code, 200)
         self.assertContains(resp_filter, 'Alisher Navoiy')
 
@@ -3272,10 +3276,11 @@ class PaymentRequestAndMonitoringTests(TestCase):
         from core.models import PaymentRequest
         pr = PaymentRequest.objects.create(
             student=self.student,
+            group=self.group,
             month=self.curr_month,
             amount=500000,
-            amount_paid=500000,
-            status='awaiting_receipt',
+            submitted_amount=500000,
+            status='submitted',
             submitted_at=timezone.now(),
         )
         self.client.force_login(self.admin_user)
@@ -3291,6 +3296,36 @@ class PaymentRequestAndMonitoringTests(TestCase):
 
         mp = MonthlyPayment.objects.get(student=self.student, month=self.curr_month)
         self.assertEqual(mp.status, 'paid')
+
+    def test_admin_reject_payment_request(self):
+        """Menejer yoki Admin to'lov chekini rad etganda status='rejected' bo'ladi."""
+        from core.models import PaymentRequest
+        pr = PaymentRequest.objects.create(
+            student=self.student,
+            group=self.group,
+            month=self.curr_month,
+            amount=500000,
+            submitted_amount=500000,
+            status='submitted',
+            submitted_at=timezone.now(),
+        )
+        self.client.force_login(self.admin_user)
+        reject_url = reverse('admin_reject_payment_request', args=[pr.id])
+        resp = self.client.post(reject_url, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()['status'], 'success')
+
+        pr.refresh_from_db()
+        self.assertEqual(pr.status, 'rejected')
+
+    def test_sms_custom_template_does_not_duplicate_payment_url(self):
+        """Shablonda {payment_url} yoki havola bo'lganda ortiqcha takroriy havola qo'shilmasligi kerak."""
+        from core.sms_service import build_tuition_reminder_text
+        tpl = "Hurmatli ota-ona! {student_name} to'lovi: {payment_url} orqali to'lang."
+        msg = build_tuition_reminder_text(self.student, month_str=self.curr_month, custom_template=tpl)
+        # Faqat 1 marta payment_url chiqishi kerak
+        self.assertEqual(msg.count(self.student.payment_url), 1)
+        self.assertNotIn("To'lov havolasi: To'lov havolasi:", msg)
 
 
 
