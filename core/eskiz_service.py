@@ -655,8 +655,11 @@ def send_test_payment_reminder(
     from core.models import Student, SMSLog
     from core.sms_service import build_tuition_reminder_text
 
-    target_phone = test_phone or getattr(settings, 'TEST_SMS_PHONE', '+998901234567')
+    target_phone = test_phone or getattr(settings, 'TEST_SMS_PHONE', '') or '+998901234567'
     cleaned_phone = clean_phone_number(target_phone)
+    if not cleaned_phone:
+        target_phone = '+998901234567'
+        cleaned_phone = clean_phone_number(target_phone)
     if not cleaned_phone:
         return {
             'success': False,

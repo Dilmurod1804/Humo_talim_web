@@ -3328,6 +3328,127 @@ class PaymentRequestAndMonitoringTests(TestCase):
         self.assertNotIn("To'lov havolasi: To'lov havolasi:", msg)
 
 
+class StudentMahallaToggleTests(TestCase):
+    """O'quvchini mahalla/imtiyozli ro'yxatiga olish va undan chiqarish testlari."""
+
+    def setUp(self):
+        self.admin_user = CustomUser.objects.create_superuser('admin_toggle', 'admin@humo.uz', 'pass123')
+        self.teacher_user = CustomUser.objects.create_user(
+            username='teacher_toggle', password='pass123', role='teacher'
+        )
+        self.teacher = Teacher.objects.create(
+            user=self.teacher_user,
+            first_name="Test",
+            last_name="Teacher",
+            generated_login='teacher_toggle',
+            generated_password='pass123',
+            can_edit_students=True,
+        )
+        self.group = Group.objects.create(name="Toggle-Group", subject="Mental Arifmetika", teacher=self.teacher)
+        self.timeslot = TimeSlot.objects.create(
+            group=self.group,
+            days="Dush-Chor-Jum",
+            start_time="10:00",
+            end_time="11:30"
+        )
+        self.student = Student.objects.create(
+            first_name="Ali",
+            last_name="Valiyev",
+            phone_1="+998901234567",
+            time_slot=self.timeslot,
+            is_local=True,
+            student_type=Student.STUDENT_TYPE_MAHALLA,
+        )
+
+    def test_student_model_save_unsetting_is_local(self):
+        """Student.save(): is_local=False bo'lganda student_type avtomatik 'paid' bo'lishi kerak."""
+        self.assertTrue(self.student.is_local)
+        self.assertEqual(self.student.student_type, Student.STUDENT_TYPE_MAHALLA)
+        self.assertTrue(self.student.is_mahalla)
+
+        # is_local = False qilib saqlaymiz
+        self.student.is_local = False
+        self.student.save()
+        self.student.refresh_from_db()
+
+        self.assertFalse(self.student.is_local)
+        self.assertEqual(self.student.student_type, Student.STUDENT_TYPE_PAID)
+        self.assertFalse(self.student.is_mahalla)
+
+    def test_teacher_edit_student_uncheck_is_local(self):
+        """O'qituvchi o'quvchini tahrirlab, is_local checkboxini olib tashlaganda to'lovli holatga o'tishi kerak."""
+        self.client.force_login(self.teacher_user)
+        url = reverse('teacher_student_edit', args=[self.student.id])
+
+        # POST so'rovida is_local umuman yuborilmaydi (chunki brauzerda unchecked checkbox POST ga kirmaydi)
+        post_data = {
+            'first_name': 'Ali',
+            'last_name': 'Valiyev',
+            'phone_1': '+998901234567',
+            'phone_2': '',
+            'age': '12',
+            # 'is_local' omitted!
+        }
+        resp = self.client.post(url, post_data)
+        self.assertEqual(resp.status_code, 302)
+
+        self.student.refresh_from_db()
+        self.assertFalse(self.student.is_local)
+        self.assertEqual(self.student.student_type, Student.STUDENT_TYPE_PAID)
+        self.assertFalse(self.student.is_mahalla)
+
+    def test_admin_edit_student_uncheck_is_local(self):
+        """Admin o'quvchini tahrirlab, is_local checkboxini olib tashlaganda to'lovli holatga o'tishi kerak."""
+        self.client.force_login(self.admin_user)
+        url = reverse('admin_student_edit', args=[self.student.id])
+
+        post_data = {
+            'form_type': 'full_edit',
+            'first_name': 'Ali',
+            'last_name': 'Valiyev',
+            'phone_1': '+998901234567',
+            'phone_2': '',
+            'age': '12',
+            'payment_rate': '400000',
+            'time_slot_id': str(self.timeslot.id),
+            'is_active': '1',
+            # 'is_local' omitted!
+        }
+        resp = self.client.post(url, post_data)
+        self.assertEqual(resp.status_code, 302)
+
+        self.student.refresh_from_db()
+        self.assertFalse(self.student.is_local)
+        self.assertEqual(self.student.student_type, Student.STUDENT_TYPE_PAID)
+        self.assertFalse(self.student.is_mahalla)
+
+    def test_re_checking_is_local_makes_student_mahalla(self):
+        """Checkbox qayta yoqilganda student yana mahalla holatiga o'tishi kerak."""
+        self.student.is_local = False
+        self.student.student_type = Student.STUDENT_TYPE_PAID
+        self.student.save()
+
+        self.client.force_login(self.admin_user)
+        url = reverse('admin_student_edit', args=[self.student.id])
+        post_data = {
+            'form_type': 'full_edit',
+            'first_name': 'Ali',
+            'last_name': 'Valiyev',
+            'phone_1': '+998901234567',
+            'time_slot_id': str(self.timeslot.id),
+            'is_active': '1',
+            'is_local': '1',
+        }
+        resp = self.client.post(url, post_data)
+        self.assertEqual(resp.status_code, 302)
+
+        self.student.refresh_from_db()
+        self.assertTrue(self.student.is_local)
+        self.assertEqual(self.student.student_type, Student.STUDENT_TYPE_MAHALLA)
+        self.assertTrue(self.student.is_mahalla)
+
+
+
 
 
 

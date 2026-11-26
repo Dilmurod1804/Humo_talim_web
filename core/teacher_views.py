@@ -582,9 +582,9 @@ def teacher_student_edit(request, id):
             student.age = int(age_raw) if age_raw.isdigit() else student.age
             student.phone_1 = phone_1 or student.phone_1
             student.phone_2 = phone_2
-            if 'is_local' in request.POST:
-                student.is_local = (
-                    request.POST.get('is_local') in ('1', 'on', 'true', True))
+            is_local_val = request.POST.get('is_local') in ('1', 'on', 'true', True)
+            student.is_local = is_local_val
+            student.student_type = Student.STUDENT_TYPE_MAHALLA if is_local_val else Student.STUDENT_TYPE_PAID
             joined_date_raw = request.POST.get('joined_date', '').strip()
             if joined_date_raw:
                 try:

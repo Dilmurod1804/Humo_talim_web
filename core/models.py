@@ -551,12 +551,27 @@ class Student(models.Model):
 
     def save(self, *args, **kwargs):
         # Always synchronize student_type and is_local
-        if self.student_type == self.STUDENT_TYPE_MAHALLA:
-            self.is_local = True
-        elif self.is_local:
-            self.student_type = self.STUDENT_TYPE_MAHALLA
-        elif not self.student_type:
-            self.student_type = self.STUDENT_TYPE_PAID
+        # Agar yangi yaratilayotganda student_type='mahalla' berilgan bo'lsa, is_local ham True bo'lsin.
+        # Agar mavjud o'quvchida is_local=False ga o'zgartirilgan bo'lsa (yoki is_local=False bo'lsa-yu student_type hali o'zgarmagan bo'lsa),
+        # student_type='paid' ga tushsin.
+        if self.pk is None:
+            # Yangi ob'yekt yaratilishida
+            if self.student_type == self.STUDENT_TYPE_MAHALLA:
+                self.is_local = True
+            elif self.is_local:
+                self.student_type = self.STUDENT_TYPE_MAHALLA
+            elif not self.student_type:
+                self.student_type = self.STUDENT_TYPE_PAID
+        else:
+            # Mavjud ob'yekt saqlanayotganda
+            if not self.is_local and self.student_type == self.STUDENT_TYPE_MAHALLA:
+                self.student_type = self.STUDENT_TYPE_PAID
+            elif self.is_local:
+                self.student_type = self.STUDENT_TYPE_MAHALLA
+            elif self.student_type == self.STUDENT_TYPE_MAHALLA:
+                self.is_local = True
+            elif not self.student_type:
+                self.student_type = self.STUDENT_TYPE_PAID
 
         update_fields = kwargs.get('update_fields')
         if update_fields is not None:

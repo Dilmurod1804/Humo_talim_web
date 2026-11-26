@@ -693,7 +693,9 @@ def admin_student_edit(request, id):
                         })
 
             if request.POST.get('form_type') == 'full_edit' or 'is_local' in request.POST:
-                student.is_local = request.POST.get('is_local') in ('1', 'on', 'true', True)
+                is_local_val = request.POST.get('is_local') in ('1', 'on', 'true', True)
+                student.is_local = is_local_val
+                student.student_type = Student.STUDENT_TYPE_MAHALLA if is_local_val else Student.STUDENT_TYPE_PAID
             student.save()
             messages.success(request, "O'quvchi ma'lumotlari yangilandi.")
             if next_url:
